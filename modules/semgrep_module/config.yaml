@@ -1,0 +1,8 @@
+name: semgrep_module
+version: 0.1
+description: Scans  code using Semgrep for security issues using rules from https://github.com/mindedsecurity/semgrep-rules-android-security
+author: stormtrooperroman
+requires_docker: true
+mount_points:
+  - source: shared_data
+    target: /shared_data

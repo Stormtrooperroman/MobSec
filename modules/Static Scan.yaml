@@ -1,0 +1,18 @@
+name: Static Scan
+description: ''
+modules:
+- name: jadx_module
+  order: 1
+  parameters: {}
+- name: semgrep_module
+  order: 2
+  parameters: {}
+- name: apkid_module
+  order: 3
+  parameters: {}
+- name: native_libs_module
+  order: 4
+  parameters: {}
+- name: permissions_module
+  order: 5
+  parameters: {}
