@@ -14,7 +14,7 @@
           <div class="stat-card">
             <div class="stat-header">
               <h4>Total Libraries</h4>
-              <div class="badge badge-info">{{ metrics.total_libs }}</div>
+              <div class="badge badge-info">{{ libraries.length }}</div>
             </div>
           </div>
           <div class="stat-card">

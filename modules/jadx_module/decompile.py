@@ -37,30 +37,48 @@ class JadxModule:
         self.jadx_timeout = int(os.getenv('JADX_TIMEOUT', 300))
 
     async def start(self):
-        logger.info("Starting JADX module")
+        logger.info(f"Starting {self.module_name} module...")
         while True:
             try:
-                # Get tasks from module queue
                 queue_key = f"module:{self.module_name}:queue"
                 task_id = self.redis_client.lpop(queue_key)
                 
                 if task_id:
-                    # Get task data
-                    task_data_str = self.redis_client.get(f"task:{task_id}")
-                    if task_data_str:
+                    try:
+                        task_data_str = self.redis_client.get(f"task:{task_id}")
+                        if not task_data_str:
+                            logger.error(f"Task data not found for task_id: {task_id}")
+                            continue
+                        
                         task_data = json.loads(task_data_str)
+                        logger.info(f"Processing task {task_id} for file: {task_data.get('file_hash')}")
+                        
                         result = await self.process(task_data)
+                        if not result:
+                            logger.error(f"No result returned from process for task {task_id}")
+                            continue
                         
                         # Store result
                         result_key = f"result:{self.module_name}:{task_data['file_hash']}"
                         self.redis_client.set(result_key, json.dumps(result))
-                        logger.info(f"Stored result for task {task_id}")
+                        logger.info(f"Successfully stored result for task {task_id}")
+                        
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse task data for task {task_id}: {str(e)}")
+                    except redis.RedisError as e:
+                        logger.error(f"Redis error while processing task {task_id}: {str(e)}")
+                    except Exception as e:
+                        import traceback
+                        logger.error(f"Error processing task {task_id}: {str(e)}")
+                        logger.error(f"Traceback: {traceback.format_exc()}")
                 
-                await asyncio.sleep(1)  # Prevent tight loop
+                await asyncio.sleep(1)
                 
             except Exception as e:
-                logger.error(f"Error in module loop: {str(e)}")
-                await asyncio.sleep(5)  # Back off on errors
+                import traceback
+                logger.error(f"Critical error in {self.module_name} module main loop: {str(e)}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                await asyncio.sleep(5)  # Back off on critical errors
 
     async def process(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
         file_path = os.path.join("/shared_data", task_data["folder_path"], task_data["file_name"])

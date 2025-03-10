@@ -108,22 +108,22 @@
     },
     computed: {
       hasResults() {
-        return this.moduleData?.results?.findings?.length > 0;
+        return !!this.moduleData?.results;
       },
       antiVMTechniques() {
-        return this.moduleData?.results?.findings?.filter(f => f.rule_id === 'anti_vm') || [];
+        return this.moduleData?.results?.filter(f => f.rule_id === 'anti_vm') || [];
       },
       hasAntiVM() {
         return this.antiVMTechniques.length > 0;
       },
       antiDebugTechniques() {
-        return this.moduleData?.results?.findings?.filter(f => f.rule_id === 'anti_debug') || [];
+        return this.moduleData?.results?.filter(f => f.rule_id === 'anti_debug') || [];
       },
       hasAntiDebug() {
         return this.antiDebugTechniques.length > 0;
       },
       obfuscationTechniques() {
-        return this.moduleData?.results?.findings?.filter(f => 
+        return this.moduleData?.results?.filter(f => 
           f.rule_id === 'obfuscator' || f.rule_id === 'packer' || f.rule_id === 'protector'
         ) || [];
       },
@@ -131,7 +131,7 @@
         return this.obfuscationTechniques.length > 0;
       },
       compilerFindings() {
-        return this.moduleData?.results?.findings?.filter(f => f.rule_id === 'compiler') || [];
+        return this.moduleData?.results?.filter(f => f.rule_id === 'compiler') || [];
       }
     }
   }

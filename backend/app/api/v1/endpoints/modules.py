@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status, Body
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import logging
 from app.modules.module_manager import ModuleManager
 import os
@@ -121,50 +121,65 @@ async def toggle_module(module_id: str) -> Dict:
 @router.post("/{module_name}/run")
 async def run_module(
     module_name: str,
-    file_hash: str = Body(..., embed=True)
+    request: Dict[str, Any] = Body(..., example={"file_hash": "hash123"})
 ):
-    """
-    Run a specific module for an uploaded file.
-    
-    Parameters:
-    - module_name: Name of the module to run
-    - file_hash: Hash of the file to process
-    
-    Returns:
-    - task_id: ID for tracking the module task
-    """
-    
-    # Check if module exists
-    if not await module_manager.check_module_exists(module_name):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Module '{module_name}' not found or not active"
-        )
-    
-    # Get file info from storage service
-    file_info = await storage.get_scan_status(file_hash)
-    if not file_info:
-        raise HTTPException(
-            status_code=404,
-            detail=f"File with hash '{file_hash}' not found"
-        )
-    
+    """Run a specific module on a file"""
     try:
+        file_hash = request.get("file_hash")
+        if not file_hash:
+            raise HTTPException(
+                status_code=422,
+                detail="file_hash is required in request body"
+            )
+        
+        # Check if module exists
+        if not await module_manager.check_module_exists(module_name):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Module '{module_name}' not found or not active"
+            )
+        
+        # Get file info from storage service
+        file_info = await storage.get_scan_status(file_hash)
+        if not file_info:
+            raise HTTPException(
+                status_code=404,
+                detail=f"File with hash '{file_hash}' not found"
+            )
+        
+        # Ensure folder_path exists and is valid
+        folder = file_info.get("folder_path", "")
+        if not folder:
+            # Fallback folder construction
+            original_name = file_info.get("original_name", "unknown")
+            folder = "_".join(original_name.split('.')[0].split()) + '-' + file_hash
+            
         # Prepare data for the module
         data = {
-            "folder_path": file_info.get("folder_path", ""),
+            "folder_path": folder,
             "file_name": file_info.get("original_name", ""),
             "file_type": file_info.get("file_type", "unknown")
         }
         
+        logger.info(f"Submitting task for module {module_name} with data: {data}")
+        
         # Submit task to the module
         task_id = await module_manager.submit_task(module_name, data, file_hash)
         
+        if not task_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create task"
+            )
+            
         return {
             "status": "success", 
             "message": f"{module_name} task submitted for file {file_hash}",
             "task_id": task_id
         }
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error submitting {module_name} task: {str(e)}")
         raise HTTPException(

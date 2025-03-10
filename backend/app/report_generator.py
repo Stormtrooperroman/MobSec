@@ -86,6 +86,14 @@ class ReportGenerator:
             # Update file in database with scan results
             await self._update_file_scan_results(file_hash, result_data, module_name)
             
+            # Find and delete the associated task
+            task_pattern = f"task:*"
+            for task_key in self.redis_client.keys(task_pattern):
+                task_data = json.loads(self.redis_client.get(task_key))
+                if task_data.get('file_hash') == file_hash and task_data.get('module_name') == module_name:
+                    self.redis_client.delete(task_key)
+                    logger.info(f"Deleted associated task: {task_key}")
+            
             # Delete processed result from Redis
             self.redis_client.delete(result_key)
             logger.info(f"Processed and removed result: {result_key}")
@@ -153,7 +161,9 @@ class ReportGenerator:
                     modules = chain_data.get("modules", [])
                     
                     if current_index < len(modules) and modules[current_index] == module_name:
+                        # Update chain data with results and increment current_index
                         chain_data["results"][module_name] = result_data
+                        chain_data["current_index"] = current_index + 1
                         chain_task_id = chain_key.split(":")[-1]
                         self.redis_client.set(chain_key, json.dumps(chain_data), ex=86400)
                         
