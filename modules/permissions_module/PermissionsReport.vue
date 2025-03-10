@@ -3,7 +3,7 @@
       <div v-if="!hasResults" class="module-empty">
         <div class="empty-icon">🔒</div>
         <h3>Permissions Analysis</h3>
-        <p>No permission data available for this APK.</p>
+        <p>{{ getStatusMessage }}</p>
       </div>
   
       <div v-else class="permission-results">
@@ -14,21 +14,21 @@
             <div class="stat-card">
               <div class="stat-header">
                 <h4>Total Permissions</h4>
-                <div class="badge badge-info">{{ metrics.total_permissions }}</div>
+                <div class="badge badge-info">{{ totalPermissions }}</div>
               </div>
             </div>
             <div class="stat-card">
               <div class="stat-header">
                 <h4>Dangerous Permissions</h4>
                 <div :class="['badge', dangerousPermissionsBadgeClass]">
-                  {{ metrics.dangerous_permissions }}
+                  {{ dangerousPermissions.length }}
                 </div>
               </div>
             </div>
             <div class="stat-card">
               <div class="stat-header">
                 <h4>Custom Permissions</h4>
-                <div class="badge badge-primary">{{ metrics.custom_permissions }}</div>
+                <div class="badge badge-primary">{{ customPermissions.length }}</div>
               </div>
             </div>
           </div>
@@ -73,19 +73,19 @@
   
             <div class="analysis-card">
               <div class="card-header">
-                <h5>Other Permissions</h5>
-                <div class="badge badge-info">{{ otherPermissions.length }} Found</div>
+                <h5>Requested Permissions</h5>
+                <div class="badge badge-info">{{ requestedPermissions.length }} Found</div>
               </div>
               <div class="card-content">
-                <div v-if="otherPermissions.length" class="permission-list">
-                  <div v-for="perm in otherPermissions" 
+                <div v-if="requestedPermissions.length" class="permission-list">
+                  <div v-for="perm in requestedPermissions" 
                        :key="perm" 
                        class="permission-item normal">
                     <div class="permission-name">{{ formatPermissionName(perm) }}</div>
                     <div class="permission-description">{{ getPermissionDescription(perm) }}</div>
                   </div>
                 </div>
-                <p v-else class="no-items">No other permissions found</p>
+                <p v-else class="no-items">No requested permissions found</p>
               </div>
             </div>
           </div>
@@ -96,7 +96,7 @@
   
   <script>
   export default {
-    name: 'PermissionReport',
+    name: 'PermissionsReport',
     props: {
       moduleData: {
         type: Object,
@@ -105,39 +105,31 @@
     },
     computed: {
       hasResults() {
-        return this.moduleData?.results?.summary !== undefined;
+        return !!this.moduleData?.results;
       },
-      metrics() {
-        return this.moduleData?.results?.summary?.metrics || {
-          total_permissions: 0,
-          dangerous_permissions: 0,
-          custom_permissions: 0
-        };
+      getStatusMessage() {
+        if (!this.moduleData) {
+          return "Permission analysis not yet started";
+        }
+        if (!this.moduleData?.results) {
+          return "No permission data available for this APK";
+        }
+        return "";
       },
-      components() {
-        return this.moduleData?.results?.summary?.components || {
-          activities: [],
-          services: [],
-          receivers: [],
-          providers: []
-        };
+      permissionResults() {
+        return this.moduleData?.results || {};
+      },
+      totalPermissions() {
+        return this.permissionResults?.requested?.length || 0;
       },
       dangerousPermissions() {
-        return this.moduleData?.results?.summary?.permissions?.dangerous || [];
+        return this.permissionResults?.dangerous || [];
       },
       customPermissions() {
-        return this.moduleData?.results?.summary?.permissions?.custom || [];
+        return this.permissionResults?.custom || [];
       },
-      otherPermissions() {
-        const allPerms = this.moduleData?.results?.summary?.permissions?.all || [];
-        const dangerousPerms = new Set(this.dangerousPermissions);
-        const customPerms = new Set(this.customPermissions);
-        
-        return allPerms.filter(perm => 
-          !dangerousPerms.has(perm) && 
-          !customPerms.has(perm) &&
-          perm.startsWith('android.permission.')
-        );
+      requestedPermissions() {
+        return this.permissionResults?.requested || [];
       },
       dangerousPermissionsBadgeClass() {
         return this.dangerousPermissions.length > 0 ? 'badge-warning' : 'badge-success';
@@ -147,23 +139,45 @@
       formatPermissionName(permission) {
         return permission.replace('android.permission.', '').replace(/_/g, ' ');
       },
-      formatComponentName(component) {
-        const parts = component.split('.');
-        return parts[parts.length - 1];
-      },
       getPermissionDescription(permission) {
         const descriptions = {
-          'android.permission.READ_CONTACTS': 'Allows reading user\'s contacts data',
+          'android.permission.READ_CALENDAR': 'Allows reading calendar events and details',
+          'android.permission.WRITE_CALENDAR': 'Allows adding/modifying calendar events',
           'android.permission.CAMERA': 'Allows access to the camera device',
+          'android.permission.READ_CONTACTS': 'Allows reading user\'s contacts data',
+          'android.permission.WRITE_CONTACTS': 'Allows modifying user\'s contacts data',
+          'android.permission.GET_ACCOUNTS': 'Allows access to the list of accounts',
           'android.permission.ACCESS_FINE_LOCATION': 'Allows access to precise location',
+          'android.permission.ACCESS_COARSE_LOCATION': 'Allows access to approximate location',
+          'android.permission.RECORD_AUDIO': 'Allows recording audio',
+          'android.permission.READ_PHONE_STATE': 'Allows read only access to phone state',
+          'android.permission.READ_PHONE_NUMBERS': 'Allows reading phone numbers',
+          'android.permission.CALL_PHONE': 'Allows making phone calls',
+          'android.permission.ANSWER_PHONE_CALLS': 'Allows answering incoming calls',
+          'android.permission.READ_CALL_LOG': 'Allows reading call log',
+          'android.permission.WRITE_CALL_LOG': 'Allows writing call log',
+          'android.permission.ADD_VOICEMAIL': 'Allows adding voicemails',
+          'android.permission.USE_SIP': 'Allows using SIP service',
+          'android.permission.BODY_SENSORS': 'Allows access to body sensors',
+          'android.permission.SEND_SMS': 'Allows sending SMS messages',
+          'android.permission.RECEIVE_SMS': 'Allows receiving SMS messages',
+          'android.permission.READ_SMS': 'Allows reading SMS messages',
+          'android.permission.RECEIVE_WAP_PUSH': 'Allows receiving WAP push messages',
+          'android.permission.RECEIVE_MMS': 'Allows receiving MMS messages',
           'android.permission.READ_EXTERNAL_STORAGE': 'Allows reading from external storage',
           'android.permission.WRITE_EXTERNAL_STORAGE': 'Allows writing to external storage',
-          'android.permission.INTERNET': 'Allows the app to create network sockets and use custom network protocols',
-          'android.permission.ACCESS_NETWORK_STATE': 'Allows the app to view information about network connections',
-          'android.permission.WAKE_LOCK': 'Allows the app to prevent the phone from going to sleep',
-          'android.permission.VIBRATE': 'Allows the app to control the vibrator',
-          'android.permission.RECEIVE_BOOT_COMPLETED': 'Allows the app to start at system boot',
-          // Add more permission descriptions as needed
+          'android.permission.USE_BIOMETRIC': 'Allows using biometric hardware',
+          'android.permission.USE_FINGERPRINT': 'Allows using fingerprint hardware',
+          'android.permission.NFC': 'Allows using NFC hardware',
+          'android.permission.INTERNET': 'Allows internet access',
+          'android.permission.ACCESS_NETWORK_STATE': 'Allows checking network connectivity',
+          'android.permission.ACCESS_WIFI_STATE': 'Allows checking WiFi status',
+          'android.permission.WAKE_LOCK': 'Allows keeping device awake',
+          'android.permission.RECEIVE_BOOT_COMPLETED': 'Allows starting at boot',
+          'android.permission.FOREGROUND_SERVICE': 'Allows running foreground services',
+          'android.permission.POST_NOTIFICATIONS': 'Allows posting notifications',
+          'android.permission.VIBRATE': 'Allows using device vibration',
+          'android.permission.REQUEST_INSTALL_PACKAGES': 'Allows requesting package installation'
         };
         return descriptions[permission] || 'Standard Android permission';
       }

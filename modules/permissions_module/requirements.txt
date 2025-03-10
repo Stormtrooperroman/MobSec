@@ -1,2 +1,2 @@
 redis
-androguard>=3.3.5
+androguard>=4.0.1

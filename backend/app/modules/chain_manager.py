@@ -408,67 +408,73 @@ class ChainManager:
     
     async def _process_module_completion(self, module_task_id, result_data):
         """Process module completion and start next module"""
-        import asyncio
-        
-        # Get chain task information
-        module_task_info = await self.redis.get(f"chain:module:completed:{module_task_id}")
-        if not module_task_info:
-            logger.warning(f"Module task mapping not found for {module_task_id}")
-            return
+        try:
+            # Get chain task information
+            chain_task_info = self.redis.get(f"chain:module:completed:{module_task_id}")
+            if not chain_task_info:
+                logger.warning(f"Module task mapping not found for {module_task_id}")
+                return
             
-        module_task_info = json.loads(module_task_info)
-        chain_task_id = module_task_info["chain_task_id"]
-        module_index = module_task_info["module_index"]
-        
-        # Get chain data
-        chain_data = await self.redis.get(f"chain:{chain_task_id}")
-        if not chain_data:
-            logger.warning(f"Chain data not found for {chain_task_id}")
-            return
+            chain_task_info = json.loads(chain_task_info)
+            chain_task_id = chain_task_info["chain_task_id"]
+            module_index = chain_task_info["module_index"]
             
-        chain_data = json.loads(chain_data)
-        
-        # Update module execution record
-        async with self.async_session() as session:
-            module_execution_id = f"{chain_task_id}_module_{module_index}"
-            result = await session.execute(
-                select(ModuleExecution).where(ModuleExecution.id == module_execution_id)
+            # Get chain data
+            chain_data = self.redis.get(f"chain:{chain_task_id}")
+            if not chain_data:
+                logger.warning(f"Chain data not found for {chain_task_id}")
+                return
+            
+            chain_data = json.loads(chain_data)
+            
+            # Update module execution record
+            async with self.async_session() as session:
+                module_execution_id = f"{chain_task_id}_module_{module_index}"
+                result = await session.execute(
+                    select(ModuleExecution).where(ModuleExecution.id == module_execution_id)
+                )
+                module_execution = result.scalar_one_or_none()
+                
+                if module_execution:
+                    status = ChainStatus.COMPLETED if result_data.get("status") == "success" else ChainStatus.FAILED
+                    module_execution.status = status
+                    module_execution.completed_at = datetime.utcnow()
+                    module_execution.results = result_data
+                    module_execution.error_message = result_data.get("error")
+                    await session.commit()
+            
+            # Update chain data with module results
+            chain_data["results"][chain_data["modules"][module_index]] = result_data
+            self.redis.set(
+                f"chain:{chain_task_id}",
+                json.dumps(chain_data),
+                ex=86400
             )
-            module_execution = result.scalar_one_or_none()
             
-            if module_execution:
-                status = ChainStatus.COMPLETED if result_data.get("status") == "success" else ChainStatus.FAILED
-                module_execution.status = status
-                module_execution.completed_at = datetime.utcnow()
-                module_execution.results = result_data
-                module_execution.error_message = result_data.get("error")
-                await session.commit()
-        
-        # Update chain data with module results
-        chain_data["results"][chain_data["modules"][module_index]] = result_data
-        await self.redis.set(
-            f"chain:{chain_task_id}",
-            json.dumps(chain_data),
-            ex=86400
-        )
-
-        
-        # Also store results in file scan results
-        await self._update_file_scan_results(chain_data["file_hash"], result_data, chain_data["modules"][module_index])
-        
-        # If module failed, fail the chain
-        if result_data.get("status") != "success":
-            logger.warning(f"Module {module_index} failed for chain {chain_task_id}: {result_data.get('error')}")
-            await self._fail_chain(chain_task_id, f"Module {chain_data['modules'][module_index]} failed: {result_data.get('error')}")
-            return
-        
-        # Start next module
-        next_module_index = module_index + 1
-        if next_module_index < len(chain_data["modules"]):
-            await self._start_module(chain_task_id, next_module_index, chain_data["file_hash"])
-        else:
-            # All modules completed successfully
-            await self._complete_chain(chain_task_id)
+            # Also store results in file scan results
+            await self._update_file_scan_results(chain_data["file_hash"], result_data, chain_data["modules"][module_index])
+            
+            # If module failed, fail the chain
+            if result_data.get("status") != "success":
+                logger.warning(f"Module {module_index} failed for chain {chain_task_id}: {result_data.get('error')}")
+                await self._fail_chain(chain_task_id, f"Module {chain_data['modules'][module_index]} failed: {result_data.get('error')}")
+                return
+            
+            # Publish completion event with next module index
+            next_module_index = module_index + 1
+            completion_data = {
+                "chain_task_id": chain_task_id,
+                "next_module_index": next_module_index,
+                "file_hash": chain_data["file_hash"]
+            }
+            self.redis.publish("chain:module:completed:*", json.dumps(completion_data))
+            
+            logger.info(f"Module {module_index} completed for chain {chain_task_id}, next module: {next_module_index}")
+            
+        except Exception as e:
+            logger.error(f"Error processing module completion: {str(e)}")
+            if chain_task_id:
+                await self._fail_chain(chain_task_id, f"Error processing module completion: {str(e)}")
     
     async def _update_file_scan_results(self, file_hash, result_data, module_name):
         """Update file scan results with module results"""
@@ -611,12 +617,18 @@ class ChainManager:
     async def create_default_chains(self):
         """Create default chains from YAML files in root modules folder"""
         modules_path = os.getenv('MODULES_PATH', './modules')
+        logger.info(f"Looking for chain definitions in: {modules_path}")
         
         try:
+            # List all files in the directory
+            files = os.listdir(modules_path)
+            logger.info(f"Found files in directory: {files}")
+            
             # Look for YAML files only in the root modules directory
-            for file_name in os.listdir(modules_path):
+            for file_name in files:
                 if file_name.endswith('.yaml') and not file_name == 'config.yaml':
                     yaml_path = os.path.join(modules_path, file_name)
+                    logger.info(f"Processing chain file: {yaml_path}")
                     await self._process_chain_yaml(yaml_path)
                     
         except Exception as e:
