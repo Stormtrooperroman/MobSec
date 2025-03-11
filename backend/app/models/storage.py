@@ -1,5 +1,5 @@
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import Column, String, DateTime, Integer, JSON, Enum, select
+from sqlalchemy import Column, String, DateTime, Integer, JSON, Enum
 import enum
 
 

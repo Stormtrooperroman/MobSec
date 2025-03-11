@@ -1,5 +1,5 @@
 name: Static Scan
-description: ''
+description: Default static analysis chain for Android applications
 modules:
 - name: jadx_module
   order: 1

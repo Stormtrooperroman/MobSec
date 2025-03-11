@@ -7,7 +7,6 @@ from app.modules.chain_manager import ChainManager
 from app.modules.module_manager import ModuleManager
 from app.report_generator import start_report_generator, stop_report_generator
 import os
-import asyncio
 
 
 module_manager = ModuleManager(
@@ -36,8 +35,9 @@ app.include_router(api_router, prefix="/api/v1")
 @app.on_event("startup")
 async def startup_event():
     await storage.init_db()
+    await chain_manager.init_db()
+    await module_manager.start_modules()
     await chain_manager.start()
-    asyncio.create_task(module_manager.start_modules())
     await start_report_generator()
 
 @app.on_event("shutdown")

@@ -3,10 +3,11 @@ import json
 import logging
 import os
 import redis
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from app.core.storage import storage
 from app.models.storage import ScanStatus
-# Configure logging
+
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,6 @@ class ReportGenerator:
         while self.running:
             try:
                 # Scan for all keys matching the result pattern
-                # FIXED: Update the pattern to match the actual keys in Redis
                 cursor = 0
                 while True:
                     cursor, keys = self.redis_client.scan(cursor, match="result:*:*", count=100)
@@ -86,13 +86,19 @@ class ReportGenerator:
             # Update file in database with scan results
             await self._update_file_scan_results(file_hash, result_data, module_name)
             
-            # Find and delete the associated task
-            task_pattern = f"task:*"
-            for task_key in self.redis_client.keys(task_pattern):
-                task_data = json.loads(self.redis_client.get(task_key))
-                if task_data.get('file_hash') == file_hash and task_data.get('module_name') == module_name:
-                    self.redis_client.delete(task_key)
-                    logger.info(f"Deleted associated task: {task_key}")
+            # Clean up any associated tasks
+            task_keys = self.redis_client.keys("task:*")
+            for task_key in task_keys:
+                try:
+                    task_data = json.loads(self.redis_client.get(task_key))
+                    if (task_data.get('file_hash') == file_hash and 
+                        task_data.get('module_name', '').lower() == module_name.lower()):
+                        self.redis_client.delete(task_key)
+                        logger.info(f"Cleaned up associated task: {task_key}")
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not parse task data for {task_key}")
+                except Exception as e:
+                    logger.error(f"Error processing task cleanup for {task_key}: {e}")
             
             # Delete processed result from Redis
             self.redis_client.delete(result_key)
@@ -155,7 +161,6 @@ class ReportGenerator:
             chain_key_pattern = f"chain:*"
             for chain_key in self.redis_client.keys(chain_key_pattern):
                 chain_data = json.loads(self.redis_client.get(chain_key))
-                
                 if chain_data.get("file_hash") == file_hash:
                     current_index = chain_data.get("current_index", 0)
                     modules = chain_data.get("modules", [])

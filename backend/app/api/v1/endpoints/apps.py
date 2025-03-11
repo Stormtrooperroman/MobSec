@@ -1,9 +1,6 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, status, Query
-from app.core.storage import AsyncStorageService, ScanStatus
-from app.modules.module_manager import ModuleManager
-from typing import Dict, Optional, List
-import os
-from enum import Enum
+from fastapi import APIRouter, UploadFile, HTTPException, status, Query
+from app.core.storage import AsyncStorageService
+from typing import List
 from datetime import datetime
 
 import logging
@@ -16,9 +13,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 storage = AsyncStorageService()
-
-# Add module_manager reference (assuming it's initialized elsewhere)
-module_manager = None  # This should be properly initialized in your main.py
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_file(file: UploadFile):
@@ -36,8 +30,6 @@ async def upload_file(file: UploadFile):
                 detail="Invalid file type. Only APK and IPA files are supported."
             )
             
-        # Trigger async scan
-        # await module_manager.schedule_scan(file_hash)
         
         return {
             "file_hash": file_hash,
@@ -193,9 +185,7 @@ async def delete_file(file_hash: str):
                 detail="File not found"
             )
         
-        # Clean up any scan tasks/results in module manager
-        # await module_manager.cleanup_scan(file_hash)
-        
+
         return {"status": "success", "message": "File deleted successfully"}
         
     except HTTPException:

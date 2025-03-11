@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status, Body
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import logging
 from app.modules.module_manager import ModuleManager
 import os

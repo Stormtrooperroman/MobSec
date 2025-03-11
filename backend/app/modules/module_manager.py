@@ -6,14 +6,14 @@ import docker
 import asyncio
 import logging
 import uuid
-from typing import Dict, Set, Any, List, Optional
+from typing import Dict, Any, Optional
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 from app.models.chain import Module
+from redis import Redis
 from app.core.storage import storage
 from app.models.storage import ScanStatus
-from redis import Redis
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -139,7 +139,6 @@ class ModuleManager:
         module_path = os.path.join(self.modules_path, module_name)
         
         try:
-            # Remove existing container if it exists
             try:
                 existing_container = self.docker_client.containers.get(image_name)
                 await asyncio.get_event_loop().run_in_executor(
@@ -150,7 +149,6 @@ class ModuleManager:
             except docker.errors.NotFound:
                 pass
 
-            # Build and start
             await self._build_image_async(image_name, module_path)
             await self._start_container_async(module_name, image_name)
             await self._register_module(module_name, self.modules_config[module_name])
@@ -215,7 +213,8 @@ class ModuleManager:
                 "file_name": data.get("file_name", ""),  # Changed from apk_name
                 "file_type": data.get("file_type", "unknown"),  # Added file type
                 "folder_path": data.get("folder_path", ""),
-                "chain_task_id": chain_task_id
+                "chain_task_id": chain_task_id,
+                "module_name": module_name
             }
             
             # Store task data in Redis
@@ -229,35 +228,17 @@ class ModuleManager:
             self.redis.rpush(f"module:{module_name}:queue", task_id)
             logger.info(f"Submitted task {task_id} to module {module_name}")
             
+            await storage.update_scan_status(
+                file_hash=file_hash,
+                status=ScanStatus.SCANNING
+            )
+
             return task_id
             
         except Exception as e:
             logger.error(f"Error submitting task to module {module_name}: {str(e)}")
             return None
 
-    async def get_task_status(self, task_id: str) -> Dict[str, Any]:
-        """Get status of a task"""
-        try:
-            task_data = self.redis.get(f"task:{task_id}")
-            if task_data:
-                return json.loads(task_data)
-        except Exception as e:
-            logger.error(f"Error getting task status: {str(e)}")
-        return None
-
-    async def get_task_result(self, task_id: str) -> Dict[str, Any]:
-        """Get result of a completed task"""
-        try:
-            result_data = self.redis.get(f"result:{task_id}")
-            if result_data:
-                return json.loads(result_data)
-        except Exception as e:
-            logger.error(f"Error getting task result: {str(e)}")
-        return None
-
-    async def get_session(self) -> AsyncSession:
-        async with self.async_session() as session:
-            return session
 
     async def cleanup(self):
         async with self.async_session() as session:
