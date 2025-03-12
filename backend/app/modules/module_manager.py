@@ -1,7 +1,6 @@
 import os
 import json
 import yaml
-import redis
 import docker
 import asyncio
 import logging

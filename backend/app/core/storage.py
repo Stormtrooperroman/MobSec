@@ -9,6 +9,12 @@ from datetime import datetime
 from typing import Optional, List
 import zipfile
 from app.models.storage import FileModel, ScanStatus, FileType, Base
+import logging
+import shutil
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
 
 class AsyncStorageService:
     def __init__(self, storage_dir: str = "/shared_data"):
@@ -217,17 +223,17 @@ class AsyncStorageService:
                     return False
                 
                 folder_path = os.path.join(self.storage_dir, file_model.folder_path)
-                
                 # Delete from database first
                 await session.delete(file_model)
                 await session.commit()
                 
                 # Then delete the folder and its contents from storage
                 if os.path.exists(folder_path):
-                    for root, dirs, files in os.walk(folder_path):
-                        for file in files:
-                            os.remove(os.path.join(root, file))
-                    os.rmdir(folder_path)
+                    try:
+                        shutil.rmtree(folder_path)
+                    except Exception as e:
+                        logger.error(f"Error removing directory {folder_path}: {str(e)}")
+                        raise
                 
                 return True
             

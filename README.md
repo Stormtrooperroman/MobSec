@@ -16,8 +16,8 @@ A comprehensive platform for analyzing and security testing mobile applications.
 
 ## Getting Started
 
-### Prerequisites
-- Python 3.8 or higher
+### Requirements
+- Docker is required. To install docker, please follow these [instructions](https://docs.docker.com/get-started/get-docker/).
 
 ### Installation
 
