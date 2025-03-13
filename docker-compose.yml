@@ -59,7 +59,10 @@ services:
 
 networks:
   app_network:
+    name: mobsec_app_network
 
 volumes:
   pgdata:
+    name: mobsec_pgdata
   shared_data:
+    name: mobsec_shared_data

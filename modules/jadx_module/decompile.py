@@ -101,7 +101,7 @@ class JadxModule:
         # Set up paths
         base_path = f"/shared_data/{task_data['folder_path']}"
         apk_path = file_path
-        output_dir = f"{base_path}/java_source"
+        output_dir = f"{base_path}/source_code"
         
         # Create output directory if it doesn't exist
         os.makedirs(output_dir, exist_ok=True)

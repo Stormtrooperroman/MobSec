@@ -97,6 +97,17 @@ class AsyncStorageService:
         # Determine file type
         file_type = self.determine_file_type(final_path)
         
+        # If file is a ZIP, extract it to source_code folder
+        if file_type == FileType.ZIP:
+            source_code_path = os.path.join(folder_path, "source_code")
+            os.makedirs(source_code_path, exist_ok=True)
+            try:
+                with zipfile.ZipFile(final_path, 'r') as zip_ref:
+                    zip_ref.extractall(source_code_path)
+                logger.info(f"Successfully extracted ZIP file to {source_code_path}")
+            except Exception as e:
+                logger.error(f"Error extracting ZIP file: {str(e)}")
+        
         file_model = FileModel(
             file_hash=file_hash,
             original_name=content.filename,

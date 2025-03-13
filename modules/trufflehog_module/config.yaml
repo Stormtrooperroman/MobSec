@@ -1,0 +1,4 @@
+name: trufflehog_module
+version: 0.1
+description: Scans files for secrets, API keys, and credentials using TruffleHog
+author: Stormtrooperroman

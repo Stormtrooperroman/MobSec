@@ -45,7 +45,7 @@ class SemgrepModule:
 
     async def process(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
         base_path = os.path.join("/shared_data", task_data["folder_path"])
-        code_dir = os.path.join(base_path, "java_source")
+        code_dir = os.path.join(base_path, "source_code")
         
         if not os.path.exists(code_dir):
             return {
@@ -53,10 +53,6 @@ class SemgrepModule:
                 "error": "Decompiled source code not found. Run JADX module first."
             }
         
-        apk_folder = task_data.get('apk_folder')
-        apk_name = task_data.get('apk_name', 'app.apk')
-        
-        logger.info(f"Processing APK: {apk_folder}/{apk_name}")
         
         # Build semgrep command with specified rules
         process = await asyncio.create_subprocess_exec(
