@@ -7,6 +7,10 @@ from app.modules.chain_manager import ChainManager
 from app.modules.module_manager import ModuleManager
 from app.report_generator import start_report_generator, stop_report_generator
 import os
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 module_manager = ModuleManager(
@@ -15,8 +19,8 @@ module_manager = ModuleManager(
 )
 
 app = FastAPI(
-    title="Modular Security Analysis Platform",
-    description="A modular security analysis platform for mobile applications",
+    title="Mobile Security Testing Platform",
+    description="A comprehensive platform for analyzing and security testing mobile applications.",
     version="0.1"
 )
 storage = AsyncStorageService()
@@ -32,13 +36,21 @@ app.add_middleware(
 
 app.include_router(api_router, prefix="/api/v1")
 
+async def initialize_background_services():
+    """Initialize modules and chains in the background."""
+    try:
+        await module_manager.start_modules()
+        await chain_manager.start()
+    except Exception as e:
+        logger.error(f"Error during background initialization: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     await storage.init_db()
     await chain_manager.init_db()
-    await module_manager.start_modules()
-    await chain_manager.start()
     await start_report_generator()
+    
+    asyncio.create_task(initialize_background_services())
 
 @app.on_event("shutdown")
 async def shutdown_event():

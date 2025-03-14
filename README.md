@@ -12,7 +12,7 @@ A comprehensive platform for analyzing and security testing mobile applications.
 ### Module System
 - Pluggable architecture with independent analysis modules
 - Real-time module status monitoring
-- Support for custom module implementations
+- Support for [custom module implementations](https://github.com/Stormtrooperroman/MobSec/blob/master/docs/write_module.md)
 
 ## Getting Started
 
@@ -39,6 +39,12 @@ docker compose up -d --build
 ```bash
 http://127.0.0.1/
 ```
+
+SwaggerUI is available at:
+```bash
+http://127.0.0.1:8000/docs
+```
+
 ## Interface
 ![](images/first.png)
 ![](images/StoredApps.png)

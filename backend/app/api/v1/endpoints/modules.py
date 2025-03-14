@@ -23,24 +23,32 @@ module_manager = ModuleManager(
 @router.get("/")
 async def list_modules() -> List[Dict]:
     """
-    Get information and status of all modules in a format matching the frontend requirements
+    Get information and status of all available modules.
+
+    Returns:
+    - List[dict]: A list of dictionaries, each containing:
+        - id (str): The unique identifier of the module
+        - name (str): The display name of the module
+        - description (str): Module description or 'No description available'
+        - active (bool): Current running status of the module's container
+
+    Raises:
+    - 500: If there is an error retrieving the module list or status
     """
     try:
         modules_info = []
         docker_client = docker.from_env()
         
-        # Get list of all module directories
         modules = [d for d in os.listdir(module_manager.modules_path) 
                   if os.path.isdir(os.path.join(module_manager.modules_path, d))]
         
         for module_name in modules:
             container_name = f"mobsec_{module_name}"
             
-            # Get module configuration
             module_config = module_manager.modules_config.get(module_name, {})
             
             module_info = {
-                "id": module_config.get("id", module_name),  # Use config ID if available, else use name
+                "id": module_config.get("id", module_name),
                 "name": module_config.get("display_name", module_name),
                 "description": module_config.get("description", "No description available"),
                 "active": False
@@ -67,6 +75,22 @@ async def list_modules() -> List[Dict]:
 
 @router.post("/{module_id}/toggle")
 async def toggle_module(module_id: str) -> Dict:
+    """
+    Toggle a module's active state (start/stop).
+
+    Parameters:
+    - module_id (str): The unique identifier of the module to toggle
+
+    Returns:
+    - dict: A dictionary containing:
+        - status (str): 'success' if the operation was successful
+        - message (str): A description of what was done
+        - active (bool): The new state of the module (True if activated, False if deactivated)
+
+    Raises:
+    - 404: If the module with the given ID is not found
+    - 500: If there is an error during the toggle operation
+    """
     try:
         module_name = None
         for name, config in module_manager.modules_config.items():
@@ -116,14 +140,81 @@ async def toggle_module(module_id: str) -> Dict:
             detail=f"Error toggling module: {str(e)}"
         )
 
+@router.post("/{module_id}/rebuild")
+async def rebuild_module(module_id: str) -> Dict:
+    """
+    Rebuild and restart a specific module.
 
+    Parameters:
+    - module_id (str): The unique identifier of the module to rebuild
+
+    Returns:
+    - dict: A dictionary containing:
+        - status (str): 'success' if the operation was successful
+        - message (str): A description of what was done
+        - active (bool): The new state of the module (always True after rebuild)
+
+    Raises:
+    - 404: If the module with the given ID is not found
+    - 500: If there is an error during the rebuild operation
+    """
+    try:
+        # Find the actual module name from the module ID
+        module_name = None
+        for name, config in module_manager.modules_config.items():
+            if str(config.get("id", name)) == module_id:
+                module_name = name
+                break
+                
+        if not module_name:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Module with ID {module_id} not found"
+            )
+
+        # Stop the module if it's running
+        await module_manager.stop_module(module_name)
+        
+        # Start the module (this will rebuild the image and start a new container)
+        await module_manager.start_module(module_name)
+        
+        return {
+            "status": "success",
+            "message": f"Module {module_name} has been rebuilt and restarted",
+            "active": True
+        }
+            
+    except Exception as e:
+        logger.error(f"Error rebuilding module: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error rebuilding module: {str(e)}"
+        )
 
 @router.post("/{module_name}/run")
 async def run_module(
     module_name: str,
     request: Dict[str, Any] = Body(..., example={"file_hash": "hash123"})
 ):
-    """Run a specific module on a file"""
+    """
+    Run a specific module on a file.
+
+    Parameters:
+    - module_name (str): Name of the module to run
+    - request (Dict[str, Any]): Request body containing:
+        - file_hash (str): Hash of the file to analyze
+
+    Returns:
+    - dict: A dictionary containing:
+        - status (str): 'success' if the task was submitted
+        - message (str): Description of the action taken
+        - task_id (str): Unique identifier for tracking the task
+
+    Raises:
+    - 404: If the module or file is not found
+    - 422: If file_hash is missing from request body
+    - 500: If there is an error submitting the task
+    """
     try:
         file_hash = request.get("file_hash")
         if not file_hash:
@@ -189,17 +280,15 @@ async def run_module(
 
 
 
-def discover_module_ui_components(modules_base_path: str = '/app/modules') -> Dict[str, Dict[str, Any]]:
+def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
     """
     Dynamically discover module UI components across all modules
-    
-    Args:
-        modules_base_path (str): Base path where modules are stored
     
     Returns:
         Dict of module UI component information
     """
     module_ui_info = {}
+    modules_base_path = '/app/modules'
     
     # Iterate through all module directories
     for module_dir in os.listdir(modules_base_path):
@@ -221,7 +310,16 @@ def discover_module_ui_components(modules_base_path: str = '/app/modules') -> Di
 @router.get("/module-ui-info")
 async def get_module_ui_info():
     """
-    Endpoint to retrieve module UI component information
+    Retrieve UI component information for all modules.
+
+    Returns:
+    - Dict[str, Dict[str, Any]]: A dictionary mapping module names to their UI information:
+        - has_custom_ui (bool): Whether the module has a custom UI component
+        - ui_component_name (str): Name of the Vue component to use
+        - vue_file_path (str|None): Path to the Vue component file if it exists
+
+    Raises:
+    - 500: If there is an error discovering module UIs
     """
     try:
         module_ui_info = discover_module_ui_components()
@@ -232,7 +330,20 @@ async def get_module_ui_info():
 @router.get("/module-ui-component/{module_name}")
 async def get_module_ui_component(module_name: str):
     """
-    Endpoint to retrieve the contents of a specific module's UI component
+    Retrieve the Vue component contents for a specific module.
+
+    Parameters:
+    - module_name (str): Name of the module whose UI component should be retrieved
+
+    Returns:
+    - dict: A dictionary containing:
+        - module_name (str): Name of the module
+        - component_name (str): Name of the Vue component
+        - component_content (str): Raw content of the Vue component file
+
+    Raises:
+    - 404: If the module or its UI component file is not found
+    - 500: If there is an error reading the component file
     """
     try:
         module_ui_info = discover_module_ui_components()

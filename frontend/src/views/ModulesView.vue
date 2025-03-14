@@ -24,6 +24,14 @@
             <i :class="['fas', module.isLoading ? 'fa-spinner fa-spin' : module.active ? 'fa-stop' : 'fa-play']"></i>
             {{ module.active ? 'Deactivate' : 'Activate' }}
           </button>
+          <button 
+            @click="rebuildModule(module)"
+            class="action-button rebuild"
+            :disabled="module.isRebuilding || !module.active"
+          >
+            <i :class="['fas', module.isRebuilding ? 'fa-spinner fa-spin' : 'fa-sync']"></i>
+            Rebuild
+          </button>
         </div>
       </div>
     </div>
@@ -45,7 +53,8 @@ export default {
         const data = await response.json();
         this.modules = data.map(module => ({
           ...module,
-          isLoading: false
+          isLoading: false,
+          isRebuilding: false
         }));
       } catch (error) {
         console.error('Error fetching modules:', error);
@@ -66,6 +75,24 @@ export default {
         console.error('Error toggling module:', error);
       } finally {
         module.isLoading = false;
+      }
+    },
+    async rebuildModule(module) {
+      if (module.isRebuilding) return;
+      
+      module.isRebuilding = true;
+      try {
+        const response = await fetch(`/api/v1/modules/${module.id}/rebuild`, {
+          method: 'POST'
+        });
+        if (response.ok) {
+          // Refresh the module status after rebuild
+          await this.fetchModules();
+        }
+      } catch (error) {
+        console.error('Error rebuilding module:', error);
+      } finally {
+        module.isRebuilding = false;
       }
     }
   },
@@ -209,6 +236,22 @@ export default {
 .action-button:disabled:hover {
   background-color: inherit;
   transform: none;
+}
+
+.action-button.rebuild {
+  background-color: #eff6ff;
+  color: #2563eb;
+  border-color: #bfdbfe;
+}
+
+.action-button.rebuild:hover {
+  background-color: #dbeafe;
+}
+
+.action-button.rebuild:disabled {
+  background-color: #f3f4f6;
+  color: #9ca3af;
+  border-color: #e5e7eb;
 }
 
 @media (max-width: 768px) {

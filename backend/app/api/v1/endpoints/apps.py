@@ -17,7 +17,20 @@ storage = AsyncStorageService()
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_file(file: UploadFile):
     """
-    Upload a mobile application file (APK or IPA) for analysis.
+    Upload a mobile application file (APK, IPA or ZIP) for analysis.
+
+    Parameters:
+    - file (UploadFile): The application file to be uploaded and analyzed
+
+    Returns:
+    - dict: A dictionary containing:
+        - file_hash (str): Unique hash identifier for the uploaded file
+        - file_type (str): Detected type of the file (apk/ipa/zip)
+        - status (str): Status of the upload operation ('accepted')
+
+    Raises:
+    - 400: If the uploaded file type is not supported
+    - 500: If there is an error processing the file upload
     """
     try:
         file_hash = await storage.handle_uploaded_file(file)
@@ -27,7 +40,7 @@ async def upload_file(file: UploadFile):
             await storage.delete_file(file_hash)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid file type. Only APK and IPA files are supported."
+                detail="Invalid file type. Only APK, IPA or ZIP files are supported."
             )
             
         
@@ -48,6 +61,22 @@ async def upload_file(file: UploadFile):
 async def get_scan_status(file_hash: str):
     """
     Get the current status and results of a file scan.
+
+    Parameters:
+    - file_hash (str): The unique hash identifier of the file to check
+
+    Returns:
+    - dict: A dictionary containing scan status information:
+        - file_hash (str): The file's unique identifier
+        - scan_status (str): Current status of the scan
+        - timestamp (str): Time when the file was uploaded
+        - file_type (str): Type of the uploaded file
+        - original_name (str): Original filename
+        - scan_results (dict): Results from completed module scans
+
+    Raises:
+    - 404: If the file with the given hash is not found
+    - 500: If there is an error retrieving the scan status
     """
     try:
         status = await storage.get_scan_status(file_hash)
@@ -76,10 +105,32 @@ async def get_report(
     Get a comprehensive report for the scanned file.
     
     Parameters:
-    - file_hash: The unique hash identifier of the file
-    - modules: Optional list of module names to filter results
-    
-    Returns a structured report with file information and scan results.
+    - file_hash (str): The unique hash identifier of the file
+    - modules (List[str], optional): List of specific module names to filter results
+
+    Returns:
+    - dict: A comprehensive report containing:
+        - file_info (dict):
+            - hash (str): File's unique identifier
+            - name (str): Original filename
+            - file_type (str): Type of the file
+            - size (int): File size in bytes
+            - upload_time (str): Timestamp of upload
+            - hashes (dict): Various file hashes
+        - scan_info (dict):
+            - status (str): Overall scan status
+            - started_at (str): Scan start timestamp
+            - completed_at (str): Scan completion timestamp
+            - duration (str): Total scan duration
+        - modules (dict): Results from each module
+        - summary (dict):
+            - total_modules_run (int): Number of modules executed
+            - modules_completed (int): Number of completed module scans
+            - generated_at (str): Report generation timestamp
+
+    Raises:
+    - 404: If the file is not found
+    - 500: If there is an error generating the report
     """
     try:
         # Get file status and scan results
@@ -176,6 +227,18 @@ async def get_report(
 async def delete_file(file_hash: str):
     """
     Delete a file and its associated scan results.
+
+    Parameters:
+    - file_hash (str): The unique hash identifier of the file to delete
+
+    Returns:
+    - dict: A dictionary containing:
+        - status (str): 'success' if the deletion was successful
+        - message (str): Confirmation message
+
+    Raises:
+    - 404: If the file with the given hash is not found
+    - 500: If there is an error during file deletion
     """
     try:
         success = await storage.delete_file(file_hash)
@@ -201,6 +264,25 @@ async def delete_file(file_hash: str):
 async def list_files(skip: int = 0, limit: int = 10):
     """
     List all uploaded files with their current scan status.
+
+    Parameters:
+    - skip (int, optional): Number of records to skip for pagination. Defaults to 0
+    - limit (int, optional): Maximum number of records to return. Defaults to 10
+
+    Returns:
+    - dict: A dictionary containing:
+        - total (int): Total number of files in the system
+        - skip (int): Number of records skipped
+        - limit (int): Maximum number of records returned
+        - apps (List[dict]): List of file records, each containing:
+            - file_hash (str): Unique identifier
+            - original_name (str): Original filename
+            - upload_time (str): Timestamp of upload
+            - scan_status (str): Current status of analysis
+            - file_type (str): Type of the file
+
+    Raises:
+    - 500: If there is an error retrieving the file list
     """
     try:
         files = await storage.list_files(skip=skip, limit=limit)

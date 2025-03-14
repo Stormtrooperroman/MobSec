@@ -12,9 +12,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class ReportGenerator:
-    def __init__(self, redis_url: str = None):
-        if redis_url is None:
-            redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+    def __init__(self):
+        redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
         
         self.redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
         self.running = False
