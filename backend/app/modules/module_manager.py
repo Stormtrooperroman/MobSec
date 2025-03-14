@@ -158,12 +158,19 @@ class ModuleManager:
 
     async def start_modules(self) -> None:
         """Start all modules concurrently"""
-        module_dirs = [
-            d for d in os.listdir(self.modules_path) 
-            if os.path.isdir(os.path.join(self.modules_path, d))
-        ]
+        module_dirs = []
+        for d in os.listdir(self.modules_path):
+            if os.path.isdir(os.path.join(self.modules_path, d)):
+                # Check if module is active in config
+                module_config = self.modules_config.get(d, {})
+                active_value = module_config.get('active', True)
+                is_active = active_value if isinstance(active_value, bool) else str(active_value).strip().lower() == "true"
+                if is_active:
+                    module_dirs.append(d)
+                else:
+                    logger.info(f"Skipping inactive module: {d}")
         
-        # Start all modules concurrently
+        # Start all active modules concurrently
         tasks = [self.start_module(module_name) for module_name in module_dirs]
         
         # Wait for all modules to start, but continue if some fail

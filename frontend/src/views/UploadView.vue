@@ -14,13 +14,13 @@
         <p class="upload-instructions">
           <span class="highlight">Click to browse</span> or drag & drop your file here
         </p>
-        <p class="file-types">Supported formats: APK, IPA, JAR, ZIP</p>
+        <p class="file-types">Supported formats: APK, IPA, ZIP</p>
         <input 
           type="file" 
           ref="fileInput" 
           @change="handleFileUpload" 
           class="file-input" 
-          accept=".apk,.ipa,.jar,.zip"
+          accept=".apk,.ipa,.zip"
         />
       </div>
       
@@ -102,11 +102,11 @@ export default {
         return;
       }
 
-      const allowedTypes = ['.apk', '.ipa', '.jar', '.zip'];
+      const allowedTypes = ['.apk', '.ipa', '.zip'];
       const fileExt = '.' + this.file.name.split('.').pop().toLowerCase();
       
       if (!allowedTypes.includes(fileExt)) {
-        this.error = "Invalid file type. Please upload APK, IPA, JAR, or ZIP files.";
+        this.error = "Invalid file type. Please upload APK, IPA, or ZIP files.";
         return;
       }
 

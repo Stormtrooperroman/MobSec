@@ -25,6 +25,7 @@ version: 0.1
 description: A clear description of what your module does
 author: your_name
 ```
+Optional you can add `active: False` for disable autorun on startup.
 
 ### 2. Dockerfile
 The Dockerfile sets up your module's environment. Here's an example from the semgrep module:
