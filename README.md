@@ -53,3 +53,4 @@ http://127.0.0.1:8000/docs
 ![](images/Run.png)
 ![](images/Report1.png)
 ![](images/Report2.png)
+![](images/Settings.png)

@@ -31,6 +31,11 @@ const routes = [
         component: () => import('@/views/ReportView.vue'),
         props: true
       },
+      {
+        path: '/settings',
+        name: 'settings',
+        component: () => import('@/views/SettingsView.vue')
+      }
     ]
   }
 ]

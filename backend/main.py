@@ -2,10 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.v1.router import api_router
-from app.core.storage import AsyncStorageService
+from app.core.app_manager import AsyncStorageService
 from app.modules.chain_manager import ChainManager
 from app.modules.module_manager import ModuleManager
 from app.report_generator import start_report_generator, stop_report_generator
+from app.core.settings_db import init_db
 import os
 import asyncio
 import logging
@@ -46,6 +47,7 @@ async def initialize_background_services():
 
 @app.on_event("startup")
 async def startup_event():
+    await init_db()
     await storage.init_db()
     await chain_manager.init_db()
     await start_report_generator()

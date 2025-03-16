@@ -4,7 +4,7 @@ import logging
 from app.modules.module_manager import ModuleManager
 import os
 import docker
-from app.core.storage import storage
+from app.core.app_manager import storage
 
 logging.basicConfig(
     level=logging.INFO,

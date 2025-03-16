@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 from app.models.chain import Chain, Module, Base, chain_modules, ChainExecution, ModuleExecution, ChainStatus
-from app.core.storage import storage
+from app.core.app_manager import storage
 from datetime import datetime
 import asyncio
 import yaml

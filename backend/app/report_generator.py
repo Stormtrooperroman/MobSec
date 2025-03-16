@@ -4,8 +4,8 @@ import logging
 import os
 import redis
 from typing import Dict, Any
-from app.core.storage import storage
-from app.models.storage import ScanStatus
+from app.core.app_manager import storage
+from app.models.app import ScanStatus
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")

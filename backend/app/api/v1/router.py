@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import apps
 from app.api.v1.endpoints import modules
 from app.api.v1.endpoints import chains
+from app.api.v1.endpoints import settings
 
 api_router = APIRouter()
 
@@ -25,4 +26,10 @@ api_router.include_router(
     prefix="/chains",
     tags=["Chains"],
     responses={404: {"description": "Not found"}},
+)
+
+api_router.include_router(
+    settings.router,
+    prefix="/settings",
+    tags=["Settings"],
 )

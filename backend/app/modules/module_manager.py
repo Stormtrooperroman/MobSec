@@ -11,8 +11,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 from app.models.chain import Module
 from redis import Redis
-from app.core.storage import storage
-from app.models.storage import ScanStatus
+from app.core.app_manager import storage
+from app.models.app import ScanStatus
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)

@@ -38,7 +38,8 @@ export default {
         { path: '/', name: 'Upload App', exact: true },
         { path: '/apps', name: 'Stored Apps' },
         { path: '/modules', name: 'Modules' },
-        { path: '/chains', name: 'Chains' }
+        { path: '/chains', name: 'Chains' },
+        { path: '/settings', name: 'Settings' }
       ],
       lastScrollPosition: 0,
       isHidden: false,

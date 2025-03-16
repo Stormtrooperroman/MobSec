@@ -6,11 +6,13 @@ import hashlib
 import os
 import aiofiles
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import zipfile
-from app.models.storage import FileModel, ScanStatus, FileType, Base
+from app.models.app import FileModel, ScanStatus, FileType, Base
 import logging
 import shutil
+from app.core.settings_db import AsyncSessionLocal
+from app.models.settings import Settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -64,6 +66,24 @@ class AsyncStorageService:
     def _get_file_path(self, original_name: str, file_hash: str, folder: str) -> str:
         """Generate the full file path using original name, hash, and folder"""
         return os.path.join(self.storage_dir, folder, original_name)
+
+    async def get_auto_run_settings(self) -> Dict[str, Any]:
+        """Get auto-run settings from database"""
+        async with AsyncSessionLocal() as db:
+            query = select(Settings)
+            result = await db.execute(query)
+            settings = result.scalar_one_or_none()
+            
+            if not settings:
+                return {
+                    "zip_action": None,
+                    "zip_action_type": None,
+                    "apk_action": None,
+                    "apk_action_type": None,
+                    "ipa_action": None,
+                    "ipa_action_type": None
+                }
+            return settings.to_dict()
 
     async def handle_uploaded_file(self, content: UploadFile) -> str:
         """Handle file upload and process based on file type"""
@@ -126,6 +146,42 @@ class AsyncStorageService:
             if not existing:
                 session.add(file_model)
                 await session.commit()
+
+        # Check auto-run settings and start analysis if configured
+        try:
+            settings = await self.get_auto_run_settings()
+            
+            action = None
+            action_type = None
+            
+            if file_type == FileType.APK:
+                action = settings['apk_action']
+                action_type = settings['apk_action_type']
+            elif file_type == FileType.IPA:
+                action = settings['ipa_action']
+                action_type = settings['ipa_action_type']
+            elif file_type == FileType.ZIP:
+                action = settings['zip_action']
+                action_type = settings['zip_action_type']
+            
+            if action and action_type:
+                await self.update_scan_status(file_hash, ScanStatus.SCANNING)
+                
+                if action_type == 'module':
+                    from app.modules.module_manager import ModuleManager
+                    module_manager = ModuleManager(
+                        redis_url=os.getenv('REDIS_URL'),
+                        modules_path=os.getenv('MODULES_PATH')
+                    )
+                    await module_manager.run_module(action, file_hash)
+                elif action_type == 'chain':
+                    from app.modules.chain_manager import  ChainManager
+                    chain_manager = ChainManager()
+                    await chain_manager.run_chain(action, file_hash)
+                
+                logger.info(f"Auto-run {action_type} '{action}' started for file {file_hash}")
+        except Exception as e:
+            logger.error(f"Error in auto-run processing: {str(e)}")
         
         return file_hash
 
