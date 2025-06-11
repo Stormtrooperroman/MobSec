@@ -1,4 +1,4 @@
-# Writing Your Own Module
+# Writing Your Own Internal Module
 
 This guide explains how to create a custom module for the Mobile Security Testing Platform. Each module runs in a Docker container and communicates via Redis queues to process tasks.
 

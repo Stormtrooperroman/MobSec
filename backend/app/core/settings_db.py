@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from app.models.settings import Base
+from app.models.settings import Base as SettingsBase
+from app.models import __all_bases__
 import os
 
 # Get database URL from environment variable
@@ -14,4 +15,5 @@ AsyncSessionLocal = sessionmaker(
 
 async def init_db():
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all) 
+        for base in __all_bases__:
+            await conn.run_sync(base.metadata.create_all) 

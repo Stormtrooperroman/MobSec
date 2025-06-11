@@ -156,24 +156,19 @@ export default {
     },
     async exportChain(chain) {
       try {
-        // Fetch YAML file
         const response = await fetch(`/api/v1/chains/${chain.name}/export`);
         if (!response.ok) throw new Error('Export failed');
         
-        // Get the blob
         const blob = await response.blob();
         
-        // Create download link
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = `${chain.name}.yaml`;
         
-        // Trigger download
         document.body.appendChild(a);
         a.click();
         
-        // Cleanup
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
       } catch (error) {

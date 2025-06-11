@@ -4,7 +4,6 @@
       <div class="nav-content">
         <div class="logo-section">
           <div class="logo-container">
-            <i class="fas fa-bars menu-icon"></i>
             <span class="app-title">Mobile Scanner</span>
           </div>
         </div>

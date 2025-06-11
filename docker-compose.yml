@@ -11,6 +11,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/mobsec_db
       - REDIS_URL=redis://redis:6379
       - MODULES_PATH=/app/modules
+      - EXTERNAL_MODULES_ENABLED=true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./modules:/app/modules
@@ -55,7 +56,6 @@ services:
     restart: always
     networks:
       - app_network
-
 
 networks:
   app_network:

@@ -1,3 +1,5 @@
 .DS_Store
 .idea
 .vscode
+external_module_example/
+modules/call_graph_module/

@@ -276,7 +276,7 @@
 
 <script>
 import { defineComponent } from 'vue'
-import * as Vue from 'vue'  // Import full Vue runtime
+import * as Vue from 'vue'
 
 export default defineComponent({
   name: 'ReportView',
@@ -313,7 +313,6 @@ export default defineComponent({
     totalSeverityCounts() {
       const counts = {};
       
-      // Aggregate severity counts from all modules
       Object.values(this.nonEmptyModules).forEach(moduleData => {
         if (this.hasSeverityCounts(moduleData)) {
           Object.entries(moduleData.results.summary.severity_counts).forEach(([severity, count]) => {
@@ -342,22 +341,22 @@ export default defineComponent({
         const modules = Object.entries(this.nonEmptyModules);
         const modulesWithUI = await Promise.all(
           modules.map(async ([name, data]) => {
-            const moduleName = name.replace('_module', '');
+            const moduleKey = name.replace('_module', '').toLowerCase();
             
-            if (moduleUiInfo[moduleName]?.has_custom_ui) {
+            if (moduleUiInfo[moduleKey]?.has_custom_ui) {
               try {
-                const response = await fetch(`/api/v1/modules/module-ui-component/${name}`);
+                const response = await fetch(`/api/v1/modules/module-ui-component/${moduleKey}`);
                 if (!response.ok) {
                   console.debug(`Error fetching custom UI for module ${name}`);
                   return [name, { ...data, customUI: null }];
                 }
                 
-                const { component_content } = await response.json();
+                const { component_content, component_name } = await response.json();
                 
                 const { loadModule } = window['vue3-sfc-loader'];
                 const options = {
                   moduleCache: {
-                    vue: Vue  // Use the full Vue runtime
+                    vue: Vue
                   },
                   async getFile() {
                     return {
@@ -371,7 +370,7 @@ export default defineComponent({
                   }
                 };
                 
-                const customUI = await loadModule(`/${name}Report.vue`, options);
+                const customUI = await loadModule(`/${component_name}.vue`, options);
                 return [name, { ...data, customUI }];
               } catch (error) {
                 console.debug(`Error loading custom UI for module ${name}:`, error);
@@ -401,7 +400,6 @@ export default defineComponent({
         }
         this.reportData = await response.json();
         
-        // Initialize filters for each module
         if (this.reportData.modules) {
           Object.keys(this.reportData.modules).forEach(moduleName => {
             this.filters[moduleName] = { severity: '', category: '' };
@@ -456,7 +454,6 @@ export default defineComponent({
       }
     },
     formatModuleName(name) {
-      // Convert module_name to Module Name
       return name
         .replace('_module', '')
         .split('_')
@@ -464,7 +461,6 @@ export default defineComponent({
         .join(' ');
     },
     formatKey(key) {
-      // Convert snake_case to Title Case
       return key
         .split('_')
         .map(word => word.charAt(0).toUpperCase() + word.slice(1))
@@ -488,7 +484,6 @@ export default defineComponent({
     filteredSummaryItems(moduleData) {
       if (!this.hasSummary(moduleData)) return {};
       
-      // Filter out special summary items that are displayed separately
       const exclude = ['severity_counts', 'category_counts'];
       return Object.fromEntries(
         Object.entries(moduleData.results.summary)
@@ -528,12 +523,10 @@ export default defineComponent({
       const { severity, category } = this.filters[moduleName] || { severity: '', category: '' };
       
       return moduleData.results.findings.filter(finding => {
-        // Filter by severity if set
         if (severity && finding.severity !== severity) {
           return false;
         }
         
-        // Filter by category if set
         if (category) {
           const ruleCategory = finding.rule_id ? finding.rule_id : null;
           const metadataCategory = finding.metadata ? finding.metadata.category : null;
@@ -549,11 +542,9 @@ export default defineComponent({
     getShortFilePath(path) {
       if (!path) return 'Unknown';
       
-      // Try to get the file name only, or the shortest relevant path
       const parts = path.split('/');
       if (parts.length <= 2) return path;
       
-      // Return the last two path components
       return '.../' + parts.slice(-2).join('/');
     },
     hasMetadata(metadata) {

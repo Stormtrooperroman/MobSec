@@ -246,17 +246,14 @@
       validateSettings() {
         const errors = [];
         
-        // Validate APK settings
         if (this.formData.apkActionType && !this.formData.apkAction) {
           errors.push('Please select an APK action');
         }
         
-        // Validate IPA settings
         if (this.formData.ipaActionType && !this.formData.ipaAction) {
           errors.push('Please select an IPA action');
         }
         
-        // Validate ZIP settings
         if (this.formData.zipActionType && !this.formData.zipAction) {
           errors.push('Please select a ZIP action');
         }
@@ -279,7 +276,6 @@
         if (this.formData.apkActionType === '') {
           this.formData.apkAction = null;
         } else {
-          // Reset the action when changing type
           this.formData.apkAction = null;
         }
       },
@@ -287,7 +283,6 @@
         if (this.formData.ipaActionType === '') {
           this.formData.ipaAction = null;
         } else {
-          // Reset the action when changing type
           this.formData.ipaAction = null;
         }
       },
@@ -295,7 +290,6 @@
         if (this.formData.zipActionType === '') {
           this.formData.zipAction = null;
         } else {
-          // Reset the action when changing type
           this.formData.zipAction = null;
         }
       },
@@ -316,7 +310,6 @@
       async saveSettings() {
         if (this.saving) return;
         
-        // Validate settings before saving
         const errors = this.validateSettings();
         if (errors.length > 0) {
           this.showError(errors.join(', '));

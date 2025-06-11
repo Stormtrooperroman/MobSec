@@ -40,6 +40,10 @@ app.include_router(api_router, prefix="/api/v1")
 async def initialize_background_services():
     """Initialize modules and chains in the background."""
     try:
+        if settings.EXTERNAL_MODULES_ENABLED:
+            from app.modules.external_module_registry import module_registry
+            logger.info("External modules registry initialized")
+            
         await module_manager.start_modules()
         await chain_manager.start()
     except Exception as e:
@@ -48,8 +52,7 @@ async def initialize_background_services():
 @app.on_event("startup")
 async def startup_event():
     await init_db()
-    await storage.init_db()
-    await chain_manager.init_db()
+    
     await start_report_generator()
     
     asyncio.create_task(initialize_background_services())
@@ -58,6 +61,10 @@ async def startup_event():
 async def shutdown_event():
     await stop_report_generator()
     await module_manager.cleanup()
+    
+    if settings.EXTERNAL_MODULES_ENABLED:
+        from app.modules.external_module_registry import module_registry
+        module_registry.shutdown()
 
 @app.get("/health")
 async def health_check():

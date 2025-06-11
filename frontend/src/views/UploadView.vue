@@ -138,7 +138,6 @@ export default {
     }
   },
   mounted() {
-    // Add event listeners for drag and drop
     const uploadArea = document.querySelector('.upload-area');
     
     uploadArea.addEventListener('dragenter', () => {

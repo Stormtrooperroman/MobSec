@@ -2,3 +2,4 @@ name: apkid_module
 version: 0.1
 description: Scans Android APK files using APKiD to identify packers, protectors, obfuscators and other features
 author: Stormtrooperroman
+input_formats: ["apk"]

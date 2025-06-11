@@ -68,7 +68,6 @@ class SemgrepModule:
         )
         
         stdout, stderr = await process.communicate()
-        logger.info(stdout)
         logger.info(stderr)
         if process.returncode == 0:
             try:

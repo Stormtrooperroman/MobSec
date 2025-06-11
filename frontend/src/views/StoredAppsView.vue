@@ -160,13 +160,10 @@ export default {
       this.showRunModal = true;
     },
     handleTaskSubmitted(result) {
-      // You could show a notification or update the app status
       console.log('Task submitted:', result);
       
-      // Optionally close the modal after submission
       setTimeout(() => {
         this.showRunModal = false;
-        // Refresh the apps list to show updated status
         this.fetchApps();
       }, 2000);
     },
@@ -181,7 +178,7 @@ export default {
       if (confirm('Are you sure you want to delete this app?')) {
         try {
           await fetch(`/api/v1/apps/${fileHash}`, { method: 'DELETE' });
-          this.fetchApps();  // Refresh list after deletion
+          this.fetchApps();
         } catch (error) {
           console.error('Error deleting app:', error);
         }

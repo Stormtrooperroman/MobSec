@@ -28,8 +28,8 @@ class AsyncStorageService:
         )
 
     async def init_db(self):
-        async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        from app.core.settings_db import init_db
+        await init_db()
 
     def determine_file_type(self, file_path: str) -> FileType:
         """
@@ -217,6 +217,7 @@ class AsyncStorageService:
                     'original_name': file_model.original_name,
                     'timestamp': file_model.timestamp,
                     'size': file_model.size,
+                    'folder_path': file_model.folder_path,
                     'file_type': file_model.file_type.value,
                     'scan_status': file_model.scan_status.value,
                     'scan_started_at': file_model.scan_started_at,
@@ -290,6 +291,7 @@ class AsyncStorageService:
                     return False
                 
                 folder_path = os.path.join(self.storage_dir, file_model.folder_path)
+                
                 # Delete from database first
                 await session.delete(file_model)
                 await session.commit()

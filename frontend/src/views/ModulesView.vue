@@ -3,35 +3,92 @@
     <div class="header">
       <h2>Available Modules</h2>
     </div>
-    <div class="modules-grid">
-      <div v-for="module in modules" :key="module.id" class="module-card">
-        <div class="module-header">
-          <h3>{{ module.name }}</h3>
-          <div class="status-container">
-            <span :class="['status-badge', module.active ? 'active' : 'inactive']">
-              <i :class="['fas', module.active ? 'fa-check-circle' : 'fa-times-circle']"></i>
-              {{ module.active ? 'Active' : 'Inactive' }}
-            </span>
+    
+    <div v-if="externalModules.length > 0" class="modules-section">
+      <h3 class="section-title">External Modules</h3>
+      <div class="modules-grid">
+        <div v-for="module in externalModules" :key="module.module_id" class="module-card external-module-card">
+          <div class="module-content">
+            <div class="module-header">
+              <h3>{{ module.config.name }}
+                <span class="external-badge">External</span>
+              </h3>
+              <div class="status-container">
+                <span :class="['status-badge', module.status === 'active' ? 'active' : 'inactive']">
+                  <font-awesome-icon :icon="module.status === 'active' ? 'check-circle' : 'times-circle'" />
+                  {{ module.status === 'active' ? 'Active' : 'Inactive' }}
+                </span>
+              </div>
+            </div>
+            <p class="module-description">{{ module.config.description }}</p>
+            <div class="module-details">
+              <div class="detail-item">
+                <span class="detail-label">ID:</span>
+                <span class="detail-value">{{ module.module_id }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Version:</span>
+                <span class="detail-value">{{ module.config.version }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Formats:</span>
+                <span class="detail-value">{{ module.config.input_formats.join(', ') }}</span>
+              </div>
+            </div>
           </div>
         </div>
-        <p class="module-description">{{ module.description }}</p>
-        <div class="button-container">
-          <button 
-            @click="toggleModule(module)"
-            :class="['action-button', module.active ? 'warning' : 'success']"
-            :disabled="module.isLoading"
-          >
-            <i :class="['fas', module.isLoading ? 'fa-spinner fa-spin' : module.active ? 'fa-stop' : 'fa-play']"></i>
-            {{ module.active ? 'Deactivate' : 'Activate' }}
-          </button>
-          <button 
-            @click="rebuildModule(module)"
-            class="action-button rebuild"
-            :disabled="module.isRebuilding || !module.active"
-          >
-            <i :class="['fas', module.isRebuilding ? 'fa-spinner fa-spin' : 'fa-sync']"></i>
-            Rebuild
-          </button>
+      </div>
+    </div>
+    
+    <div class="modules-section">
+      <h3 v-if="externalModules.length > 0" class="section-title">Internal Modules</h3>
+      <div class="modules-grid">
+        <div v-for="module in modules" :key="module.id" class="module-card">
+          <div class="module-content">
+            <div class="module-header">
+              <h3>{{ module.name }}</h3>
+              <div class="status-container">
+                <span :class="['status-badge', module.active ? 'active' : 'inactive']">
+                  <font-awesome-icon :icon="module.active ? 'check-circle' : 'times-circle'" />
+                  {{ module.active ? 'Active' : 'Inactive' }}
+                </span>
+              </div>
+            </div>
+            <p class="module-description">{{ module.description }}</p>
+            <div class="module-details">
+              <div class="detail-item">
+                <span class="detail-label">ID:</span>
+                <span class="detail-value">{{ module.id }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Version:</span>
+                <span class="detail-value">{{ module.version || 'N/A' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Formats:</span>
+                <span class="detail-value">{{ module.input_formats ? module.input_formats.join(', ') : 'All' }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="button-container">
+            <button 
+              class="action-button" 
+              :class="module.active ? 'warning' : 'success'"
+              @click="toggleModule(module)"
+              :disabled="module.isLoading"
+            >
+              <font-awesome-icon :icon="module.isLoading ? 'spinner' : (module.active ? 'stop' : 'play')" :spin="module.isLoading" />
+              {{ module.active ? 'Deactivate' : 'Activate' }}
+            </button>
+            <button 
+              class="action-button rebuild"
+              @click="rebuildModule(module)"
+              :disabled="module.isRebuilding"
+            >
+              <font-awesome-icon icon="sync" :spin="module.isRebuilding" />
+              Rebuild
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -43,7 +100,8 @@ export default {
   name: 'ModulesView',
   data() {
     return {
-      modules: []
+      modules: [],
+      externalModules: []
     }
   },
   methods: {
@@ -58,6 +116,15 @@ export default {
         }));
       } catch (error) {
         console.error('Error fetching modules:', error);
+      }
+    },
+    async fetchExternalModules() {
+      try {
+        const response = await fetch('/api/v1/external-modules');
+        const data = await response.json();
+        this.externalModules = data;
+      } catch (error) {
+        console.error('Error fetching external modules:', error);
       }
     },
     async toggleModule(module) {
@@ -86,7 +153,6 @@ export default {
           method: 'POST'
         });
         if (response.ok) {
-          // Refresh the module status after rebuild
           await this.fetchModules();
         }
       } catch (error) {
@@ -98,6 +164,7 @@ export default {
   },
   mounted() {
     this.fetchModules();
+    this.fetchExternalModules();
   }
 }
 </script>
@@ -132,6 +199,7 @@ export default {
   display: grid;
   gap: 24px;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  align-items: start;
 }
 
 .module-card {
@@ -140,6 +208,15 @@ export default {
   border-radius: 12px;
   padding: 24px;
   transition: all 0.2s ease;
+  border-left: 4px solid #2563eb;
+  background-color: #eff6ff;
+  display: flex;
+  flex-direction: column;
+  min-height: 350px;
+}
+
+.module-content {
+  flex: 1 0 auto;
 }
 
 .module-card:hover {
@@ -192,12 +269,15 @@ export default {
 .button-container {
   display: flex;
   gap: 12px;
-  margin-top: 20px;
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid #e5e7eb;
 }
 
 .action-button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   padding: 8px 16px;
   border-radius: 6px;
@@ -206,6 +286,7 @@ export default {
   cursor: pointer;
   transition: all 0.2s ease;
   border: 1px solid transparent;
+  min-width: 120px;
 }
 
 .action-button.success {
@@ -239,45 +320,63 @@ export default {
 }
 
 .action-button.rebuild {
-  background-color: #eff6ff;
-  color: #2563eb;
-  border-color: #bfdbfe;
+  background-color: #475569;
+  color: white;
+  border-color: #334155;
 }
 
 .action-button.rebuild:hover {
-  background-color: #dbeafe;
+  background-color: #334155;
 }
 
-.action-button.rebuild:disabled {
-  background-color: #f3f4f6;
-  color: #9ca3af;
-  border-color: #e5e7eb;
+/* Стили для внешних модулей */
+.modules-section {
+  margin-bottom: 40px;
 }
 
-@media (max-width: 768px) {
-  .modules-container {
-    padding: 20px;
-    border-radius: 8px;
-  }
+.section-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e5e7eb;
+}
 
-  .header {
-    flex-direction: column;
-    gap: 16px;
-    align-items: stretch;
-    text-align: center;
-  }
+.external-module-card {
+  border-left: 4px solid #7c3aed;
+  background-color: #f5f3ff;
+}
 
-  .modules-grid {
-    grid-template-columns: 1fr;
-  }
+.external-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  background-color: #7c3aed;
+  color: white;
+  border-radius: 9999px;
+  vertical-align: middle;
+}
 
-  .button-container {
-    flex-direction: column;
-  }
+.module-details {
+  margin: 16px 0;
+  font-size: 14px;
+}
 
-  .action-button {
-    width: 100%;
-    justify-content: center;
-  }
+.detail-item {
+  display: flex;
+  margin-bottom: 6px;
+}
+
+.detail-label {
+  font-weight: 500;
+  color: #4b5563;
+  width: 80px;
+}
+
+.detail-value {
+  color: #1f2937;
 }
 </style>

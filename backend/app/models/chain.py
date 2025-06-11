@@ -1,7 +1,7 @@
 from sqlalchemy import Column, String, DateTime, Integer, JSON, Enum, ForeignKey, Table, select
 from sqlalchemy.orm import declarative_base, relationship
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 
 Base = declarative_base()
 
@@ -25,8 +25,8 @@ class Chain(Base):
 
     name = Column(String, primary_key=True)
     description = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     modules = relationship("Module", 
                          secondary=chain_modules,
@@ -39,8 +39,8 @@ class Module(Base):
     version = Column(String)
     description = Column(String)
     config = Column(JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # Relationships
     chains = relationship("Chain", 
@@ -54,8 +54,8 @@ class ChainExecution(Base):
     id = Column(String, primary_key=True)
     chain_name = Column(String, ForeignKey('chains.name'))
     status = Column(Enum(ChainStatus), default=ChainStatus.PENDING)
-    started_at = Column(DateTime, default=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     error_message = Column(String, nullable=True)
 
     # Relationships
@@ -70,8 +70,8 @@ class ModuleExecution(Base):
     module_name = Column(String, ForeignKey('modules.name'))
     order = Column(Integer)
     status = Column(Enum(ChainStatus), default=ChainStatus.PENDING)
-    started_at = Column(DateTime, default=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     parameters = Column(JSON)
     results = Column(JSON, nullable=True)
     error_message = Column(String, nullable=True)

@@ -31,9 +31,16 @@
             <label class="form-label">Select Module:</label>
             <select v-model="selectedModule" class="form-select" required>
               <option value="" disabled>-- Select a module --</option>
-              <option v-for="module in modules" :key="module.id" :value="module.id" :disabled="!module.active">
-                {{ module.name }} {{ !module.active ? '(inactive)' : '' }}
-              </option>
+              <optgroup label="Internal Modules">
+                <option v-for="module in internalModules" :key="module.id" :value="module.id" :disabled="!module.active">
+                  {{ module.name }} {{ !module.active ? '(inactive)' : '' }}
+                </option>
+              </optgroup>
+              <optgroup v-if="externalModules.length > 0" label="External Modules">
+                <option v-for="module in externalModules" :key="module.id" :value="module.id" :disabled="!module.active">
+                  {{ module.name }} {{ !module.active ? '(inactive)' : '' }} 
+                </option>
+              </optgroup>
             </select>
           </div>
 
@@ -92,12 +99,17 @@ export default {
     appData: {
       type: Object,
       default: null
+    },
+    preselectedModule: {
+      type: Object,
+      default: null
     }
   },
   data() {
     return {
       runType: 'module',
-      modules: [],
+      internalModules: [],
+      externalModules: [],
       chains: [],
       apps: [],
       selectedModule: '',
@@ -105,7 +117,8 @@ export default {
       selectedApp: '',
       loading: false,
       error: null,
-      taskResult: null
+      taskResult: null,
+      externalModuleId: null
     };
   },
   computed: {
@@ -130,6 +143,15 @@ export default {
       if (newVal && newVal.file_hash) {
         this.selectedApp = newVal.file_hash;
       }
+    },
+    preselectedModule(newVal) {
+      if (newVal) {
+        if (newVal.isExternal) {
+          this.externalModuleId = newVal.id;
+        } else {
+          this.selectedModule = newVal.id;
+        }
+      }
     }
   },
   methods: {
@@ -139,9 +161,16 @@ export default {
       this.fetchChains();
       this.fetchApps();
       
-      // If appData was provided, select it
       if (this.appData && this.appData.file_hash) {
         this.selectedApp = this.appData.file_hash;
+      }
+      
+      if (this.preselectedModule) {
+        if (this.preselectedModule.isExternal) {
+          this.externalModuleId = this.preselectedModule.id;
+        } else {
+          this.selectedModule = this.preselectedModule.id;
+        }
       }
     },
     resetForm() {
@@ -149,13 +178,17 @@ export default {
       this.selectedChain = '';
       this.error = null;
       this.taskResult = null;
+      this.externalModuleId = null;
     },
     async fetchModules() {
       try {
         this.loading = true;
-        const response = await fetch('/api/v1/modules');
+        const response = await fetch('/api/v1/modules/all');
         if (!response.ok) throw new Error('Failed to fetch modules');
-        this.modules = await response.json();
+        const allModules = await response.json();
+        
+        this.internalModules = allModules.filter(m => !m.is_external);
+        this.externalModules = allModules.filter(m => m.is_external);
       } catch (err) {
         this.error = 'Error loading modules: ' + err.message;
         console.error('Error fetching modules:', err);
@@ -210,13 +243,27 @@ export default {
       }
     },
     async runModule() {
-      const url = `/api/v1/modules/${this.selectedModule}/run`;
+      if (!this.selectedModule) {
+        throw new Error("No module selected");
+      }
+      
+      const selectedModule = [...this.internalModules, ...this.externalModules].find(m => m.id === this.selectedModule);
+      if (!selectedModule) {
+        throw new Error("Selected module not found");
+      }
+      
+      const url = `/api/v1/modules/${selectedModule.id}/run`;
+      const requestBody = {
+        file_hash: this.selectedApp,
+        is_external: selectedModule.is_external
+      };
+      
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ file_hash: this.selectedApp })
+        body: JSON.stringify(requestBody)
       });
       
       if (!response.ok) {

@@ -8,10 +8,12 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 from app.models.chain import Chain, Module, Base, chain_modules, ChainExecution, ModuleExecution, ChainStatus
 from app.core.app_manager import storage
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 import yaml
 from app.modules.module_manager import ModuleManager
+import httpx
+from app.core.settings_db import init_db
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +29,14 @@ class ChainManager:
         
         self.loop = asyncio.get_running_loop()
         
-        # Initialize module manager
         modules_path = os.getenv('MODULES_PATH', '/app/modules')
         self.module_manager = ModuleManager(redis_url=redis_url, modules_path=modules_path)
 
         self._setup_chain_event_monitor()
         
         asyncio.create_task(self._process_chain_event_queue())
-
-
+        
+        self.http_client = httpx.AsyncClient(timeout=120.0)
 
     async def _process_chain_event_queue(self):
         """Process chain events from the queue in the main event loop"""
@@ -82,7 +83,6 @@ class ChainManager:
             result = await session.execute(stmt)
             module_execution = result.scalar_one_or_none()
             
-            # If module execution exists and is in RUNNING state, it's already running
             if module_execution and module_execution.status == ChainStatus.RUNNING:
                 return True
             
@@ -94,7 +94,6 @@ class ChainManager:
 
         def monitor_chain_events():
             pubsub = self.redis.pubsub()
-            # Instead of subscribing to a single channel, we'll use pattern matching
             pubsub.psubscribe("chain:module:completed:*")
 
             logger.info("Starting Redis chain event monitor")
@@ -115,8 +114,7 @@ class ChainManager:
 
 
     async def init_db(self):
-        async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        await init_db()
 
     async def get_chain_by_name(self, chain_name: str):
         async with self.async_session() as session:
@@ -215,7 +213,6 @@ class ChainManager:
 
     async def update_chain(self, chain_name: str, new_data: dict):
         async with self.async_session() as session:
-            # Get the chain
             stmt = select(Chain).where(Chain.name == chain_name)
             result = await session.execute(stmt)
             chain = result.scalar_one_or_none()
@@ -311,42 +308,34 @@ class ChainManager:
         Returns:
             dict: Task information
         """
-        # Check if chain exists
         chain = await self.get_chain_by_name(chain_name)
         if not chain:
             raise ValueError(f"Chain '{chain_name}' not found")
             
-        # Get file info
         file_info = await storage.get_scan_status(file_hash)
         if not file_info:
             raise ValueError(f"File with hash '{file_hash}' not found")
             
-        # Prepare file path information
         folder = file_info.get("folder_path", "")
         if not folder:
-            # Fallback folder construction
             original_name = file_info.get("original_name", "unknown")
             folder = "_".join(original_name.split('.')[0].split()) + '-' + file_hash
             
-        # Create unique task ID
         task_id = f"chain_{uuid.uuid4()}"
         
-        # Get modules
         modules = chain.get("modules", [])
         if not modules:
             raise ValueError(f"Chain '{chain_name}' has no modules defined")
             
-        # Create chain execution record
         async with self.async_session() as session:
             chain_execution = ChainExecution(
                 id=task_id,
                 chain_name=chain_name,
                 status=ChainStatus.RUNNING,
-                started_at=datetime.utcnow()
+                started_at=datetime.now(timezone.utc)
             )
             session.add(chain_execution)
             
-            # Create module execution records
             for idx, module_config in enumerate(modules):
                 module_name = module_config["module"]["name"]
                 module_execution = ModuleExecution(
@@ -361,7 +350,6 @@ class ChainManager:
                 
             await session.commit()
         
-        # Store chain execution data in Redis
         self.redis.set(
             f"chain:{task_id}", 
             json.dumps({
@@ -374,10 +362,9 @@ class ChainManager:
                 "folder_path": folder,
                 "file_name": file_info.get("original_name", "")
             }),
-            ex=86400  # Expire after 24 hours
+            ex=86400
         )
         
-        # Start first module
         await self._start_module(task_id, 0, file_hash)
         
         return {
@@ -389,56 +376,59 @@ class ChainManager:
     async def _start_module(self, chain_task_id, module_index, file_hash):
         """Start execution of a specific module in the chain"""
         try:
-            # Get chain data from Redis
             chain_data = self.redis.get(f"chain:{chain_task_id}")
             if not chain_data:
                 raise ValueError(f"Chain data not found for task {chain_task_id}")
             
             chain_data = json.loads(chain_data)
             
-            # Prepare data for module
             data = {
                 "folder_path": chain_data["folder_path"],
                 "file_name": chain_data["file_name"],
                 "file_type": chain_data["file_type"],
-                "created_at": datetime.utcnow().timestamp()  # Add creation timestamp
+                "created_at": datetime.now(timezone.utc).timestamp()
             }
             
-            # Submit task to module
             module_name = chain_data["modules"][module_index]
-            module_task_id = await self.module_manager.submit_task(
-                module_name=module_name,
-                data=data,
-                file_hash=file_hash,
-                chain_task_id=chain_task_id
-            )
             
-            if not module_task_id:
-                raise ValueError(f"Failed to submit task to module {module_name}")
             
-            # Update module execution status
-            async with self.async_session() as session:
-                module_execution_id = f"{chain_task_id}_module_{module_index}"
-                stmt = select(ModuleExecution).where(ModuleExecution.id == module_execution_id)
-                result = await session.execute(stmt)
-                module_execution = result.scalar_one_or_none()
+            if module_name.startswith("external:"):
+                """
+                This part for future update and now it doesn't work
+                """
+                pass 
+            else:
+                module_task_id = await self.module_manager.submit_task(
+                    module_name=module_name,
+                    data=data,
+                    file_hash=file_hash,
+                    chain_task_id=chain_task_id
+                )
                 
-                if module_execution:
-                    module_execution.status = ChainStatus.RUNNING
-                    module_execution.started_at = datetime.utcnow()
-                    module_execution.task_id = module_task_id
-                    await session.commit()
+                if not module_task_id:
+                    raise ValueError(f"Failed to submit task to module {module_name}")
                 
-            logger.info(f"Started module {module_name} for chain {chain_task_id}")
+                async with self.async_session() as session:
+                    module_execution_id = f"{chain_task_id}_module_{module_index}"
+                    stmt = select(ModuleExecution).where(ModuleExecution.id == module_execution_id)
+                    result = await session.execute(stmt)
+                    module_execution = result.scalar_one_or_none()
+                    
+                    if module_execution:
+                        module_execution.status = ChainStatus.RUNNING
+                        module_execution.started_at = datetime.now(timezone.utc)
+                        module_execution.task_id = module_task_id
+                        await session.commit()
+                
+                logger.info(f"Started module {module_name} for chain {chain_task_id}")
             
         except Exception as e:
             logger.error(f"Error starting module: {str(e)}")
             await self._fail_module(chain_task_id, module_index, str(e))
             
-            # Clean up any created task in case of error
             if module_task_id:
                 self.redis.delete(f"task:{module_task_id}")
-    
+
     
     async def _complete_chain(self, chain_task_id):
         """Mark chain as completed"""
@@ -451,19 +441,16 @@ class ChainManager:
                 chain_execution = result.scalar_one_or_none()
                 if chain_execution:
                     chain_execution.status = ChainStatus.COMPLETED
-                    chain_execution.completed_at = datetime.utcnow()
+                    chain_execution.completed_at = datetime.now(timezone.utc)
                     await session.commit()
             
-            # Get chain data to clean up module-specific keys
             chain_data = self.redis.get(f"chain:{chain_task_id}")
             if chain_data:
                 chain_data = json.loads(chain_data)
                 file_hash = chain_data.get("file_hash")
                 
-                # Clean up all module results and tasks
                 for module_name in chain_data.get("modules", []):
                     self.redis.delete(f"result:{module_name}:{file_hash}")
-                    # Clean up any tasks associated with this module and file
                     for task_key in self.redis.scan_iter("task:*"):
                         try:
                             task_data = json.loads(self.redis.get(task_key))
@@ -473,7 +460,6 @@ class ChainManager:
                         except:
                             continue
             
-            # Clean up all Redis keys associated with this chain
             for key in self.redis.scan_iter(f"*{chain_task_id}*"):
                 self.redis.delete(key)
             
@@ -492,20 +478,17 @@ class ChainManager:
                 chain_execution = result.scalar_one_or_none()
                 if chain_execution:
                     chain_execution.status = ChainStatus.FAILED
-                    chain_execution.completed_at = datetime.utcnow()
+                    chain_execution.completed_at = datetime.now(timezone.utc)
                     chain_execution.error_message = error_message
                     await session.commit()
             
-            # Get chain data to clean up module-specific keys
             chain_data = self.redis.get(f"chain:{chain_task_id}")
             if chain_data:
                 chain_data = json.loads(chain_data)
                 file_hash = chain_data.get("file_hash")
                 
-                # Clean up all module results and tasks
                 for module_name in chain_data.get("modules", []):
                     self.redis.delete(f"result:{module_name}:{file_hash}")
-                    # Clean up any tasks associated with this module and file
                     for task_key in self.redis.scan_iter("task:*"):
                         try:
                             task_data = json.loads(self.redis.get(task_key))
@@ -515,7 +498,6 @@ class ChainManager:
                         except:
                             continue
             
-            # Clean up all Redis keys associated with this chain
             for key in self.redis.scan_iter(f"*{chain_task_id}*"):
                 self.redis.delete(key)
             
@@ -533,7 +515,7 @@ class ChainManager:
             
             if module_execution:
                 module_execution.status = ChainStatus.FAILED
-                module_execution.completed_at = datetime.utcnow()
+                module_execution.completed_at = datetime.now(timezone.utc)
                 module_execution.error_message = error_message
                 await session.commit()
 
@@ -541,21 +523,17 @@ class ChainManager:
     async def relink_chain_modules(self):
         """Relink existing chains with their modules after system restart"""
         async with self.async_session() as session:
-            # First, clear existing chain_modules entries to avoid duplicates
             await session.execute(chain_modules.delete())
             
-            # Get all chains
             chains_stmt = select(Chain)
             chains_result = await session.execute(chains_stmt)
             chains = chains_result.scalars().all()
             
             for chain in chains:
-                # Get modules for this chain
                 modules_stmt = select(Module)
                 modules_result = await session.execute(modules_stmt)
                 available_modules = {m.name: m for m in modules_result.scalars().all()}
                 
-                # Get chain data
                 chain_data = await self.get_chain_by_name(chain.name)
                 logger.info(f"Relinking chain {chain.name} with modules")
                 
@@ -563,10 +541,8 @@ class ChainManager:
                     for module_config in chain_data['modules']:
                         module_name = module_config['module']['name']
                         
-                        # Check if module exists in available modules
                         if module_name in available_modules:
                             try:
-                                # Recreate relationship in chain_modules table
                                 stmt = chain_modules.insert().values(
                                     chain_name=chain.name,
                                     module_name=module_name,
@@ -589,11 +565,9 @@ class ChainManager:
         logger.info(f"Looking for chain definitions in: {modules_path}")
         
         try:
-            # List all files in the directory
             files = os.listdir(modules_path)
             logger.info(f"Found files in directory: {files}")
             
-            # Look for YAML files only in the root modules directory
             for file_name in files:
                 if file_name.endswith('.yaml') and not file_name == 'config.yaml':
                     yaml_path = os.path.join(modules_path, file_name)
@@ -610,14 +584,11 @@ class ChainManager:
             with open(yaml_path, 'r') as f:
                 chain_definitions = yaml.safe_load(f)
             
-            # Handle both single chain and multiple chain definitions
             if not isinstance(chain_definitions, list):
                 chain_definitions = [chain_definitions]
             
-            # Create each chain
             for chain_def in chain_definitions:
                 try:
-                    # Check if chain already exists
                     existing_chain = await self.get_chain_by_name(chain_def['name'])
                     if not existing_chain:
                         await self.create_chain(chain_def)

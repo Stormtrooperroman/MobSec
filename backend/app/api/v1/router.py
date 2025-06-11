@@ -3,6 +3,7 @@ from app.api.v1.endpoints import apps
 from app.api.v1.endpoints import modules
 from app.api.v1.endpoints import chains
 from app.api.v1.endpoints import settings
+from app.api.v1.endpoints import external_modules
 
 api_router = APIRouter()
 
@@ -32,4 +33,11 @@ api_router.include_router(
     settings.router,
     prefix="/settings",
     tags=["Settings"],
+)
+
+api_router.include_router(
+    external_modules.router,
+    prefix="/external-modules",
+    tags=["External Modules"],
+    responses={404: {"description": "Not found"}},
 )
