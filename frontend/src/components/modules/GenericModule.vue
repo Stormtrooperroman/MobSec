@@ -5,22 +5,22 @@
       <h3>No Results Available</h3>
       <p>This module did not produce any results or is still processing.</p>
     </div>
-    
+
     <div v-else class="module-results">
       <!-- Module header with basic info -->
       <div class="module-header">
         <h3 class="module-title">{{ formatModuleName(moduleName) }} Results</h3>
-        
+
         <!-- Show summary if available -->
         <div v-if="hasSummary" class="summary-section">
           <h4 class="section-title">Summary</h4>
-          
+
           <!-- Severity counts with improved visualization -->
           <div v-if="hasSeverityCounts" class="summary-card">
             <div class="summary-label">Findings by Severity</div>
             <div class="severity-counts">
-              <div 
-                v-for="(count, severity) in moduleData.results.summary.severity_counts" 
+              <div
+                v-for="(count, severity) in moduleData.results.summary.severity_counts"
                 :key="severity"
                 :class="['severity-badge', 'severity-' + severity.toLowerCase()]"
               >
@@ -28,13 +28,13 @@
               </div>
             </div>
           </div>
-          
+
           <!-- Category counts -->
           <div v-if="hasCategoryCounts" class="summary-card">
             <div class="summary-label">Findings by Category</div>
             <div class="category-counts">
-              <div 
-                v-for="(count, category) in moduleData.results.summary.category_counts" 
+              <div
+                v-for="(count, category) in moduleData.results.summary.category_counts"
                 :key="category"
                 class="category-badge"
               >
@@ -42,26 +42,22 @@
               </div>
             </div>
           </div>
-          
+
           <!-- Other summary metrics -->
           <div class="summary-metrics">
-            <div 
-              v-for="(value, key) in filteredSummaryItems" 
-              :key="key" 
-              class="summary-card"
-            >
+            <div v-for="(value, key) in filteredSummaryItems" :key="key" class="summary-card">
               <div class="summary-label">{{ formatKey(key) }}</div>
               <div class="summary-value">{{ value }}</div>
             </div>
           </div>
         </div>
       </div>
-      
+
       <!-- Findings section -->
       <div v-if="hasFindings" class="findings-section">
         <div class="findings-header">
           <h4 class="section-title">Findings ({{ moduleData.results.findings.length }})</h4>
-          
+
           <div class="findings-filters">
             <div class="filter-group">
               <label for="severity-filter">Severity:</label>
@@ -72,7 +68,7 @@
                 </option>
               </select>
             </div>
-            
+
             <div class="filter-group" v-if="availableCategories.length > 0">
               <label for="category-filter">Category:</label>
               <select id="category-filter" v-model="categoryFilter" class="filter-select">
@@ -84,37 +80,34 @@
             </div>
           </div>
         </div>
-        
+
         <div class="findings-list">
-          <div 
-            v-for="(finding, index) in filteredFindings" 
-            :key="index"
-            class="finding-card"
-          >
+          <div v-for="(finding, index) in filteredFindings" :key="index" class="finding-card">
             <div class="finding-header">
               <div :class="['finding-severity', 'severity-' + finding.severity.toLowerCase()]">
                 {{ finding.severity }}
               </div>
               <div class="finding-rule">{{ finding.rule_id || 'Unknown Rule' }}</div>
             </div>
-            
+
             <div class="finding-message">{{ finding.message }}</div>
-            
+
             <div v-if="finding.location" class="finding-location">
               <div class="location-details">
                 <div class="location-file">
                   <span class="detail-label">File:</span> {{ getShortFilePath(finding.location.file) }}
                 </div>
                 <div class="location-lines">
-                  <span class="detail-label">Lines:</span> {{ finding.location.start_line }} - {{ finding.location.end_line }}
+                  <span class="detail-label">Lines:</span> {{ finding.location.start_line }} -
+                  {{ finding.location.end_line }}
                 </div>
               </div>
-              
+
               <div v-if="finding.location.code" class="location-code">
                 <pre><code>{{ finding.location.code }}</code></pre>
               </div>
             </div>
-            
+
             <div v-if="finding.metadata && hasMetadata(finding.metadata)" class="finding-metadata">
               <div v-for="(value, key) in finding.metadata" :key="key" class="metadata-item">
                 <template v-if="Array.isArray(value) && value.length > 0">
@@ -126,7 +119,7 @@
               </div>
             </div>
           </div>
-          
+
           <div v-if="filteredFindings.length === 0" class="no-findings">
             <div class="empty-state">
               <span class="empty-icon">🔍</span>
@@ -135,7 +128,7 @@
           </div>
         </div>
       </div>
-      
+
       <!-- Raw Results Section -->
       <div v-if="!hasFindings && !hasSummary" class="raw-results">
         <h4 class="section-title">Raw Results</h4>
@@ -153,21 +146,21 @@ export default {
   props: {
     moduleData: {
       type: Object,
-      required: true
+      required: true,
     },
     moduleName: {
       type: String,
-      required: true
+      required: true,
     },
     fileInfo: {
       type: Object,
-      default: () => ({})
-    }
+      default: () => ({}),
+    },
   },
   data() {
     return {
       severityFilter: '',
-      categoryFilter: ''
+      categoryFilter: '',
     };
   },
   computed: {
@@ -175,10 +168,12 @@ export default {
       return this.moduleData.results && this.moduleData.results.summary;
     },
     hasFindings() {
-      return this.moduleData.results && 
-             this.moduleData.results.findings &&
-             Array.isArray(this.moduleData.results.findings) &&
-             this.moduleData.results.findings.length > 0;
+      return (
+        this.moduleData.results &&
+        this.moduleData.results.findings &&
+        Array.isArray(this.moduleData.results.findings) &&
+        this.moduleData.results.findings.length > 0
+      );
     },
     hasSeverityCounts() {
       return this.hasSummary && this.moduleData.results.summary.severity_counts;
@@ -188,29 +183,28 @@ export default {
     },
     filteredSummaryItems() {
       if (!this.hasSummary) return {};
-      
+
       // Filter out special summary items that are displayed separately
       const exclude = ['severity_counts', 'category_counts'];
       return Object.fromEntries(
-        Object.entries(this.moduleData.results.summary)
-          .filter(([key]) => !exclude.includes(key))
+        Object.entries(this.moduleData.results.summary).filter(([key]) => !exclude.includes(key)),
       );
     },
     availableSeverities() {
       if (!this.hasFindings) return [];
-      
+
       const severities = new Set();
       this.moduleData.results.findings.forEach(finding => {
         if (finding.severity) {
           severities.add(finding.severity);
         }
       });
-      
+
       return Array.from(severities);
     },
     availableCategories() {
       if (!this.hasFindings) return [];
-      
+
       const categories = new Set();
       this.moduleData.results.findings.forEach(finding => {
         if (finding.rule_id) {
@@ -220,31 +214,31 @@ export default {
           categories.add(finding.metadata.category);
         }
       });
-      
+
       return Array.from(categories).filter(c => c);
     },
     filteredFindings() {
       if (!this.hasFindings) return [];
-      
+
       return this.moduleData.results.findings.filter(finding => {
         // Filter by severity if set
         if (this.severityFilter && finding.severity !== this.severityFilter) {
           return false;
         }
-        
+
         // Filter by category if set
         if (this.categoryFilter) {
           const ruleCategory = finding.rule_id ? finding.rule_id.split('-')[0] : null;
           const metadataCategory = finding.metadata ? finding.metadata.category : null;
-          
+
           if (ruleCategory !== this.categoryFilter && metadataCategory !== this.categoryFilter) {
             return false;
           }
         }
-        
+
         return true;
       });
-    }
+    },
   },
   methods: {
     formatModuleName(name) {
@@ -263,11 +257,11 @@ export default {
     },
     getShortFilePath(path) {
       if (!path) return 'Unknown';
-      
+
       // Try to get the file name only, or the shortest relevant path
       const parts = path.split('/');
       if (parts.length <= 2) return path;
-      
+
       // Return the last two path components
       return '.../' + parts.slice(-2).join('/');
     },
@@ -276,15 +270,16 @@ export default {
         if (Array.isArray(value)) return value.length > 0;
         return !!value;
       });
-    }
-  }
+    },
+  },
 };
 </script>
 
 <style scoped>
 .generic-module {
   width: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', sans-serif;
   color: #333;
 }
 
@@ -362,13 +357,15 @@ export default {
   font-weight: 500;
 }
 
-.severity-counts, .category-counts {
+.severity-counts,
+.category-counts {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.severity-badge, .category-badge {
+.severity-badge,
+.category-badge {
   display: inline-block;
   padding: 6px 12px;
   border-radius: 20px;
@@ -376,17 +373,20 @@ export default {
   font-weight: 600;
 }
 
-.severity-error, .severity-high {
+.severity-error,
+.severity-high {
   background-color: #f8d7da;
   color: #721c24;
 }
 
-.severity-warning, .severity-medium {
+.severity-warning,
+.severity-medium {
   background-color: #fff3cd;
   color: #856404;
 }
 
-.severity-info, .severity-low {
+.severity-info,
+.severity-low {
   background-color: #d1ecf1;
   color: #0c5460;
 }
@@ -576,20 +576,20 @@ export default {
     flex-direction: column;
     align-items: flex-start;
   }
-  
+
   .findings-filters {
     margin-top: 12px;
     width: 100%;
   }
-  
+
   .filter-group {
     width: 100%;
   }
-  
+
   .filter-select {
     flex-grow: 1;
   }
-  
+
   .summary-metrics {
     grid-template-columns: 1fr;
   }

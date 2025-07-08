@@ -1,0 +1,3 @@
+FROM redroid/redroid:12.0.0_64only-latest
+
+EXPOSE 5555 

@@ -5,15 +5,15 @@
         <h3>{{ editChain ? 'Edit Chain' : 'Create New Chain' }}</h3>
         <button @click="close" class="close-button">&times;</button>
       </div>
-      
+
       <div class="modal-body">
         <form @submit.prevent="handleSubmit">
           <div class="form-group">
             <label for="chainName">Chain Name</label>
-            <input 
-              id="chainName" 
-              v-model="formData.name" 
-              type="text" 
+            <input
+              id="chainName"
+              v-model="formData.name"
+              type="text"
               required
               :disabled="!!editChain"
               class="form-input"
@@ -22,35 +22,26 @@
 
           <div class="form-group">
             <label for="chainDescription">Description</label>
-            <textarea 
-              id="chainDescription" 
-              v-model="formData.description" 
-              class="form-input"
-              rows="3"
-            ></textarea>
+            <textarea id="chainDescription" v-model="formData.description" class="form-input" rows="3"></textarea>
           </div>
 
           <div class="form-group">
             <label>Modules</label>
-            <draggable 
-              v-model="formData.modules" 
+            <draggable
+              v-model="formData.modules"
               @end="updateModuleOrders"
               item-key="name"
               tag="div"
               class="modules-list"
               handle=".drag-handle"
             >
-              <template #item="{element, index}">
+              <template #item="{ element, index }">
                 <div class="module-item">
                   <span class="drag-handle">⋮⋮</span>
-                  <select 
-                    v-model="element.name"
-                    class="form-input"
-                    required
-                  >
+                  <select v-model="element.name" class="form-input" required>
                     <option value="">Select Module</option>
-                    <option 
-                      v-for="availableModule in availableModules" 
+                    <option
+                      v-for="availableModule in availableModules"
                       :key="availableModule.name"
                       :value="availableModule.name"
                     >
@@ -58,23 +49,11 @@
                     </option>
                   </select>
                   <span class="order-display">{{ element.order }}</span>
-                  <button 
-                    type="button" 
-                    @click="removeModule(index)"
-                    class="remove-button"
-                  >
-                    Remove
-                  </button>
+                  <button type="button" @click="removeModule(index)" class="remove-button">Remove</button>
                 </div>
               </template>
             </draggable>
-            <button 
-              type="button" 
-              @click="addModule"
-              class="add-module-button"
-            >
-              Add Module
-            </button>
+            <button type="button" @click="addModule" class="add-module-button">Add Module</button>
           </div>
 
           <div class="modal-footer">
@@ -90,22 +69,22 @@
 </template>
 
 <script>
-import draggable from 'vuedraggable'
+import draggable from 'vuedraggable';
 
 export default {
   name: 'CreateChainModal',
   components: {
-    draggable
+    draggable,
   },
   props: {
     isOpen: {
       type: Boolean,
-      required: true
+      required: true,
     },
     editChain: {
       type: Object,
-      default: null
-    }
+      default: null,
+    },
   },
   watch: {
     editChain: {
@@ -117,29 +96,29 @@ export default {
             modules: newVal.modules.map(moduleData => ({
               name: moduleData.module.name,
               order: moduleData.order,
-              parameters: moduleData.parameters || {}
-            }))
+              parameters: moduleData.parameters || {},
+            })),
           };
         } else {
           this.formData = {
             name: '',
             description: '',
-            modules: []
+            modules: [],
           };
         }
       },
-      immediate: true
-    }
+      immediate: true,
+    },
   },
   data() {
     return {
       formData: {
         name: '',
         description: '',
-        modules: []
+        modules: [],
       },
-      availableModules: []
-    }
+      availableModules: [],
+    };
   },
   methods: {
     async fetchModules() {
@@ -154,7 +133,7 @@ export default {
       this.formData.modules.push({
         name: '',
         order: this.formData.modules.length + 1,
-        parameters: {}
+        parameters: {},
       });
     },
     updateModuleOrders() {
@@ -168,16 +147,14 @@ export default {
     },
     async handleSubmit() {
       try {
-        const url = this.editChain 
-          ? `/api/v1/chains/${this.editChain.name}`
-          : '/api/v1/chains';
-        
+        const url = this.editChain ? `/api/v1/chains/${this.editChain.name}` : '/api/v1/chains';
+
         const response = await fetch(url, {
           method: this.editChain ? 'PUT' : 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
           },
-          body: JSON.stringify(this.formData)
+          body: JSON.stringify(this.formData),
         });
 
         if (response.ok) {
@@ -194,20 +171,18 @@ export default {
       this.formData = {
         name: '',
         description: '',
-        modules: []
+        modules: [],
       };
       this.$emit('close');
-    }
+    },
   },
   mounted() {
     this.fetchModules();
-  }
-}
+  },
+};
 </script>
 
-
 <style scoped>
-
 .drag-handle {
   cursor: move;
   padding: 0 8px;
@@ -228,7 +203,6 @@ export default {
   font-weight: 500;
   color: #4b5563;
 }
-
 
 .modal-overlay {
   position: fixed;
@@ -300,7 +274,6 @@ export default {
 .modules-list {
   margin-bottom: 16px;
 }
-
 
 .order-input {
   width: 80px;

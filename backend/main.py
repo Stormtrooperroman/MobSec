@@ -13,7 +13,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 module_manager = ModuleManager(
     redis_url=os.getenv('REDIS_URL'),
     modules_path=os.getenv('MODULES_PATH')
@@ -27,15 +26,17 @@ app = FastAPI(
 storage = AsyncStorageService()
 chain_manager = ChainManager()
 
+# Configure CORS for both HTTP and WebSocket
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=["*"],  # For development - adjust for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(api_router, prefix="/api/v1")
+# Mount routers
+app.include_router(api_router)  # HTTP endpoints (includes WebSocket endpoints)
 
 async def initialize_background_services():
     """Initialize modules and chains in the background."""

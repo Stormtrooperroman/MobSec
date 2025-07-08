@@ -8,17 +8,14 @@
           </div>
         </div>
         <div class="navigation-buttons">
-          <router-link 
-            v-for="route in routes" 
+          <router-link
+            v-for="route in routes"
             :key="route.path"
             :to="route.path"
             custom
             v-slot="{ isActive, navigate }"
           >
-            <button
-              @click="navigate"
-              :class="['nav-button', isActive && route.path === $route.path ? 'active' : '']"
-            >
+            <button @click="navigate" :class="['nav-button', isActive && route.path === $route.path ? 'active' : '']">
               {{ route.name }}
             </button>
           </router-link>
@@ -38,43 +35,40 @@ export default {
         { path: '/apps', name: 'Stored Apps' },
         { path: '/modules', name: 'Modules' },
         { path: '/chains', name: 'Chains' },
-        { path: '/settings', name: 'Settings' }
+        { path: '/settings', name: 'Settings' },
+        { path: '/dynamic-testing', name: 'Dynamic Testing' },
       ],
       lastScrollPosition: 0,
       isHidden: false,
-      scrollThreshold: 60 // minimum scroll before hiding
-    }
+      scrollThreshold: 60, // minimum scroll before hiding
+    };
   },
   mounted() {
-    window.addEventListener('scroll', this.onScroll)
+    window.addEventListener('scroll', this.onScroll);
   },
   beforeUnmount() {
-    window.removeEventListener('scroll', this.onScroll)
+    window.removeEventListener('scroll', this.onScroll);
   },
   methods: {
     onScroll() {
-      const currentScrollPosition = window.scrollY
-      
+      const currentScrollPosition = window.scrollY;
+
       // Don't do anything if not enough scroll
       if (Math.abs(currentScrollPosition - this.lastScrollPosition) < this.scrollThreshold) {
-        return
+        return;
       }
 
-      this.isHidden = currentScrollPosition > this.lastScrollPosition 
-                      && currentScrollPosition > this.$refs.header.offsetHeight
-      
-      this.lastScrollPosition = currentScrollPosition
-    }
-  }
-}
+      this.isHidden =
+        currentScrollPosition > this.lastScrollPosition && currentScrollPosition > this.$refs.header.offsetHeight;
+
+      this.lastScrollPosition = currentScrollPosition;
+    },
+  },
+};
 </script>
 
 <style>
-.app-container {
-  min-height: 100vh;
-  background-color: #f9fafb;
-  padding-top: 64px; /* Height of the navbar */
-}
+
 
 header {
   background-color: white;

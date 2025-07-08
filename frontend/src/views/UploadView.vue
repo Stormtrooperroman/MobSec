@@ -5,25 +5,14 @@
         <h1 class="upload-title">App Analysis</h1>
         <p class="upload-subtitle">Upload your application file for security analysis</p>
       </div>
-      
-      <div class="upload-area" 
-           @dragover.prevent 
-           @drop.prevent="handleFileDrop"
-           :class="{ 'drag-over': isDragging }">
+
+      <div class="upload-area" @dragover.prevent @drop.prevent="handleFileDrop" :class="{ 'drag-over': isDragging }">
         <div class="upload-icon">📤</div>
-        <p class="upload-instructions">
-          <span class="highlight">Click to browse</span> or drag & drop your file here
-        </p>
+        <p class="upload-instructions"><span class="highlight">Click to browse</span> or drag & drop your file here</p>
         <p class="file-types">Supported formats: APK, IPA, ZIP</p>
-        <input 
-          type="file" 
-          ref="fileInput" 
-          @change="handleFileUpload" 
-          class="file-input" 
-          accept=".apk,.ipa,.zip"
-        />
+        <input type="file" ref="fileInput" @change="handleFileUpload" class="file-input" accept=".apk,.ipa,.zip" />
       </div>
-      
+
       <div v-if="file" class="selected-file">
         <div class="file-icon">📄</div>
         <div class="file-details">
@@ -32,20 +21,12 @@
         </div>
         <button @click="removeFile" class="remove-button">✕</button>
       </div>
-      
-      <button 
-        @click="uploadFile" 
-        :disabled="isUploading || !file" 
-        class="upload-button"
-      >
-        <span v-if="isUploading">
-          <span class="spinner"></span> Uploading...
-        </span>
-        <span v-else>
-          Start Analysis
-        </span>
+
+      <button @click="uploadFile" :disabled="isUploading || !file" class="upload-button">
+        <span v-if="isUploading"> <span class="spinner"></span> Uploading... </span>
+        <span v-else> Start Analysis </span>
       </button>
-      
+
       <div v-if="error" class="error-container">
         <div class="error-icon">!</div>
         <div class="error-message">{{ error }}</div>
@@ -61,7 +42,7 @@ export default {
       file: null,
       isUploading: false,
       error: null,
-      isDragging: false
+      isDragging: false,
     };
   },
   methods: {
@@ -73,7 +54,7 @@ export default {
     },
     handleFileDrop(event) {
       this.isDragging = false;
-      
+
       if (event.dataTransfer.files.length > 0) {
         this.file = event.dataTransfer.files[0];
         this.error = null;
@@ -86,11 +67,11 @@ export default {
     },
     formatFileSize(bytes) {
       if (bytes === 0) return '0 Bytes';
-      
+
       const k = 1024;
       const sizes = ['Bytes', 'KB', 'MB', 'GB'];
       const i = Math.floor(Math.log(bytes) / Math.log(k));
-      
+
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     },
     openFileDialog() {
@@ -98,28 +79,28 @@ export default {
     },
     async uploadFile() {
       if (!this.file) {
-        this.error = "Please select a file first";
+        this.error = 'Please select a file first';
         return;
       }
 
       const allowedTypes = ['.apk', '.ipa', '.zip'];
       const fileExt = '.' + this.file.name.split('.').pop().toLowerCase();
-      
+
       if (!allowedTypes.includes(fileExt)) {
-        this.error = "Invalid file type. Please upload APK, IPA, or ZIP files.";
+        this.error = 'Invalid file type. Please upload APK, IPA, or ZIP files.';
         return;
       }
 
       this.isUploading = true;
       this.error = null;
       const formData = new FormData();
-      formData.append("file", this.file);
+      formData.append('file', this.file);
 
       try {
-        const response = await fetch("/api/v1/apps/upload", {
-          method: "POST",
+        const response = await fetch('/api/v1/apps/upload', {
+          method: 'POST',
           body: formData,
-          timeout: 300000
+          timeout: 300000,
         });
 
         if (!response.ok) {
@@ -130,27 +111,27 @@ export default {
         // Redirect to the apps page after successful upload
         this.$router.push({ name: 'apps' });
       } catch (error) {
-        console.error("Error when uploading file:", error);
-        this.error = "Failed to upload file. Please try again.";
+        console.error('Error when uploading file:', error);
+        this.error = 'Failed to upload file. Please try again.';
       } finally {
         this.isUploading = false;
       }
-    }
+    },
   },
   mounted() {
     const uploadArea = document.querySelector('.upload-area');
-    
+
     uploadArea.addEventListener('dragenter', () => {
       this.isDragging = true;
     });
-    
+
     uploadArea.addEventListener('dragleave', () => {
       this.isDragging = false;
     });
-    
+
     // Handle click on the upload area
     uploadArea.addEventListener('click', this.openFileDialog);
-  }
+  },
 };
 </script>
 
@@ -327,7 +308,9 @@ export default {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .error-container {
@@ -360,11 +343,11 @@ export default {
   .upload-card {
     padding: 24px;
   }
-  
+
   .upload-area {
     padding: 30px 16px;
   }
-  
+
   .upload-title {
     font-size: 24px;
   }

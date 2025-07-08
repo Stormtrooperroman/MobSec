@@ -1,0 +1,25 @@
+{
+    "extends": [
+        "plugin:vue/vue3-essential",
+        "plugin:@typescript-eslint/recommended",
+        "prettier"
+    ],
+    "plugins": [
+        "vue",
+        "progress",
+        "@typescript-eslint"
+    ],
+    "parser": "vue-eslint-parser",
+    "parserOptions": {
+        "parser": "@babel/eslint-parser",
+        "ecmaVersion": 2020,
+        "sourceType": "module"
+    },
+    "rules": {
+        "progress/activate": 1,
+        "import/no-absolute-path": "off",
+        "prettier/prettier": "off"
+    },
+    "overrides": [
+    ]
+}

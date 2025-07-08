@@ -3,14 +3,15 @@
     <div class="header">
       <h2>Available Modules</h2>
     </div>
-    
+
     <div v-if="externalModules.length > 0" class="modules-section">
       <h3 class="section-title">External Modules</h3>
       <div class="modules-grid">
         <div v-for="module in externalModules" :key="module.module_id" class="module-card external-module-card">
           <div class="module-content">
             <div class="module-header">
-              <h3>{{ module.config.name }}
+              <h3>
+                {{ module.config.name }}
                 <span class="external-badge">External</span>
               </h3>
               <div class="status-container">
@@ -39,7 +40,7 @@
         </div>
       </div>
     </div>
-    
+
     <div class="modules-section">
       <h3 v-if="externalModules.length > 0" class="section-title">Internal Modules</h3>
       <div class="modules-grid">
@@ -71,20 +72,19 @@
             </div>
           </div>
           <div class="button-container">
-            <button 
-              class="action-button" 
+            <button
+              class="action-button"
               :class="module.active ? 'warning' : 'success'"
               @click="toggleModule(module)"
               :disabled="module.isLoading"
             >
-              <font-awesome-icon :icon="module.isLoading ? 'spinner' : (module.active ? 'stop' : 'play')" :spin="module.isLoading" />
+              <font-awesome-icon
+                :icon="module.isLoading ? 'spinner' : module.active ? 'stop' : 'play'"
+                :spin="module.isLoading"
+              />
               {{ module.active ? 'Deactivate' : 'Activate' }}
             </button>
-            <button 
-              class="action-button rebuild"
-              @click="rebuildModule(module)"
-              :disabled="module.isRebuilding"
-            >
+            <button class="action-button rebuild" @click="rebuildModule(module)" :disabled="module.isRebuilding">
               <font-awesome-icon icon="sync" :spin="module.isRebuilding" />
               Rebuild
             </button>
@@ -101,8 +101,8 @@ export default {
   data() {
     return {
       modules: [],
-      externalModules: []
-    }
+      externalModules: [],
+    };
   },
   methods: {
     async fetchModules() {
@@ -112,7 +112,7 @@ export default {
         this.modules = data.map(module => ({
           ...module,
           isLoading: false,
-          isRebuilding: false
+          isRebuilding: false,
         }));
       } catch (error) {
         console.error('Error fetching modules:', error);
@@ -129,11 +129,11 @@ export default {
     },
     async toggleModule(module) {
       if (module.isLoading) return;
-      
+
       module.isLoading = true;
       try {
         const response = await fetch(`/api/v1/modules/${module.id}/toggle`, {
-          method: 'POST'
+          method: 'POST',
         });
         if (response.ok) {
           module.active = !module.active;
@@ -146,11 +146,11 @@ export default {
     },
     async rebuildModule(module) {
       if (module.isRebuilding) return;
-      
+
       module.isRebuilding = true;
       try {
         const response = await fetch(`/api/v1/modules/${module.id}/rebuild`, {
-          method: 'POST'
+          method: 'POST',
         });
         if (response.ok) {
           await this.fetchModules();
@@ -160,13 +160,13 @@ export default {
       } finally {
         module.isRebuilding = false;
       }
-    }
+    },
   },
   mounted() {
     this.fetchModules();
     this.fetchExternalModules();
-  }
-}
+  },
+};
 </script>
 
 <style>
@@ -329,7 +329,7 @@ export default {
   background-color: #334155;
 }
 
-/* Стили для внешних модулей */
+/* Styles for external modules */
 .modules-section {
   margin-bottom: 40px;
 }

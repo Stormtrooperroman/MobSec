@@ -18,6 +18,7 @@ services:
       - shared_data:/shared_data
     ports:
       - "8000:8000"
+      - "27184:27184"  # scrcpy streaming (changed port)
     restart: always
     networks:
       - app_network
@@ -56,6 +57,23 @@ services:
     restart: always
     networks:
       - app_network
+
+  dynamic-testing:
+    build:
+      context: ./dynamic_testing
+      dockerfile: docker/Dockerfile.redroid
+    privileged: true
+    ports:
+      - "5555:5555"  # ADB
+      - "8886:8886"
+      - "27042:27042"  # Frida
+    environment:
+      - ANDROID_VERSION=13.0.0
+    depends_on:
+      - backend
+    networks:
+      - app_network
+
 
 networks:
   app_network:

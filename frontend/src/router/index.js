@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router';
 
 const routes = [
   {
@@ -8,41 +8,49 @@ const routes = [
       {
         path: '',
         name: 'upload',
-        component: () => import('@/views/UploadView.vue')
+        component: () => import('@/views/UploadView.vue'),
       },
       {
         path: 'apps',
         name: 'apps',
-        component: () => import('@/views/StoredAppsView.vue')
+        component: () => import('@/views/StoredAppsView.vue'),
       },
       {
         path: 'modules',
         name: 'modules',
-        component: () => import('@/views/ModulesView.vue')
+        component: () => import('@/views/ModulesView.vue'),
       },
       {
         path: 'chains',
         name: 'chains',
-        component: () => import('@/views/ChainsView.vue')
+        component: () => import('@/views/ChainsView.vue'),
       },
       {
         path: '/apps/report/:fileHash',
         name: 'AppReport',
         component: () => import('@/views/ReportView.vue'),
-        props: true
+        props: true,
       },
       {
         path: '/settings',
         name: 'settings',
-        component: () => import('@/views/SettingsView.vue')
-      }
-    ]
-  }
-]
+        component: () => import('@/views/SettingsView.vue'),
+      },
+      {
+        path: '/dynamic-testing',
+        name: 'Dynamic Testing',
+        component: () => import('@/views/DynamicTesting.vue'),
+        meta: {
+          title: 'Dynamic Testing',
+        },
+      },
+    ],
+  },
+];
 
 const router = createRouter({
   history: createWebHistory(),
-  routes
-})
+  routes,
+});
 
-export default router
+export default router;

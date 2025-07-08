@@ -8,19 +8,18 @@
 </template>
 
 <script>
-import NavigationBar from '@/components/NavigationBar.vue'
+import NavigationBar from '@/components/NavigationBar.vue';
 
 export default {
   name: 'DefaultLayout',
   components: {
-    NavigationBar
-  }
-}
+    NavigationBar,
+  },
+};
 </script>
 
 <style>
 .app-container {
-  min-height: 100vh;
   background-color: #f9fafb;
 }
 

@@ -1,0 +1,6 @@
+src/ws-scrcpy/public/**/*.js
+src/ws-scrcpy/vendor/**/*.js
+src/ws-scrcpy/vendor/**/*.ts
+src/ws-scrcpy/app/Util.ts
+*.js
+typings/**/*.d.ts

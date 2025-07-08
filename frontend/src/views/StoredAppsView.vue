@@ -8,7 +8,7 @@
       <div class="spinner"></div>
       <p>Loading applications...</p>
     </div>
-    
+
     <div v-if="error" class="error-container">
       <div class="error-icon">!</div>
       <p>{{ error }}</p>
@@ -55,10 +55,11 @@
                   <span class="action-icon">▶</span>
                   Analyze
                 </button>
-                <button 
-                  @click="viewReport(app.file_hash)" 
+                <button
+                  @click="viewReport(app.file_hash)"
                   class="action-button report-button"
-                  :disabled="app.scan_status === 'N/A'">
+                  :disabled="app.scan_status === 'N/A'"
+                >
                   <span class="action-icon">📊</span>
                   View Report
                 </button>
@@ -84,10 +85,10 @@
         </button>
       </div>
     </div>
-    
+
     <!-- Run Module/Chain Modal -->
-    <RunModuleModal 
-      :show="showRunModal" 
+    <RunModuleModal
+      :show="showRunModal"
       :appData="selectedApp"
       @close="showRunModal = false"
       @task-submitted="handleTaskSubmitted"
@@ -101,7 +102,7 @@ import RunModuleModal from './RunModuleModal.vue';
 export default {
   name: 'StoredAppsView',
   components: {
-    RunModuleModal
+    RunModuleModal,
   },
   data() {
     return {
@@ -112,31 +113,31 @@ export default {
       loading: false,
       error: null,
       showRunModal: false,
-      selectedApp: null
+      selectedApp: null,
     };
   },
   computed: {
     currentPage() {
       return Math.floor(this.skip / this.limit) + 1;
-    }
+    },
   },
   methods: {
     formatDate(date) {
-      if (!date) return "N/A";
-      const options = { 
-        year: 'numeric', 
-        month: 'short', 
+      if (!date) return 'N/A';
+      const options = {
+        year: 'numeric',
+        month: 'short',
         day: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
       };
       return new Date(date).toLocaleString(undefined, options);
     },
     getStatusClass(status) {
       const classes = {
-        'completed': 'status-complete',
-        'pending': 'status-progress',
-        'failed': 'status-failed'
+        completed: 'status-complete',
+        pending: 'status-progress',
+        failed: 'status-failed',
       };
       return classes[status] || 'status-default';
     },
@@ -161,7 +162,7 @@ export default {
     },
     handleTaskSubmitted(result) {
       console.log('Task submitted:', result);
-      
+
       setTimeout(() => {
         this.showRunModal = false;
         this.fetchApps();
@@ -195,11 +196,11 @@ export default {
         this.skip -= this.limit;
         this.fetchApps();
       }
-    }
+    },
   },
   mounted() {
     this.fetchApps();
-  }
+  },
 };
 </script>
 
@@ -263,8 +264,12 @@ export default {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .error-container {
@@ -565,21 +570,22 @@ export default {
     align-items: flex-start;
     gap: 12px;
   }
-  
+
   .actions-cell {
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
   }
-  
-  .table-header, .table-cell {
+
+  .table-header,
+  .table-cell {
     padding: 12px 16px;
   }
-  
+
   .table-container {
     overflow-x: auto;
   }
-  
+
   .file-type {
     max-width: 150px;
   }

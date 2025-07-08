@@ -16,11 +16,11 @@
             <label class="form-label">Run Type:</label>
             <div class="radio-group">
               <label class="radio-label">
-                <input type="radio" v-model="runType" value="module">
+                <input type="radio" v-model="runType" value="module" />
                 Module
               </label>
               <label class="radio-label">
-                <input type="radio" v-model="runType" value="chain">
+                <input type="radio" v-model="runType" value="chain" />
                 Chain
               </label>
             </div>
@@ -32,13 +32,23 @@
             <select v-model="selectedModule" class="form-select" required>
               <option value="" disabled>-- Select a module --</option>
               <optgroup label="Internal Modules">
-                <option v-for="module in internalModules" :key="module.id" :value="module.id" :disabled="!module.active">
+                <option
+                  v-for="module in internalModules"
+                  :key="module.id"
+                  :value="module.id"
+                  :disabled="!module.active"
+                >
                   {{ module.name }} {{ !module.active ? '(inactive)' : '' }}
                 </option>
               </optgroup>
               <optgroup v-if="externalModules.length > 0" label="External Modules">
-                <option v-for="module in externalModules" :key="module.id" :value="module.id" :disabled="!module.active">
-                  {{ module.name }} {{ !module.active ? '(inactive)' : '' }} 
+                <option
+                  v-for="module in externalModules"
+                  :key="module.id"
+                  :value="module.id"
+                  :disabled="!module.active"
+                >
+                  {{ module.name }} {{ !module.active ? '(inactive)' : '' }}
                 </option>
               </optgroup>
             </select>
@@ -94,16 +104,16 @@ export default {
   props: {
     show: {
       type: Boolean,
-      default: false
+      default: false,
     },
     appData: {
       type: Object,
-      default: null
+      default: null,
     },
     preselectedModule: {
       type: Object,
-      default: null
-    }
+      default: null,
+    },
   },
   data() {
     return {
@@ -118,7 +128,7 @@ export default {
       loading: false,
       error: null,
       taskResult: null,
-      externalModuleId: null
+      externalModuleId: null,
     };
   },
   computed: {
@@ -131,7 +141,7 @@ export default {
       } else {
         return !this.selectedChain || !this.selectedApp;
       }
-    }
+    },
   },
   watch: {
     show(newVal) {
@@ -152,7 +162,7 @@ export default {
           this.selectedModule = newVal.id;
         }
       }
-    }
+    },
   },
   methods: {
     initialize() {
@@ -160,11 +170,11 @@ export default {
       this.fetchModules();
       this.fetchChains();
       this.fetchApps();
-      
+
       if (this.appData && this.appData.file_hash) {
         this.selectedApp = this.appData.file_hash;
       }
-      
+
       if (this.preselectedModule) {
         if (this.preselectedModule.isExternal) {
           this.externalModuleId = this.preselectedModule.id;
@@ -186,7 +196,7 @@ export default {
         const response = await fetch('/api/v1/modules/all');
         if (!response.ok) throw new Error('Failed to fetch modules');
         const allModules = await response.json();
-        
+
         this.internalModules = allModules.filter(m => !m.is_external);
         this.externalModules = allModules.filter(m => m.is_external);
       } catch (err) {
@@ -226,10 +236,10 @@ export default {
     async runProcess() {
       this.error = null;
       this.taskResult = null;
-      
+
       try {
         this.loading = true;
-        
+
         if (this.runType === 'module') {
           await this.runModule();
         } else {
@@ -244,33 +254,33 @@ export default {
     },
     async runModule() {
       if (!this.selectedModule) {
-        throw new Error("No module selected");
+        throw new Error('No module selected');
       }
-      
+
       const selectedModule = [...this.internalModules, ...this.externalModules].find(m => m.id === this.selectedModule);
       if (!selectedModule) {
-        throw new Error("Selected module not found");
+        throw new Error('Selected module not found');
       }
-      
+
       const url = `/api/v1/modules/${selectedModule.id}/run`;
       const requestBody = {
         file_hash: this.selectedApp,
-        is_external: selectedModule.is_external
+        is_external: selectedModule.is_external,
       };
-      
+
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.detail || 'Failed to run module');
       }
-      
+
       this.taskResult = await response.json();
       this.$emit('task-submitted', this.taskResult);
     },
@@ -279,23 +289,23 @@ export default {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ file_hash: this.selectedApp })
+        body: JSON.stringify({ file_hash: this.selectedApp }),
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.detail || 'Failed to run chain');
       }
-      
+
       this.taskResult = await response.json();
       this.$emit('task-submitted', this.taskResult);
     },
     closeModal() {
       this.$emit('close');
-    }
-  }
+    },
+  },
 };
 </script>
 

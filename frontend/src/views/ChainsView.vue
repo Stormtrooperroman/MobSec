@@ -7,49 +7,33 @@
         Create Chain
       </button>
     </div>
-    
+
     <div class="chains-grid">
       <div v-for="chain in chains" :key="chain.name" class="chain-card">
         <div class="chain-header">
           <h3 class="chain-title">{{ chain.name }}</h3>
-          <div class="modules-count">
-            {{ chain.modules.length }} modules
-          </div>
+          <div class="modules-count">{{ chain.modules.length }} modules</div>
         </div>
-        
+
         <p class="chain-description">{{ chain.description }}</p>
-        
+
         <div class="modules-list">
-          <div v-for="module in chain.modules" 
-               :key="module.module.name" 
-               class="module-item">
+          <div v-for="module in chain.modules" :key="module.module.name" class="module-item">
             <span class="module-order">#{{ module.order }}</span>
             <span class="module-name">{{ module.module.name }}</span>
           </div>
         </div>
 
         <div class="button-container">
-          <button 
-            @click="exportChain(chain)"
-            class="card-button export-button"
-            title="Export chain configuration"
-          >
+          <button @click="exportChain(chain)" class="card-button export-button" title="Export chain configuration">
             <span class="button-icon">📤</span>
             Export
           </button>
-          <button 
-            @click="editChain(chain)"
-            class="card-button edit-button"
-            title="Edit chain configuration"
-          >
+          <button @click="editChain(chain)" class="card-button edit-button" title="Edit chain configuration">
             <span class="button-icon">✏️</span>
             Edit
           </button>
-          <button 
-            @click="confirmDelete(chain)"
-            class="card-button delete-button"
-            title="Delete chain"
-          >
+          <button @click="confirmDelete(chain)" class="card-button delete-button" title="Delete chain">
             <span class="button-icon">🗑️</span>
             Delete
           </button>
@@ -57,7 +41,7 @@
       </div>
     </div>
 
-    <CreateChainModal 
+    <CreateChainModal
       :is-open="isModalOpen"
       :edit-chain="selectedChain"
       @close="closeModal"
@@ -70,12 +54,8 @@
         <h3>Delete Chain</h3>
         <p>Are you sure you want to delete "{{ chainToDelete?.name }}"?</p>
         <div class="delete-modal-buttons">
-          <button @click="deleteChain" class="confirm-delete-button">
-            Delete
-          </button>
-          <button @click="cancelDelete" class="cancel-button">
-            Cancel
-          </button>
+          <button @click="deleteChain" class="confirm-delete-button">Delete</button>
+          <button @click="cancelDelete" class="cancel-button">Cancel</button>
         </div>
       </div>
     </div>
@@ -83,12 +63,12 @@
 </template>
 
 <script>
-import CreateChainModal from './CreateChainModal.vue'
+import CreateChainModal from './CreateChainModal.vue';
 
 export default {
   name: 'ChainView',
   components: {
-    CreateChainModal
+    CreateChainModal,
   },
   data() {
     return {
@@ -96,8 +76,8 @@ export default {
       isModalOpen: false,
       selectedChain: null,
       showDeleteConfirm: false,
-      chainToDelete: null
-    }
+      chainToDelete: null,
+    };
   },
   methods: {
     async fetchChains() {
@@ -140,9 +120,9 @@ export default {
     async deleteChain() {
       try {
         const response = await fetch(`/api/v1/chains/${this.chainToDelete.name}`, {
-          method: 'DELETE'
+          method: 'DELETE',
         });
-        
+
         if (response.ok) {
           await this.fetchChains();
           this.showDeleteConfirm = false;
@@ -158,28 +138,28 @@ export default {
       try {
         const response = await fetch(`/api/v1/chains/${chain.name}/export`);
         if (!response.ok) throw new Error('Export failed');
-        
+
         const blob = await response.blob();
-        
+
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = `${chain.name}.yaml`;
-        
+
         document.body.appendChild(a);
         a.click();
-        
+
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
       } catch (error) {
         console.error('Error exporting chain:', error);
       }
-    }
+    },
   },
   mounted() {
     this.fetchChains();
-  }
-}
+  },
+};
 </script>
 
 <style scoped>
