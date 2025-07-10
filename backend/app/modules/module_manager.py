@@ -190,13 +190,14 @@ class ModuleManager:
         """Stop a single module asynchronously"""
         try:
             loop = asyncio.get_event_loop()
+            container = self.docker_client.containers.get(f"mobsec_{module_name}")
             await loop.run_in_executor(
                 None,
-                lambda: self.docker_client.containers.get(f"mobsec_{module_name}").stop(timeout=2)
+                lambda: container.stop(timeout=2)
             )
             await loop.run_in_executor(
                 None,
-                lambda: self.docker_client.containers.get(f"mobsec_{module_name}").remove(force=True)
+                lambda: container.remove(force=True)
             )
         except docker.errors.NotFound:
             pass

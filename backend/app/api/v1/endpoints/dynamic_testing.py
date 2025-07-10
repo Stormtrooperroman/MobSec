@@ -13,10 +13,18 @@ logger = logging.getLogger(__name__)
 @router.get("/devices")
 async def get_devices() -> List[Dict[str, str]]:
     """
-    Returns a list of available Android devices
+    Returns a list of available Android devices (both physical and emulated)
     """
-    device_manager = DeviceManager()
-    return await device_manager.get_devices()
+    devices = []
+    
+    # Get all devices from DeviceManager (includes both physical and emulated)
+    try:
+        device_manager = DeviceManager()
+        devices = await device_manager.get_devices()
+    except Exception as e:
+        logger.error(f"Error getting devices: {str(e)}")
+    
+    return devices
 
 @router.post("/device/{device_id}/start")
 async def start_device_server(device_id: str):

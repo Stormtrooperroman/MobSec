@@ -92,6 +92,65 @@
         </div>
       </div>
     </div>
+
+    <div class="modules-section">
+      <h3 class="section-title">Emulators</h3>
+      <div class="modules-grid">
+        <div v-for="emulator in emulators" :key="emulator.name" class="module-card emulator-card">
+          <div class="module-content">
+            <div class="module-header">
+              <h3>{{ emulator.name }}</h3>
+              <div class="status-container">
+                <span :class="['status-badge', emulator.status === 'running' ? 'active' : 'inactive']">
+                  <font-awesome-icon :icon="emulator.status === 'running' ? 'check-circle' : 'times-circle'" />
+                  {{ emulator.status === 'running' ? 'Running' : 'Stopped' }}
+                </span>
+              </div>
+            </div>
+            <div class="module-details">
+              <div class="detail-item">
+                <span class="detail-label">Name:</span>
+                <span class="detail-value">{{ emulator.name }}</span>
+              </div>
+              <div class="detail-item" v-if="emulator.config && emulator.config.description">
+                <span class="detail-label">Description:</span>
+                <span class="detail-value">{{ emulator.config.description }}</span>
+              </div>
+              <div class="detail-item" v-if="emulator.ports && Object.keys(emulator.ports).length > 0">
+                <span class="detail-label">Ports:</span>
+                <span class="detail-value">
+                  <span v-for="(port, protocol) in emulator.ports" :key="protocol" class="port-badge">
+                    {{ protocol }}: {{ port }}
+                  </span>
+                </span>
+              </div>
+              <div class="detail-item" v-if="emulator.container_id">
+                <span class="detail-label">Container:</span>
+                <span class="detail-value">{{ emulator.container_id.substring(0, 12) }}</span>
+              </div>
+              <div class="detail-item" v-if="emulator.status === 'running'">
+                <span class="detail-label">Status:</span>
+                <span class="detail-value">{{ emulator.status }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="button-container">
+            <button
+              class="action-button"
+              :class="emulator.status === 'running' ? 'warning' : 'success'"
+              @click="toggleEmulator(emulator)"
+              :disabled="emulator.isLoading"
+            >
+              <font-awesome-icon
+                :icon="emulator.isLoading ? 'spinner' : emulator.status === 'running' ? 'stop' : 'play'"
+                :spin="emulator.isLoading"
+              />
+              {{ emulator.status === 'running' ? 'Stop' : 'Start' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -102,6 +161,7 @@ export default {
     return {
       modules: [],
       externalModules: [],
+      emulators: [],
     };
   },
   methods: {
@@ -161,10 +221,51 @@ export default {
         module.isRebuilding = false;
       }
     },
+    async fetchEmulators() {
+      try {
+        const response = await fetch('/api/v1/emulators/list');
+        const data = await response.json();
+        this.emulators = data.emulators.map(emulator => ({
+          ...emulator,
+          isLoading: false,
+        }));
+      } catch (error) {
+        console.error('Error fetching emulators:', error);
+      }
+    },
+    async toggleEmulator(emulator) {
+      if (emulator.isLoading) return;
+
+      emulator.isLoading = true;
+      try {
+        const endpoint = emulator.status === 'running' ? '/api/v1/emulators/stop' : '/api/v1/emulators/start';
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ name: emulator.name }),
+        });
+        
+        if (response.ok) {
+          await this.fetchEmulators();
+        } else {
+          const error = await response.json();
+          console.error('Error toggling emulator:', error);
+        }
+      } catch (error) {
+        console.error('Error toggling emulator:', error);
+      } finally {
+        emulator.isLoading = false;
+      }
+    },
   },
   mounted() {
     this.fetchModules();
     this.fetchExternalModules();
+    this.fetchEmulators();
+    
+
   },
 };
 </script>
@@ -373,10 +474,29 @@ export default {
 .detail-label {
   font-weight: 500;
   color: #4b5563;
-  width: 80px;
+  width: 100px;
 }
 
 .detail-value {
   color: #1f2937;
 }
+
+/* Emulator specific styles */
+.emulator-card {
+  border-left: 4px solid #f59e0b;
+  background-color: #fffbeb;
+}
+
+.port-badge {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 8px;
+  font-size: 12px;
+  background-color: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+
 </style>

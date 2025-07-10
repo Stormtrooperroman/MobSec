@@ -5,6 +5,7 @@ from app.api.v1.router import api_router
 from app.core.app_manager import AsyncStorageService
 from app.modules.chain_manager import ChainManager
 from app.modules.module_manager import ModuleManager
+from app.dynamic.emulator_manager import EmulatorManager
 from app.report_generator import start_report_generator, stop_report_generator
 from app.core.settings_db import init_db
 import os
@@ -16,6 +17,11 @@ logger = logging.getLogger(__name__)
 module_manager = ModuleManager(
     redis_url=os.getenv('REDIS_URL'),
     modules_path=os.getenv('MODULES_PATH')
+)
+
+emulator_manager = EmulatorManager(
+    redis_url=os.getenv('REDIS_URL'),
+    emulators_path=os.getenv('EMULATORS_PATH', '/app/emulators')
 )
 
 app = FastAPI(
@@ -39,14 +45,16 @@ app.add_middleware(
 app.include_router(api_router)  # HTTP endpoints (includes WebSocket endpoints)
 
 async def initialize_background_services():
-    """Initialize modules and chains in the background."""
+    """Initialize modules, chains, and emulators in the background."""
     try:
         if settings.EXTERNAL_MODULES_ENABLED:
             from app.modules.external_module_registry import module_registry
-            logger.info("External modules registry initialized")
             
         await module_manager.start_modules()
         await chain_manager.start()
+        
+        await emulator_manager.start_active_emulators()
+        
     except Exception as e:
         logger.error(f"Error during background initialization: {e}")
 
@@ -60,12 +68,26 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    await stop_report_generator()
-    await module_manager.cleanup()
+    logger.info("Starting shutdown sequence...")
     
-    if settings.EXTERNAL_MODULES_ENABLED:
-        from app.modules.external_module_registry import module_registry
-        module_registry.shutdown()
+    try:
+        await emulator_manager.cleanup()
+        
+        await stop_report_generator()
+        
+        await module_manager.cleanup()
+        
+
+        
+        if settings.EXTERNAL_MODULES_ENABLED:
+            from app.modules.external_module_registry import module_registry
+            module_registry.shutdown()
+            logger.info("External modules registry shutdown")
+            
+        logger.info("Shutdown sequence completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Error during shutdown: {str(e)}")
 
 @app.get("/health")
 async def health_check():

@@ -1,0 +1,14 @@
+name: redroid_android_13
+version: 0.1
+description: Redroid Android 13 emulator
+android_version: 13.0.0
+active: true
+features:
+  - adb
+  - frida
+  - scrcpy
+ports:
+  adb: 5555
+  frida: 27042
+  scrcpy: 8886
+

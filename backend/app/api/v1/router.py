@@ -5,6 +5,7 @@ from app.api.v1.endpoints import chains
 from app.api.v1.endpoints import settings as settings_endpoints
 from app.api.v1.endpoints import external_modules
 from app.api.v1.endpoints import dynamic_testing
+from app.api.v1.endpoints import emulators
 
 api_router = APIRouter()
 
@@ -46,5 +47,12 @@ api_router.include_router(
     dynamic_testing.router,
     prefix="/api/v1/dynamic-testing",
     tags=["dynamic-testing"]
+)
+
+api_router.include_router(
+    emulators.router,
+    prefix="/api/v1/emulators",
+    tags=["Emulators"],
+    responses={404: {"description": "Not found"}},
 )
 

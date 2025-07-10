@@ -325,9 +325,9 @@ export class StreamClientScrcpy
     player.setParent(video);
     player.pause();
 
-    const dynamicTesting = document.querySelector('div.dynamic-testing');
-    if (dynamicTesting) {
-      dynamicTesting.appendChild(deviceView);
+    const deviceStreamer = document.querySelector('div.device-streamer');
+    if (deviceStreamer) {
+      deviceStreamer.appendChild(deviceView);
     } else {
       document.body.appendChild(deviceView);
     }

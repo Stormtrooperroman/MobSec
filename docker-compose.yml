@@ -4,6 +4,7 @@ services:
   backend:
     build: ./backend
     container_name: backend
+    stop_grace_period: 30s
     depends_on:
       - db
       - redis
@@ -12,9 +13,11 @@ services:
       - REDIS_URL=redis://redis:6379
       - MODULES_PATH=/app/modules
       - EXTERNAL_MODULES_ENABLED=true
+      - EMULATORS_PATH=/app/emulators
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./modules:/app/modules
+      - ./emulators:/app/emulators
       - shared_data:/shared_data
     ports:
       - "8000:8000"
@@ -58,21 +61,7 @@ services:
     networks:
       - app_network
 
-  dynamic-testing:
-    build:
-      context: ./dynamic_testing
-      dockerfile: docker/Dockerfile.redroid
-    privileged: true
-    ports:
-      - "5555:5555"  # ADB
-      - "8886:8886"
-      - "27042:27042"  # Frida
-    environment:
-      - ANDROID_VERSION=13.0.0
-    depends_on:
-      - backend
-    networks:
-      - app_network
+
 
 
 networks:

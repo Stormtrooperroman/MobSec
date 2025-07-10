@@ -11,9 +11,10 @@
     <div class="tools-section" v-if="availableTools.length > 0">
       <h3>Available Tools:</h3>
       <div class="tools-list">
-        <div v-for="tool in availableTools" :key="tool.ACTION" class="tool-item" @click="openTool(tool)">
+        <div v-for="tool in availableTools" :key="tool.ACTION" 
+             :class="['tool-item', { 'disabled': isToolDisabled(tool) }]" 
+             @click="!isToolDisabled(tool) && openTool(tool)">
           <span class="tool-name">{{ tool.title || tool.ACTION }}</span>
-          <span class="tool-action">{{ tool.ACTION }}</span>
         </div>
       </div>
     </div>
@@ -113,9 +114,11 @@
 
 <script>
 import '@/assets/app.css';
+import '@/assets/devicelist.css';
 import '@/ws-scrcpy/style/morebox.css';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
+import { AttachAddon } from 'xterm-addon-attach';
 import 'xterm/css/xterm.css';
 
 import { StreamClientScrcpy } from '@/ws-scrcpy/app/googDevice/client/StreamClientScrcpy';
@@ -154,8 +157,12 @@ export default {
       currentShellClient: null,
       fitAddon: null,
       resizeHandler: null,
+      preventPageScrollHandler: null,
+      terminalCopyHandler: null,
+      terminalInitializing: false,
       showFileManager: false,
       currentFileManagerClient: null,
+      fileManagerScrollHandler: null,
       fileManagerData: {
         currentPath: '/data/local/tmp',
         entries: [],
@@ -177,15 +184,33 @@ export default {
   },
   beforeUnmount() {
     if (this.streamClient) {
-      this.streamClient.stop();
+      if (this.streamClient.streamReceiver) {
+        this.streamClient.streamReceiver.stop();
+      }
+      if (this.streamClient.player) {
+        this.streamClient.player.stop();
+      }
+      this.cleanupStreamElements();
     }
     this.closeTerminal();
     this.closeFileManager();
     if (this.resizeHandler) {
       window.removeEventListener('resize', this.resizeHandler);
+      this.resizeHandler = null;
     }
+    this.terminalInitializing = false;
   },
   methods: {
+    isToolDisabled(tool) {
+      if (tool.ACTION === 'shell') {
+        return this.showTerminal || this.terminalInitializing;
+      }
+      if (tool.ACTION === 'file_manager' || tool.title === 'File Manager') {
+        return this.showFileManager;
+      }
+      return false;
+    },
+    
     async initializeComponents() {
       try {
         let retries = 3;
@@ -301,101 +326,22 @@ export default {
 
     async openTool(tool) {
       try {
+        if (this.isToolDisabled(tool)) {
+          return;
+        }
+        
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsHost = window.location.host;
         
         if (tool.ACTION === 'shell') {
+          if (this.showTerminal) {
+            this.closeTerminal();
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+          
           this.showTerminal = true;
           await this.$nextTick();
           
-          this.terminal = new Terminal({
-            cursorBlink: true,
-            fontSize: 14,
-            theme: {
-              background: '#1e1e1e',
-              foreground: '#ffffff'
-            },
-            convertEol: true,
-            fontFamily: 'monospace',
-            rows: 20,
-            cols: 100,
-            scrollback: 10000,
-            allowTransparency: true,
-            tabStopWidth: 4,
-            screenReaderMode: 'off',
-            windowsMode: false,
-            scrollSensitivity: 1,
-            fastScrollSensitivity: 5,
-            fastScrollModifier: 'alt',
-            scrollOnUserInput: true,
-            scrollOnOutput: true,
-            rightClickSelectsWord: false,
-            fastScrollModifier: 'alt',
-            macOptionIsMeta: false,
-            macOptionClickForcesSelection: false
-          });
-
-          this.fitAddon = new FitAddon();
-          this.terminal.loadAddon(this.fitAddon);
-          
-          this.terminal.open(this.$refs.terminalContainer);
-          this.fitAddon.fit();
-
-            setTimeout(() => {
-              this.fitAddon.fit();
-              this.terminal.scrollToBottom();
-            }, 100);
-
-            setTimeout(() => {
-              this.terminal.scrollToBottom();
-            }, 100);
-
-            this.terminal.onKey(({ key, domEvent }) => {
-              
-              if (key === '\t') {
-                domEvent.preventDefault();
-                if (shellWs.readyState === WebSocket.OPEN) {
-                  shellWs.send(key);
-                  setTimeout(() => {
-                    this.terminal.scrollToBottom();
-                  }, 10);
-                }
-              } else {
-                setTimeout(() => {
-                  this.terminal.scrollToBottom();
-                }, 10);
-              }
-            });
-
-            const resizeHandler = () => {
-              if (!this.terminal || !this.fitAddon) return;
-              
-              try {
-                this.fitAddon.fit();
-                const { rows, cols } = this.terminal;
-                
-                if (this.currentShellClient && this.currentShellClient.readyState === WebSocket.OPEN) {
-                  this.currentShellClient.send(JSON.stringify({
-                    type: 'shell',
-                    data: {
-                      type: 'resize',
-                      rows,
-                      cols
-                    }
-                  }));
-                }
-                
-                setTimeout(() => {
-                  this.terminal.scrollToBottom();
-                }, 50);
-              } catch (error) {
-                console.warn('Error in resize handler:', error);
-              }
-            };
-
-            window.addEventListener('resize', resizeHandler);
-            this.resizeHandler = resizeHandler;
-
           const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
           const shellWsUrl = `${wsProtocol}//${window.location.hostname}:${port}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=shell`;
           
@@ -408,7 +354,100 @@ export default {
           shellWs.binaryType = 'arraybuffer';
 
           shellWs.addEventListener('open', () => {
-            this.terminal.clear();
+            try {
+                            if (!this.$refs.terminalContainer) {
+                console.error('Terminal container not found');
+                return;
+              }
+              
+              if (this.terminalInitializing) {
+                console.warn('Terminal is already initializing');
+                return;
+              }
+              
+              this.terminalInitializing = true;
+              
+              this.$refs.terminalContainer.innerHTML = '';
+              
+              this.terminal = new Terminal({
+                cursorBlink: true,
+                fontSize: 14,
+                theme: {
+                  background: '#1e1e1e',
+                  foreground: '#ffffff'
+                },
+                convertEol: true,
+                fontFamily: 'monospace',
+                rows: 20,
+                cols: 100,
+                scrollback: 10000,
+                allowTransparency: true,
+                tabStopWidth: 4,
+                screenReaderMode: 'off',
+                windowsMode: false,
+                scrollSensitivity: 1,
+                fastScrollSensitivity: 5,
+                fastScrollModifier: 'alt',
+                scrollOnUserInput: true,
+                scrollOnOutput: true,
+                rightClickSelectsWord: false,
+                macOptionIsMeta: false,
+                macOptionClickForcesSelection: false,
+                scrollbarWidth: 12
+              });
+
+              try {
+                if (shellWs.readyState === WebSocket.OPEN) {
+                  const attachAddon = new AttachAddon(shellWs);
+                  attachAddon.activate(this.terminal);
+                } else {
+                  console.warn('WebSocket not ready for AttachAddon');
+                }
+              } catch (error) {
+                console.warn('Error loading AttachAddon:', error);
+              }
+              
+              
+              this.fitAddon = new FitAddon();
+              this.fitAddon.activate(this.terminal);
+
+                          
+              this.terminal.open(this.$refs.terminalContainer);
+              
+              if (this.fitAddon) {
+                this.fitAddon.fit();
+              }
+              
+            } catch (error) {
+              console.error('Error initializing terminal:', error);
+              this.terminalInitializing = false;
+              this.closeTerminal();
+              return;
+            }
+            
+            this.terminalInitializing = false;
+            
+            const terminalContainer = this.$refs.terminalContainer;
+            this.preventPageScrollHandler = (event) => {
+              const viewport = terminalContainer.querySelector('.xterm-viewport');
+              if (!viewport) return;
+              
+              const { scrollTop, scrollHeight, clientHeight } = viewport;
+              const isAtTop = scrollTop === 0;
+              const isAtBottom = scrollTop + clientHeight >= scrollHeight;
+              
+              if (event.deltaY < 0 && isAtTop) {
+                event.preventDefault();
+                event.stopPropagation();
+              } else if (event.deltaY > 0 && isAtBottom) {
+                event.preventDefault();
+                event.stopPropagation();
+              } else if (!isAtTop && !isAtBottom) {
+                event.stopPropagation();
+              }
+            };
+            
+            terminalContainer.addEventListener('wheel', this.preventPageScrollHandler, { passive: false });
             
             const { rows, cols } = this.terminal;
             shellWs.send(JSON.stringify({
@@ -420,68 +459,82 @@ export default {
               }
             }));
             
-            this.terminal.onData((data) => {
-              if (shellWs.readyState === WebSocket.OPEN) {
-                
-                shellWs.send(data);
-                setTimeout(() => {
-                  this.terminal.scrollToBottom();
-                }, 10);
-              } else {
-                console.error('WebSocket not open, state:', shellWs.readyState);
-              }
-            });
-            
-            shellWs.addEventListener('message', (event) => {
-              if (event.data instanceof ArrayBuffer) {
-                const decoder = new TextDecoder();
-                const text = decoder.decode(event.data);
-                this.terminal.write(text);
-                setTimeout(() => {
-                  this.terminal.scrollToBottom();
-                }, 10);
-                this.terminal.focus();
-              } else {
-                try {
-                  const message = JSON.parse(event.data);
-                  if (message.type === 'shell' && message.data && message.data.output) {
-                    this.terminal.write(message.data.output);
-                    setTimeout(() => {
-                      this.terminal.scrollToBottom();
-                    }, 10);
-                    this.terminal.focus();
-                  }
-                } catch (e) {
-                  this.terminal.write(event.data);
-                  setTimeout(() => {
-                    this.terminal.scrollToBottom();
-                  }, 10);
-                  this.terminal.focus();
-                }
-              }
-            });
-            
             this.terminal.focus();
+            
+ 
+            this.terminalCopyHandler = (event) => {
+              if (event.ctrlKey && event.shiftKey && event.key === 'C') {
+                event.preventDefault();
+                event.stopPropagation();
+                
+                const selection = this.terminal.getSelection();
+                if (selection) {
+                  navigator.clipboard.writeText(selection).then(() => {
+                    // Text copied successfully
+                  }).catch(() => {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = selection;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                  });
+                }
+              } else if (event.ctrlKey && event.shiftKey && event.key === 'V') {
+                event.preventDefault();
+                event.stopPropagation();
+                
+                navigator.clipboard.readText().then(text => {
+                  if (text && this.currentShellClient && this.currentShellClient.readyState === WebSocket.OPEN) {
+                    this.terminal.write(text);
+                  }
+                }).catch(() => {
+                  // Failed to read clipboard
+                });
+              }
+            };
+            
+            terminalContainer.addEventListener('keydown', this.terminalCopyHandler);
+            
+            const resizeHandler = () => {
+              if (!this.terminal || !this.fitAddon) return;
+              
+              try {
+                this.fitAddon.fit();
+                const { rows, cols } = this.terminal;
+                
+                if (shellWs.readyState === WebSocket.OPEN) {
+                  shellWs.send(JSON.stringify({
+                    type: 'shell',
+                    data: {
+                      type: 'resize',
+                      rows,
+                      cols
+                    }
+                  }));
+                }
+              } catch (error) {
+                console.warn('Error in resize handler:', error);
+              }
+            };
+
+            window.addEventListener('resize', resizeHandler);
+            this.resizeHandler = resizeHandler;
           });
 
           shellWs.addEventListener('close', (event) => {
             console.log('Shell WebSocket closed:', event.code, event.reason);
-            if (this.terminal) {
+            if (this.terminal && !this.terminal.isDisposed) {
               this.terminal.write('\r\n\x1b[31mConnection closed. Press Enter to reconnect.\x1b[0m\r\n');
             }
 
-            if (event.code !== 1000 && this.showTerminal) {
-              setTimeout(() => {
-                if (this.showTerminal) {
-                  this.openTool({ ACTION: 'shell', title: 'Shell' });
-                }
-              }, 3000);
-            }
           });
 
           shellWs.addEventListener('error', (error) => {
             console.error('Shell WebSocket error:', error);
-            this.terminal.write('\r\n\x1b[31mConnection error. Press Enter to reconnect.\x1b[0m\r\n');
+            if (this.terminal && !this.terminal.isDisposed) {
+              this.terminal.write('\r\n\x1b[31mConnection error. Press Enter to reconnect.\x1b[0m\r\n');
+            }
           });
 
           this.currentShellClient = shellWs;
@@ -489,6 +542,27 @@ export default {
         } else if (tool.ACTION === ACTION.FILE_LISTING || tool.title === 'File Manager') {
           this.showFileManager = true;
           await this.$nextTick();
+          
+          const fileManagerContent = this.$el.querySelector('.file-manager-content');
+          if (fileManagerContent) {
+            this.fileManagerScrollHandler = (event) => {
+              const { scrollTop, scrollHeight, clientHeight } = fileManagerContent;
+              const isAtTop = scrollTop === 0;
+              const isAtBottom = scrollTop + clientHeight >= scrollHeight;
+              
+              if (event.deltaY < 0 && isAtTop) {
+                event.preventDefault();
+                event.stopPropagation();
+              } else if (event.deltaY > 0 && isAtBottom) {
+                event.preventDefault();
+                event.stopPropagation();
+              } else if (!isAtTop && !isAtBottom) {
+                event.stopPropagation();
+              }
+            };
+            
+            fileManagerContent.addEventListener('wheel', this.fileManagerScrollHandler, { passive: false });
+          }
           
           const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
           const fileManagerWsUrl = `${wsProtocol}//${window.location.hostname}:${port}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=file_manager`;
@@ -556,7 +630,7 @@ export default {
 
       } catch (error) {
         console.error(`Error opening tool ${tool.title}:`, error);
-        if (this.terminal) {
+        if (this.terminal && !this.terminal.isDisposed) {
           this.terminal.write(`\r\nError: ${error.message}\r\n`);
         }
       }
@@ -573,6 +647,36 @@ export default {
         this.resizeHandler = null;
       }
       
+      if (this.preventPageScrollHandler && this.$refs.terminalContainer) {
+        this.$refs.terminalContainer.removeEventListener('wheel', this.preventPageScrollHandler);
+        this.preventPageScrollHandler = null;
+      }
+      
+      if (this.terminalCopyHandler && this.$refs.terminalContainer) {
+        this.$refs.terminalContainer.removeEventListener('keydown', this.terminalCopyHandler);
+        this.terminalCopyHandler = null;
+      }
+      
+      if (this.terminal) {
+        try {
+          this.terminal.clear();
+          this.terminal.dispose();
+        } catch (error) {
+          console.warn('Error disposing terminal:', error);
+        }
+        this.terminal = null;
+      }
+      
+      this.fitAddon = null;
+      
+      if (this.$refs.terminalContainer) {
+        this.$refs.terminalContainer.innerHTML = '';
+        while (this.$refs.terminalContainer.firstChild) {
+          this.$refs.terminalContainer.removeChild(this.$refs.terminalContainer.firstChild);
+        }
+      }
+      
+      this.terminalInitializing = false;
       
       this.showTerminal = false;
     },
@@ -581,6 +685,14 @@ export default {
       if (this.currentFileManagerClient) {
         this.currentFileManagerClient.close();
         this.currentFileManagerClient = null;
+      }
+      
+      if (this.fileManagerScrollHandler) {
+        const fileManagerContent = this.$el?.querySelector('.file-manager-content');
+        if (fileManagerContent) {
+          fileManagerContent.removeEventListener('wheel', this.fileManagerScrollHandler);
+        }
+        this.fileManagerScrollHandler = null;
       }
       
       this.showFileManager = false;
@@ -786,10 +898,45 @@ export default {
       }
     },
     
+    cleanupStreamElements() {
+      const container = this.$el || document.querySelector('.dynamic-testing');
+      if (!container) return;
+      
+      const deviceViews = container.querySelectorAll('.device-view');
+      deviceViews.forEach(element => {
+        if (element.parentElement) {
+          element.parentElement.removeChild(element);
+        }
+      });
+      
+      const moreBoxes = container.querySelectorAll('.more-box');
+      moreBoxes.forEach(element => {
+        if (element.parentElement) {
+          element.parentElement.removeChild(element);
+        }
+      });
+      
+      const bodyDeviceViews = document.body.querySelectorAll('.device-view');
+      bodyDeviceViews.forEach(element => {
+        const nameBox = element.querySelector('.text-with-shadow');
+        if (nameBox && nameBox.textContent && nameBox.textContent.includes(this.deviceId)) {
+          if (element.parentElement) {
+            element.parentElement.removeChild(element);
+          }
+        }
+      });
+    },
+
     async refreshDevice() {
       try {
         if (this.streamClient) {
-          this.streamClient.stop();
+          if (this.streamClient.streamReceiver) {
+            this.streamClient.streamReceiver.stop();
+          }
+          if (this.streamClient.player) {
+            this.streamClient.player.stop();
+          }
+          this.cleanupStreamElements();
           this.streamClient = null;
         }
         this.isConnected = false;
@@ -885,7 +1032,7 @@ export default {
 .tool-item {
   display: flex;
   align-items: center;
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 0.5rem;
   border: 1px solid #dee2e6;
   cursor: pointer;
   border-radius: 4px;
@@ -894,13 +1041,18 @@ export default {
   background-color: #fff;
 }
 
-.tool-item:hover {
+.tool-item:hover:not(.disabled) {
   background-color: #e9ecef;
+}
+
+.tool-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: #f8f9fa;
 }
 
 .tool-name {
   font-weight: bold;
-  margin-right: 0.5rem;
 }
 
 .tool-action {
@@ -909,6 +1061,7 @@ export default {
 
 .terminal-section {
   margin-top: 1rem;
+  margin-bottom: 2rem;
   background: #1e1e1e;
   border-radius: 8px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -948,10 +1101,11 @@ export default {
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
   overflow: hidden;
-  min-height: 400px;
-  max-height: 400px;
+  min-height: 300px;
+  max-height: 300px;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .terminal-container .xterm {
@@ -961,28 +1115,59 @@ export default {
   overflow: hidden;
 }
 
+.terminal-container .xterm .xterm-screen {
+  scrollbar-width: thin;
+  scrollbar-color: #666 #333;
+}
+
 .terminal-container .xterm-viewport {
   overflow-y: scroll !important;
   overflow-x: hidden !important;
   scrollbar-width: thin;
   scrollbar-color: #666 #333;
+  scrollbar-gutter: stable;
 }
 
 .terminal-container .xterm-viewport::-webkit-scrollbar {
   width: 12px;
+  visibility: visible !important;
+  display: block !important;
 }
 
 .terminal-container .xterm-viewport::-webkit-scrollbar-track {
   background: #333;
+  border-radius: 6px;
 }
 
 .terminal-container .xterm-viewport::-webkit-scrollbar-thumb {
   background: #666;
   border-radius: 6px;
+  min-height: 30px;
 }
 
 .terminal-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
   background: #888;
+}
+
+.terminal-container .xterm-viewport::-webkit-scrollbar-thumb:active {
+  background: #999;
+}
+
+/* Принудительное отображение полосы прокрутки */
+.terminal-container .xterm-viewport {
+  overflow-y: scroll !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Для Firefox */
+.terminal-container .xterm-viewport {
+  scrollbar-width: thin !important;
+  scrollbar-color: #666 #333 !important;
+}
+
+/* Дополнительные стили для всегда видимой полосы прокрутки */
+.terminal-container .xterm-viewport::-webkit-scrollbar-corner {
+  background: #333;
 }
 
 .terminal-container .xterm-screen {
@@ -1017,6 +1202,7 @@ export default {
 
 .file-manager-section {
   margin-top: 1rem;
+  margin-bottom: 2rem;
   background: #f5f5f5;
   border-radius: 8px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -1135,7 +1321,7 @@ export default {
   padding: 15px;
   background: #fff;
   overflow-y: auto;
-  max-height: 400px;
+  max-height: 300px;
 }
 
 .file-table {
@@ -1261,6 +1447,7 @@ export default {
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
+  transition: all 0.2s ease;
 }
 
 .role-toggle-btn:hover:not(:disabled) {
@@ -1274,6 +1461,13 @@ export default {
 
 .role-toggle-btn.root-mode {
   background-color: #4caf50;
+  color: white;
+  border-color: #4caf50;
+}
+
+.role-toggle-btn.root-mode:hover:not(:disabled) {
+  background-color: #45a049;
+  border-color: #45a049;
   color: white;
 }
 </style>

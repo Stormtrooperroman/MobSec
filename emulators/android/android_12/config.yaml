@@ -1,0 +1,14 @@
+name: redroid_android_12
+version: 0.1
+description: Redroid Android 12 emulator
+android_version: 12.0.0
+active: false
+features:
+  - adb
+  - frida
+  - scrcpy
+ports:
+  adb: 5555
+  frida: 27042
+  scrcpy: 8886
+

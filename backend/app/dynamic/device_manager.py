@@ -28,18 +28,12 @@ class DeviceManager:
         """Continuous monitoring of connected devices"""
         while True:
             try:
-                # Try to connect to the device
-                connect_process = await asyncio.create_subprocess_exec(
-                    'adb', 'connect', 'mobsec-dynamic-testing-1:5555',
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                await connect_process.communicate()
-                
+                env = self._get_adb_env()
                 process = await asyncio.create_subprocess_exec(
                     'adb', 'devices', '-l',
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env
                 )
                 stdout, stderr = await process.communicate()
                 
@@ -53,7 +47,7 @@ class DeviceManager:
                 for line in lines:
                     if line.strip():
                         parts = line.split()
-                        if len(parts) >= 2:
+                        if len(parts) >= 2 and parts[1] == 'device':  # Only include ready devices
                             device = {
                                 'udid': parts[0],
                                 'status': parts[1],
@@ -63,7 +57,7 @@ class DeviceManager:
                 
                 await self._update_device_list(current_devices)
                 
-                await asyncio.sleep(1)
+                await asyncio.sleep(5)  # Less frequent monitoring
                 
             except Exception as e:
                 self.logger.error(f"Error monitoring devices: {e}")
@@ -87,20 +81,13 @@ class DeviceManager:
         Initializes the ADB server
         """
         try:
-            # Stop the server
-            stop_process = await asyncio.create_subprocess_exec(
-                'adb', 'kill-server',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await stop_process.communicate()
-            
-            await asyncio.sleep(2)
-            
+            # Just ensure ADB server is running
+            env = self._get_adb_env()
             start_process = await asyncio.create_subprocess_exec(
                 'adb', 'start-server',
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                env=env
             )
             stdout, stderr = await start_process.communicate()
             
@@ -108,59 +95,44 @@ class DeviceManager:
                 self.logger.error(f"Failed to start ADB server: {stderr.decode()}")
                 return False
                 
-            await asyncio.sleep(2)
-            
-            connect_process = await asyncio.create_subprocess_exec(
-                'adb', 'connect', 'mobsec-dynamic-testing-1:5555',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await connect_process.communicate()
-            
-            if connect_process.returncode != 0:
-                self.logger.error(f"Failed to connect to device: {stderr.decode()}")
-                return False
-                
-            await asyncio.sleep(1)
             return True
             
         except Exception as e:
             self.logger.error(f"Error initializing ADB: {str(e)}")
             return False
 
+    def _get_adb_env(self):
+        """Get environment variables for ADB commands"""
+        from app.dynamic.emulator_manager import EmulatorManager
+        env = EmulatorManager.get_adb_env()
+        return env
+
     async def get_devices(self) -> List[Dict[str, str]]:
         """
         Gets the list of connected Android devices
         """
         try:
-            await self._init_adb()
-            
-            connect_process = await asyncio.create_subprocess_exec(
-                'adb', 'connect', 'mobsec-dynamic-testing-1:5555',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await connect_process.communicate()
-            
-            await asyncio.sleep(1)
-            
+            env = self._get_adb_env()
             process = await asyncio.create_subprocess_exec(
                 'adb', 'devices', '-l',
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                env=env
             )
             stdout, stderr = await process.communicate()
             
             if process.returncode != 0:
                 self.logger.error(f"Failed to get devices: {stderr.decode()}")
                 return []
-                
+            
+            raw_output = stdout.decode()
+            
             devices = []
-            lines = stdout.decode().split('\n')[1:]
+            lines = raw_output.split('\n')[1:]
             for line in lines:
                 if line.strip():
                     parts = line.split()
-                    if len(parts) >= 2:
+                    if len(parts) >= 2 and parts[1] == 'device':
                         device = {
                             'udid': parts[0],
                             'status': parts[1],
@@ -181,11 +153,14 @@ class DeviceManager:
             return self.devices[device_id]
             
         devices = await self.get_devices()
+        
         for device_info in devices:
             if device_info['udid'] == device_id:
                 device = Device(device_info['udid'], device_info['status'])
                 self.devices[device_id] = device
                 return device
+        
+        self.logger.warning(f"Device '{device_id}' not found")
         return None
 
     async def remove_device(self, serial: str):

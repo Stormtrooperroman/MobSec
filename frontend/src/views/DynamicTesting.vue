@@ -3,21 +3,21 @@
     <h1>Dynamic Testing</h1>
     
     <div class="device-list" v-if="devices.length > 0">
-      <div v-for="device in devices" :key="device.id" class="device-card">
+      <div v-for="device in visibleDevices" :key="device.id" class="device-card">
           <div class="device-info">
           <h3>{{ device.name || device.id }}</h3>
           <p>Status: {{ device.status }}</p>
     </div>
 
         <div class="device-actions">
-          <v-btn
-            :color="device.isStreaming ? 'error' : 'primary'"
+          <button
+            :class="['device-btn', device.isStreaming ? 'btn-stop' : 'btn-start']"
             @click="toggleStream(device)"
-            :loading="device.isLoading"
-            :disabled="!device.id"
+            :disabled="device.isLoading || !device.id"
           >
+            <span v-if="device.isLoading" class="loading-spinner"></span>
             {{ device.isStreaming ? 'Stop' : 'Start' }}
-          </v-btn>
+          </button>
         </div>
 
         <device-streamer 
@@ -77,6 +77,17 @@ export default {
       isLoadingDevices: false
     };
   },
+  computed: {
+    visibleDevices() {
+      const streamingDevices = this.devices.filter(device => device.isStreaming);
+      
+      if (streamingDevices.length > 0) {
+        return streamingDevices;
+      }
+      
+      return this.devices;
+    }
+  },
   async created() {
     await this.refreshDevices();
   },
@@ -134,21 +145,14 @@ export default {
 
 <style scoped>
 :root {
-  --bg-color: #ffffff;
-  --bg-secondary: #1e1e1e;
-  --text-primary: #2c3e50;
-  --text-secondary: #888888;
+  
   --border-color: #e0e0e0;
   --stream-bg: #000000;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-color: #121212;
-    --bg-secondary: #1e1e1e;
-    --text-primary: #ffffff;
-    --text-secondary: #888888;
-    --border-color: #333333;
+    
     --stream-bg: #000000;
   }
 }
@@ -159,19 +163,20 @@ export default {
 }
 
 .device-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 2rem;
   margin-top: 2rem;
 }
 
 .device-card {
-  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .device-info h3 {
@@ -187,6 +192,69 @@ export default {
 .device-actions {
   display: flex;
   gap: 1rem;
+}
+
+.device-btn {
+  padding: 12px 24px;
+  font-weight: 600;
+  font-size: 14px;
+  border: 2px solid;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 80px;
+  justify-content: center;
+}
+
+.device-btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn-start {
+  border-color: #4CAF50;
+  color: #4CAF50;
+}
+
+.btn-start:hover {
+  background-color: #4CAF50;
+  color: white;
+}
+
+.btn-stop {
+  border-color: #f44336;
+  color: #f44336;
+}
+
+.btn-stop:hover {
+  background-color: #f44336;
+  color: white;
+}
+
+.device-btn:disabled {
+  opacity: 0.6;
+  transform: none;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-top: 2px solid currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .loading-devices {

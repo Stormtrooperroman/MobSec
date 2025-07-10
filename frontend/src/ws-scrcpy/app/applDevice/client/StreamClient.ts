@@ -235,12 +235,9 @@ export abstract class StreamClient<T extends ParamsStream> extends BaseClient<T,
     deviceView.appendChild(moreBox);
     player.setParent(this.videoWrapper);
     player.on('input-video-resize', this.onInputVideoResize);
-    const dynamicTesting = document.querySelector('div.dynamic-testing');
-    console.log('[StreamClient] Looking for div.dynamic-testing:', dynamicTesting);
-    console.log('[StreamClient] All elements with dynamic-testing class:', document.querySelectorAll('.dynamic-testing'));
-    if (dynamicTesting) {
-      console.log('[StreamClient] Adding deviceView to dynamic-testing');
-      dynamicTesting.appendChild(deviceView);
+    const deviceStreamer = document.querySelector('div.device-streamer');
+    if (deviceStreamer) {
+      deviceStreamer.appendChild(deviceView);
     } else {
       console.log('[StreamClient] Adding deviceView to document.body');
       document.body.appendChild(deviceView);

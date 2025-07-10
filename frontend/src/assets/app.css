@@ -1,5 +1,7 @@
 :root {
-    --main-bg-color: hsl(0, 0%, 100%);
+    --text-primary: hsl(210, 29%, 24%);
+    --text-secondary: hsl(0, 0%, 53%);
+    --border-color: hsl(0, 0%, 20%);
     --stream-bg-color: hsl(0, 0%, 85%);
     --shell-bg-color: hsl(0, 0%, 0%);
     --text-shadow-color: hsl(218, 67%, 95%);

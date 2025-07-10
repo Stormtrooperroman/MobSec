@@ -118,7 +118,7 @@ class RemoteShell:
             
             try:
                 message = json.loads(data)
-                if message.get('type') == 'shell':
+                if isinstance(message, dict) and message.get('type') == 'shell':
                     shell_data = message.get('data', {})
                     logger.info(f"Shell data: {shell_data}")
                     if shell_data.get('type') == 'start':
@@ -149,6 +149,8 @@ class RemoteShell:
                             loop = asyncio.get_event_loop()
                             await loop.run_in_executor(None, os.write, self.master_fd, data.encode())
                     return
+                else:
+                    logger.info(f"JSON parsed but not a shell command: {message}, treating as raw data")
             except json.JSONDecodeError:
                 pass
             
