@@ -44,9 +44,7 @@ api_router.include_router(
 )
 
 api_router.include_router(
-    dynamic_testing.router,
-    prefix="/api/v1/dynamic-testing",
-    tags=["dynamic-testing"]
+    dynamic_testing.router, prefix="/api/v1/dynamic-testing", tags=["dynamic-testing"]
 )
 
 api_router.include_router(
@@ -55,4 +53,3 @@ api_router.include_router(
     tags=["Emulators"],
     responses={404: {"description": "Not found"}},
 )
-

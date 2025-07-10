@@ -3,9 +3,10 @@ from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
 
+
 class Emulator(Base):
     __tablename__ = "emulators"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
     version = Column(String)
@@ -16,4 +17,4 @@ class Emulator(Base):
     ports = Column(JSON)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
-    active = Column(Boolean, default=True) 
+    active = Column(Boolean, default=True)

@@ -3,6 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
 
+
 class Settings(Base):
     __tablename__ = "settings"
 
@@ -21,5 +22,5 @@ class Settings(Base):
             "apk_action": self.apk_action,
             "apk_action_type": self.apk_action_type,
             "ipa_action": self.ipa_action,
-            "ipa_action_type": self.ipa_action_type
-        } 
+            "ipa_action_type": self.ipa_action_type,
+        }

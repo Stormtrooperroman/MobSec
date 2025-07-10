@@ -15,19 +15,18 @@ import logging
 logger = logging.getLogger(__name__)
 
 module_manager = ModuleManager(
-    redis_url=os.getenv('REDIS_URL'),
-    modules_path=os.getenv('MODULES_PATH')
+    redis_url=os.getenv("REDIS_URL"), modules_path=os.getenv("MODULES_PATH")
 )
 
 emulator_manager = EmulatorManager(
-    redis_url=os.getenv('REDIS_URL'),
-    emulators_path=os.getenv('EMULATORS_PATH', '/app/emulators')
+    redis_url=os.getenv("REDIS_URL"),
+    emulators_path=os.getenv("EMULATORS_PATH", "/app/emulators"),
 )
 
 app = FastAPI(
     title="Mobile Security Testing Platform",
     description="A comprehensive platform for analyzing and security testing mobile applications.",
-    version="0.1"
+    version="0.1",
 )
 storage = AsyncStorageService()
 chain_manager = ChainManager()
@@ -44,50 +43,53 @@ app.add_middleware(
 # Mount routers
 app.include_router(api_router)  # HTTP endpoints (includes WebSocket endpoints)
 
+
 async def initialize_background_services():
     """Initialize modules, chains, and emulators in the background."""
     try:
         if settings.EXTERNAL_MODULES_ENABLED:
             from app.modules.external_module_registry import module_registry
-            
+
         await module_manager.start_modules()
         await chain_manager.start()
-        
+
         await emulator_manager.start_active_emulators()
-        
+
     except Exception as e:
         logger.error(f"Error during background initialization: {e}")
+
 
 @app.on_event("startup")
 async def startup_event():
     await init_db()
-    
+
     await start_report_generator()
-    
+
     asyncio.create_task(initialize_background_services())
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Starting shutdown sequence...")
-    
+
     try:
         await emulator_manager.cleanup()
-        
-        await stop_report_generator()
-        
-        await module_manager.cleanup()
-        
 
-        
+        await stop_report_generator()
+
+        await module_manager.cleanup()
+
         if settings.EXTERNAL_MODULES_ENABLED:
             from app.modules.external_module_registry import module_registry
+
             module_registry.shutdown()
             logger.info("External modules registry shutdown")
-            
+
         logger.info("Shutdown sequence completed successfully")
-        
+
     except Exception as e:
         logger.error(f"Error during shutdown: {str(e)}")
+
 
 @app.get("/health")
 async def health_check():
