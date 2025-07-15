@@ -6,107 +6,119 @@
     <div v-else-if="!isConnected && !error" class="connecting-message">
       Connecting to device...
     </div>
+    
+        <div v-else class="container">
+      <div class="main-layout">
+        <div class="terminal-section">
+          <div class="terminal-header">
+            <span>Shell Terminal</span>
+            <div class="terminal-controls">
+              <button @click="restartTerminal" class="terminal-restart-btn" title="Перезапустить терминал">
+                <font-awesome-icon icon="refresh" />
+              </button>
+              <span class="terminal-status" :class="{ 'connected': terminalConnected }">
+                {{ terminalConnected ? '🟢' : '🔴' }}
+              </span>
+            </div>
+          </div>
+          <div class="terminal-container" ref="terminalContainer"></div>
+        </div>
 
-
-    <div class="tools-section" v-if="availableTools.length > 0">
-      <h3>Available Tools:</h3>
-      <div class="tools-list">
-        <div v-for="tool in availableTools" :key="tool.ACTION" 
-             :class="['tool-item', { 'disabled': isToolDisabled(tool) }]" 
-             @click="!isToolDisabled(tool) && openTool(tool)">
-          <span class="tool-name">{{ tool.title || tool.ACTION }}</span>
+        <div class="device-screen-area" ref="deviceScreenArea">
         </div>
       </div>
-    </div>
 
-    <div v-if="showTerminal" class="terminal-section">
-      <div class="terminal-header">
-        <span>Shell Terminal</span>
-        <button @click="closeTerminal" class="close-button">×</button>
+      <div class="tools-section" v-if="availableTools.length > 0">
+        <h3>Available Tools:</h3>
+        <div class="tools-list">
+          <div v-for="tool in availableTools" :key="tool.ACTION" 
+               :class="['tool-item', { 'disabled': isToolDisabled(tool) }]" 
+               @click="!isToolDisabled(tool) && openTool(tool)">
+            <span class="tool-name">{{ tool.title || tool.ACTION }}</span>
+          </div>
+        </div>
       </div>
-      <div class="terminal-container" ref="terminalContainer"></div>
-    </div>
 
-    <!-- File Manager -->
-    <div v-if="showFileManager" class="file-manager-section">
-      <div class="file-manager-header">
-        <span>
-          File Manager
-          <span class="user-info">
-            [{{ fileManagerData.currentUser }}]
+      <div v-if="showFileManager" class="file-manager-section">
+        <div class="file-manager-header">
+          <span>
+            File Manager
+            <span class="user-info">
+              [{{ fileManagerData.currentUser }}]
+            </span>
           </span>
-        </span>
-        <button @click="closeFileManager" class="close-button">×</button>
-      </div>
-      
-      <div class="file-manager-path">
-        <div class="current-path">
-          <span class="path-label">Current Path:</span>
-          <span class="path-value">{{ fileManagerData.currentPath }}</span>
+          <button @click="closeFileManager" class="close-button">×</button>
         </div>
-      </div>
-      
-      <div class="file-manager-toolbar">
-        <button @click="goToParentDirectory" :disabled="fileManagerData.currentPath === '/'">
-          ↖️ Parent
-        </button>
-        <button @click="goToQuickPath('/')">📁 Root</button>
-        <button @click="goToQuickPath('/data/local/tmp')">📁 Temp</button>
-        <button @click="goToQuickPath('/storage')">📁 Storage</button>
-        <button @click="refreshFileList">🔄 Refresh</button>
-        <button @click="createDirectory">📁 New Folder</button>
-        <input type="file" @change="uploadFile" style="display: none" ref="fileInput">
-        <button @click="$refs.fileInput.click()">📤 Upload File</button>
         
-        <!-- Simple button to toggle role -->
-        <div class="user-controls" v-if="fileManagerData.suAvailable">
-          <button 
-            @click="toggleSu" 
-            :class="['role-toggle-btn', { 'root-mode': fileManagerData.useSu }]"
-          >
-            {{ fileManagerData.useSu ? '👤 Switch to User' : '🔐 Switch to Root' }}
-          </button>
+        <div class="file-manager-path">
+          <div class="current-path">
+            <span class="path-label">Current Path:</span>
+            <span class="path-value">{{ fileManagerData.currentPath }}</span>
+          </div>
         </div>
-      </div>
-      
-      <div class="file-manager-content">
-        <table class="file-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Size</th>
-              <th>Modified</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="entry in fileManagerData.entries" :key="entry.name" class="file-row">
-              <td class="file-name">
-                <span 
-                  :class="['file-icon', getFileIconClass(entry)]"
-                  @click="handleFileClick(entry)"
-                >
-                  {{ entry.name }}
-                  <span v-if="entry.type === 'symlink' && entry.target" class="symlink-target">
-                    → {{ entry.target }}
+        
+        <div class="file-manager-toolbar">
+          <button @click="goToParentDirectory" :disabled="fileManagerData.currentPath === '/'">
+            ↖️ Parent
+          </button>
+          <button @click="goToQuickPath('/')">📁 Root</button>
+          <button @click="goToQuickPath('/data/local/tmp')">📁 Temp</button>
+          <button @click="goToQuickPath('/storage')">📁 Storage</button>
+          <button @click="refreshFileList">🔄 Refresh</button>
+          <button @click="createDirectory">📁 New Folder</button>
+          <input type="file" @change="uploadFile" style="display: none" ref="fileInput">
+          <button @click="$refs.fileInput.click()">📤 Upload File</button>
+          
+          <!-- Simple button to toggle role -->
+          <div class="user-controls" v-if="fileManagerData.suAvailable">
+            <button 
+              @click="toggleSu" 
+              :class="['role-toggle-btn', { 'root-mode': fileManagerData.useSu }]"
+            >
+              {{ fileManagerData.useSu ? '👤 Switch to User' : '🔐 Switch to Root' }}
+            </button>
+          </div>
+        </div>
+        
+        <div class="file-manager-content">
+          <table class="file-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Size</th>
+                <th>Modified</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="entry in fileManagerData.entries" :key="entry.name" class="file-row">
+                <td class="file-name">
+                  <span 
+                    :class="['file-icon', getFileIconClass(entry)]"
+                    @click="handleFileClick(entry)"
+                  >
+                    {{ entry.name }}
+                    <span v-if="entry.type === 'symlink' && entry.target" class="symlink-target">
+                      → {{ entry.target }}
+                    </span>
                   </span>
-                </span>
-              </td>
-              <td>{{ entry.type }}</td>
-              <td>{{ entry.is_directory ? '-' : formatFileSize(entry.size) }}</td>
-              <td>{{ entry.modified }}</td>
-              <td class="file-actions">
-                <button v-if="!entry.is_directory && entry.type !== 'symlink'" @click="downloadFile(entry.name)" class="action-btn">
-                  📥 Download
-                </button>
-                <button @click="deleteFile(entry.name)" class="action-btn delete-btn">
-                  🗑️ Delete
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                </td>
+                <td>{{ entry.type }}</td>
+                <td>{{ entry.is_directory ? '-' : formatFileSize(entry.size) }}</td>
+                <td>{{ entry.modified }}</td>
+                <td class="file-actions">
+                  <button v-if="!entry.is_directory && entry.type !== 'symlink'" @click="downloadFile(entry.name)" class="action-btn">
+                    📥 Download
+                  </button>
+                  <button @click="deleteFile(entry.name)" class="action-btn delete-btn">
+                    🗑️ Delete
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -152,7 +164,6 @@ export default {
       availableTools: [],
       streamClient: null,
       error: null,
-      showTerminal: false,
       terminal: null,
       currentShellClient: null,
       fitAddon: null,
@@ -160,6 +171,7 @@ export default {
       preventPageScrollHandler: null,
       terminalCopyHandler: null,
       terminalInitializing: false,
+      terminalConnected: false,
       showFileManager: false,
       currentFileManagerClient: null,
       fileManagerScrollHandler: null,
@@ -171,6 +183,7 @@ export default {
         useSu: false,
         currentUser: 'unknown'
       },
+      deviceViewObserver: null,
     };
   },
   async mounted() {
@@ -198,13 +211,14 @@ export default {
       window.removeEventListener('resize', this.resizeHandler);
       this.resizeHandler = null;
     }
+    if (this.deviceViewObserver) {
+      this.deviceViewObserver.disconnect();
+      this.deviceViewObserver = null;
+    }
     this.terminalInitializing = false;
   },
   methods: {
     isToolDisabled(tool) {
-      if (tool.ACTION === 'shell') {
-        return this.showTerminal || this.terminalInitializing;
-      }
       if (tool.ACTION === 'file_manager' || tool.title === 'File Manager') {
         return this.showFileManager;
       }
@@ -280,9 +294,21 @@ export default {
         
         this.streamClient = StreamClientScrcpy.start(urlParams);
 
+        setTimeout(() => {
+          this.moveExistingDeviceViews();
+        }, 0);
+
         if (this.streamClient && this.streamClient.streamReceiver) {
           this.streamClient.streamReceiver.on('connected', () => {
-            console.log('StreamReceiver connected successfully');
+            setTimeout(() => {
+              this.moveExistingDeviceViews();
+            }, 100);
+            setTimeout(() => {
+              this.moveExistingDeviceViews();
+            }, 500);
+            setTimeout(() => {
+              this.moveExistingDeviceViews();
+            }, 1000);
           });
           
           this.streamClient.streamReceiver.on('disconnected', (event) => {
@@ -302,11 +328,6 @@ export default {
 
         this.availableTools = [
           {
-            title: 'Shell',
-            ACTION: 'shell',
-            client: ShellClient
-          },
-          {
             title: 'File Manager',
             ACTION: ACTION.FILE_LISTING,
             client: FileListingClient
@@ -316,13 +337,281 @@ export default {
         this.isConnected = true;
         console.log('StreamClientScrcpy started successfully');
 
+        await this.$nextTick();
+        this.initializeTerminal();
+
+        this.setupDeviceViewObserver();
+
       } catch (error) {
         console.error('Failed to initialize components:', error);
         this.error = error.message || 'Failed to initialize video stream';
       }
     },
 
+    setupDeviceViewObserver() {
+      this.moveExistingDeviceViews();
 
+      this.deviceViewObserver = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          mutation.addedNodes.forEach((node) => {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              if (node.classList && node.classList.contains('device-view')) {
+                this.moveDeviceViewToContainer(node);
+              }
+              const childDeviceViews = node.querySelectorAll && node.querySelectorAll('.device-view');
+              if (childDeviceViews && childDeviceViews.length > 0) {
+                childDeviceViews.forEach((childView) => {
+                  this.moveDeviceViewToContainer(childView);
+                });
+              }
+            }
+          });
+        });
+      });
+
+      this.deviceViewObserver.observe(this.$el, {
+        childList: true,
+        subtree: true
+      });
+
+      setTimeout(() => {
+        this.moveExistingDeviceViews();
+      }, 100);
+
+      setTimeout(() => {
+        this.moveExistingDeviceViews();
+      }, 1000);
+    },
+
+    moveExistingDeviceViews() {
+      const deviceViews = this.$el.querySelectorAll('.device-view');
+      
+      deviceViews.forEach((deviceView) => {
+        if (deviceView.parentNode !== this.$refs.deviceScreenArea) {
+          this.moveDeviceViewToContainer(deviceView);
+        }
+      });
+    },
+
+    moveDeviceViewToContainer(deviceView) {
+      if (this.$refs.deviceScreenArea && deviceView.parentNode && deviceView.parentNode !== this.$refs.deviceScreenArea) {
+        try {
+          this.$refs.deviceScreenArea.appendChild(deviceView);
+        } catch (error) {
+          console.error('Error moving device-view:', error);
+        }
+      }
+    },
+
+    async initializeTerminal() {
+      try {
+        if (this.terminalInitializing || this.currentShellClient) {
+          return;
+        }
+        
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = window.location.host;
+        const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+        const shellWsUrl = `${wsProtocol}//${window.location.hostname}:${port}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=shell`;
+        
+        this.terminalInitializing = true;
+        
+        if (this.currentShellClient) {
+          this.currentShellClient.close();
+          this.currentShellClient = null;
+        }
+        
+        const shellWs = new WebSocket(shellWsUrl);
+        shellWs.binaryType = 'arraybuffer';
+
+        shellWs.addEventListener('open', () => {
+          try {
+            if (!this.$refs.terminalContainer) {
+              console.error('Terminal container not found');
+              return;
+            }
+            
+            this.$refs.terminalContainer.innerHTML = '';
+            
+            this.terminal = new Terminal({
+              cursorBlink: true,
+              fontSize: 12,
+              theme: {
+                background: '#1e1e1e',
+                foreground: '#ffffff'
+              },
+              convertEol: true,
+              fontFamily: 'monospace',
+              rows: 30,
+              cols: 80,
+              scrollback: 10000,
+              allowTransparency: true,
+              tabStopWidth: 4,
+              screenReaderMode: 'off',
+              windowsMode: false,
+              scrollSensitivity: 1,
+              fastScrollSensitivity: 5,
+              fastScrollModifier: 'alt',
+              scrollOnUserInput: true,
+              scrollOnOutput: true,
+              rightClickSelectsWord: false,
+              macOptionIsMeta: false,
+              macOptionClickForcesSelection: false,
+              scrollbarWidth: 8
+            });
+
+            try {
+              if (shellWs.readyState === WebSocket.OPEN) {
+                const attachAddon = new AttachAddon(shellWs);
+                attachAddon.activate(this.terminal);
+              } else {
+                console.warn('WebSocket not ready for AttachAddon');
+              }
+            } catch (error) {
+              console.warn('Error loading AttachAddon:', error);
+            }
+            
+            this.fitAddon = new FitAddon();
+            this.fitAddon.activate(this.terminal);
+            
+            this.terminal.open(this.$refs.terminalContainer);
+            
+            if (this.fitAddon) {
+              this.fitAddon.fit();
+            }
+            
+            this.terminalConnected = true;
+            
+          } catch (error) {
+            console.error('Error initializing terminal:', error);
+            this.terminalInitializing = false;
+            this.terminalConnected = false;
+            return;
+          }
+          
+          this.terminalInitializing = false;
+          
+          const terminalContainer = this.$refs.terminalContainer;
+          this.preventPageScrollHandler = (event) => {
+            const viewport = terminalContainer.querySelector('.xterm-viewport');
+            if (!viewport) return;
+            
+            const { scrollTop, scrollHeight, clientHeight } = viewport;
+            const isAtTop = scrollTop === 0;
+            const isAtBottom = scrollTop + clientHeight >= scrollHeight;
+            
+            if (event.deltaY < 0 && isAtTop) {
+              event.preventDefault();
+              event.stopPropagation();
+            } else if (event.deltaY > 0 && isAtBottom) {
+              event.preventDefault();
+              event.stopPropagation();
+            } else if (!isAtTop && !isAtBottom) {
+              event.stopPropagation();
+            }
+          };
+          
+          terminalContainer.addEventListener('wheel', this.preventPageScrollHandler, { passive: false });
+          
+          const { rows, cols } = this.terminal;
+          shellWs.send(JSON.stringify({
+            type: 'shell',
+            data: {
+              type: 'start',
+              rows,
+              cols
+            }
+          }));
+          
+          this.terminal.focus();
+          
+          this.terminalCopyHandler = (event) => {
+            if (event.ctrlKey && event.shiftKey && event.key === 'C') {
+              event.preventDefault();
+              event.stopPropagation();
+              
+              const selection = this.terminal.getSelection();
+              if (selection) {
+                navigator.clipboard.writeText(selection).then(() => {
+                  // Text copied successfully
+                }).catch(() => {
+                  const textArea = document.createElement('textarea');
+                  textArea.value = selection;
+                  document.body.appendChild(textArea);
+                  textArea.select();
+                  document.execCommand('copy');
+                  document.body.removeChild(textArea);
+                });
+              }
+            } else if (event.ctrlKey && event.shiftKey && event.key === 'V') {
+              event.preventDefault();
+              event.stopPropagation();
+              
+              navigator.clipboard.readText().then(text => {
+                if (text && this.currentShellClient && this.currentShellClient.readyState === WebSocket.OPEN) {
+                  this.terminal.write(text);
+                }
+              }).catch(() => {
+                // Failed to read clipboard
+              });
+            }
+          };
+          
+          terminalContainer.addEventListener('keydown', this.terminalCopyHandler);
+          
+          const resizeHandler = () => {
+            if (!this.terminal || !this.fitAddon) return;
+            
+            try {
+              this.fitAddon.fit();
+              const { rows, cols } = this.terminal;
+              
+              if (shellWs.readyState === WebSocket.OPEN) {
+                shellWs.send(JSON.stringify({
+                  type: 'shell',
+                  data: {
+                    type: 'resize',
+                    rows,
+                    cols
+                  }
+                }));
+              }
+            } catch (error) {
+              console.warn('Error in resize handler:', error);
+            }
+          };
+
+          window.addEventListener('resize', resizeHandler);
+          this.resizeHandler = resizeHandler;
+        });
+
+        shellWs.addEventListener('close', (event) => {
+          console.log('Shell WebSocket closed:', event.code, event.reason);
+          this.terminalConnected = false;
+          if (this.terminal && !this.terminal.isDisposed) {
+            this.terminal.write('\r\n\x1b[31mConnection closed. Reconnecting...\x1b[0m\r\n');
+            setTimeout(() => {
+              this.initializeTerminal();
+            }, 2000);
+          }
+        });
+
+        shellWs.addEventListener('error', (error) => {
+          console.error('Shell WebSocket error:', error);
+          this.terminalConnected = false;
+          if (this.terminal && !this.terminal.isDisposed) {
+            this.terminal.write('\r\n\x1b[31mConnection error. Reconnecting...\x1b[0m\r\n');
+          }
+        });
+
+        this.currentShellClient = shellWs;
+        
+      } catch (error) {
+        console.error('Error initializing terminal:', error);
+        this.terminalInitializing = false;
+        this.terminalConnected = false;
+      }
+    },
 
     async openTool(tool) {
       try {
@@ -334,211 +623,9 @@ export default {
         const wsHost = window.location.host;
         
         if (tool.ACTION === 'shell') {
-          if (this.showTerminal) {
-            this.closeTerminal();
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
-          
-          this.showTerminal = true;
-          await this.$nextTick();
-          
-          const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-          const shellWsUrl = `${wsProtocol}//${window.location.hostname}:${port}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=shell`;
-          
-          if (this.currentShellClient) {
-            this.currentShellClient.close();
-            this.currentShellClient = null;
-          }
-          
-          const shellWs = new WebSocket(shellWsUrl);
-          shellWs.binaryType = 'arraybuffer';
-
-          shellWs.addEventListener('open', () => {
-            try {
-                            if (!this.$refs.terminalContainer) {
-                console.error('Terminal container not found');
-                return;
-              }
-              
-              if (this.terminalInitializing) {
-                console.warn('Terminal is already initializing');
-                return;
-              }
-              
-              this.terminalInitializing = true;
-              
-              this.$refs.terminalContainer.innerHTML = '';
-              
-              this.terminal = new Terminal({
-                cursorBlink: true,
-                fontSize: 14,
-                theme: {
-                  background: '#1e1e1e',
-                  foreground: '#ffffff'
-                },
-                convertEol: true,
-                fontFamily: 'monospace',
-                rows: 20,
-                cols: 100,
-                scrollback: 10000,
-                allowTransparency: true,
-                tabStopWidth: 4,
-                screenReaderMode: 'off',
-                windowsMode: false,
-                scrollSensitivity: 1,
-                fastScrollSensitivity: 5,
-                fastScrollModifier: 'alt',
-                scrollOnUserInput: true,
-                scrollOnOutput: true,
-                rightClickSelectsWord: false,
-                macOptionIsMeta: false,
-                macOptionClickForcesSelection: false,
-                scrollbarWidth: 12
-              });
-
-              try {
-                if (shellWs.readyState === WebSocket.OPEN) {
-                  const attachAddon = new AttachAddon(shellWs);
-                  attachAddon.activate(this.terminal);
-                } else {
-                  console.warn('WebSocket not ready for AttachAddon');
-                }
-              } catch (error) {
-                console.warn('Error loading AttachAddon:', error);
-              }
-              
-              
-              this.fitAddon = new FitAddon();
-              this.fitAddon.activate(this.terminal);
-
-                          
-              this.terminal.open(this.$refs.terminalContainer);
-              
-              if (this.fitAddon) {
-                this.fitAddon.fit();
-              }
-              
-            } catch (error) {
-              console.error('Error initializing terminal:', error);
-              this.terminalInitializing = false;
-              this.closeTerminal();
-              return;
-            }
-            
-            this.terminalInitializing = false;
-            
-            const terminalContainer = this.$refs.terminalContainer;
-            this.preventPageScrollHandler = (event) => {
-              const viewport = terminalContainer.querySelector('.xterm-viewport');
-              if (!viewport) return;
-              
-              const { scrollTop, scrollHeight, clientHeight } = viewport;
-              const isAtTop = scrollTop === 0;
-              const isAtBottom = scrollTop + clientHeight >= scrollHeight;
-              
-              if (event.deltaY < 0 && isAtTop) {
-                event.preventDefault();
-                event.stopPropagation();
-              } else if (event.deltaY > 0 && isAtBottom) {
-                event.preventDefault();
-                event.stopPropagation();
-              } else if (!isAtTop && !isAtBottom) {
-                event.stopPropagation();
-              }
-            };
-            
-            terminalContainer.addEventListener('wheel', this.preventPageScrollHandler, { passive: false });
-            
-            const { rows, cols } = this.terminal;
-            shellWs.send(JSON.stringify({
-              type: 'shell',
-              data: {
-                type: 'start',
-                rows,
-                cols
-              }
-            }));
-            
+          if (this.terminal) {
             this.terminal.focus();
-            
- 
-            this.terminalCopyHandler = (event) => {
-              if (event.ctrlKey && event.shiftKey && event.key === 'C') {
-                event.preventDefault();
-                event.stopPropagation();
-                
-                const selection = this.terminal.getSelection();
-                if (selection) {
-                  navigator.clipboard.writeText(selection).then(() => {
-                    // Text copied successfully
-                  }).catch(() => {
-                    const textArea = document.createElement('textarea');
-                    textArea.value = selection;
-                    document.body.appendChild(textArea);
-                    textArea.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(textArea);
-                  });
-                }
-              } else if (event.ctrlKey && event.shiftKey && event.key === 'V') {
-                event.preventDefault();
-                event.stopPropagation();
-                
-                navigator.clipboard.readText().then(text => {
-                  if (text && this.currentShellClient && this.currentShellClient.readyState === WebSocket.OPEN) {
-                    this.terminal.write(text);
-                  }
-                }).catch(() => {
-                  // Failed to read clipboard
-                });
-              }
-            };
-            
-            terminalContainer.addEventListener('keydown', this.terminalCopyHandler);
-            
-            const resizeHandler = () => {
-              if (!this.terminal || !this.fitAddon) return;
-              
-              try {
-                this.fitAddon.fit();
-                const { rows, cols } = this.terminal;
-                
-                if (shellWs.readyState === WebSocket.OPEN) {
-                  shellWs.send(JSON.stringify({
-                    type: 'shell',
-                    data: {
-                      type: 'resize',
-                      rows,
-                      cols
-                    }
-                  }));
-                }
-              } catch (error) {
-                console.warn('Error in resize handler:', error);
-              }
-            };
-
-            window.addEventListener('resize', resizeHandler);
-            this.resizeHandler = resizeHandler;
-          });
-
-          shellWs.addEventListener('close', (event) => {
-            console.log('Shell WebSocket closed:', event.code, event.reason);
-            if (this.terminal && !this.terminal.isDisposed) {
-              this.terminal.write('\r\n\x1b[31mConnection closed. Press Enter to reconnect.\x1b[0m\r\n');
-            }
-
-          });
-
-          shellWs.addEventListener('error', (error) => {
-            console.error('Shell WebSocket error:', error);
-            if (this.terminal && !this.terminal.isDisposed) {
-              this.terminal.write('\r\n\x1b[31mConnection error. Press Enter to reconnect.\x1b[0m\r\n');
-            }
-          });
-
-          this.currentShellClient = shellWs;
-
+          }
         } else if (tool.ACTION === ACTION.FILE_LISTING || tool.title === 'File Manager') {
           this.showFileManager = true;
           await this.$nextTick();
@@ -677,8 +764,19 @@ export default {
       }
       
       this.terminalInitializing = false;
-      
-      this.showTerminal = false;
+      this.terminalConnected = false;
+    },
+
+    async restartTerminal() {
+      try {
+        console.log('Restarting terminal...');
+        this.closeTerminal();
+        await this.$nextTick();
+        await new Promise(resolve => setTimeout(resolve, 500));
+        this.initializeTerminal();
+      } catch (error) {
+        console.error('Error restarting terminal:', error);
+      }
     },
 
     closeFileManager() {
@@ -958,6 +1056,19 @@ export default {
   height: 100%;
 }
 
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.main-layout {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  gap: 1rem;
+}
+
 .error-message {
   color: #ff5722;
   padding: 1rem;
@@ -1016,9 +1127,10 @@ export default {
 .tools-section {
   padding: 1rem;
   background-color: #f8f9fa;
-  border-top: 1px solid #dee2e6;
-  margin: 1rem;
+  border: 1px solid #dee2e6;
   border-radius: 8px;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
 }
 
 .tools-list {
@@ -1060,14 +1172,14 @@ export default {
 }
 
 .terminal-section {
-  margin-top: 1rem;
-  margin-bottom: 2rem;
+  flex: 1;
   background: #1e1e1e;
   border-radius: 8px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 300px;
 }
 
 .terminal-header {
@@ -1079,6 +1191,51 @@ export default {
   border-top-left-radius: 8px;
   border-top-right-radius: 8px;
   color: #ffffff;
+}
+
+.terminal-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.terminal-restart-btn {
+  background: #4a4a4a;
+  border: 1px solid #666;
+  color: #ffffff;
+  border-radius: 4px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 28px;
+}
+
+.terminal-restart-btn:hover {
+  background: #5a5a5a;
+  border-color: #777;
+}
+
+.terminal-restart-btn:active {
+  background: #3a3a3a;
+  transform: scale(0.95);
+}
+
+.terminal-status {
+  font-size: 14px;
+  margin-left: 10px;
+}
+
+.terminal-status.connected {
+  color: #4caf50;
+}
+
+.terminal-status:not(.connected) {
+  color: #f44336;
 }
 
 .close-button {
@@ -1101,8 +1258,8 @@ export default {
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
   overflow: hidden;
-  min-height: 300px;
-  max-height: 300px;
+  min-height: 400px;
+  max-height: 600px;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -1202,13 +1359,14 @@ export default {
 
 .file-manager-section {
   margin-top: 1rem;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
   background: #f5f5f5;
   border-radius: 8px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  max-height: 400px;
 }
 
 .file-manager-header {
@@ -1321,7 +1479,7 @@ export default {
   padding: 15px;
   background: #fff;
   overflow-y: auto;
-  max-height: 300px;
+  max-height: 250px;
 }
 
 .file-table {
@@ -1469,5 +1627,81 @@ export default {
   background-color: #45a049;
   border-color: #45a049;
   color: white;
+}
+
+.device-screen-area {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  min-height: 400px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 1rem;
+  overflow: hidden;
+  width: fit-content;
+}
+
+.device-screen-area .device-view {
+  width: auto;
+  height: auto;
+  background: transparent;
+  border-radius: 0;
+}
+
+@media (max-width: 1024px) {
+  .main-layout {
+    flex-direction: column;
+  }
+  
+  .terminal-section {
+    flex: none;
+    width: 100%;
+    max-height: 300px;
+  }
+  
+  .terminal-container {
+    min-height: 250px;
+    max-height: 300px;
+  }
+  
+  .device-screen-area {
+    min-height: 300px;
+    width: 100%;
+    flex: 0 0 auto;
+  }
+  
+  .file-manager-section {
+    max-height: 350px;
+  }
+  
+  .file-manager-content {
+    max-height: 250px;
+  }
+}
+
+@media (max-width: 768px) {
+  .main-layout {
+    gap: 0.5rem;
+  }
+  
+  .tools-section {
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  
+  .device-screen-area {
+    min-height: 250px;
+    width: 100%;
+  }
+  
+  .file-manager-section {
+    max-height: 300px;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  
+  .file-manager-content {
+    max-height: 200px;
+  }
 }
 </style>
