@@ -1,10 +1,22 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    WebSocket,
+    WebSocketDisconnect,
+    HTTPException,
+    Query,
+    UploadFile,
+    File,
+)
 from typing import List, Dict, Optional
 from app.dynamic.device_manager import DeviceManager
 from app.dynamic.websocket_manager import WebSocketManager
 from app.dynamic.remote_shell import RemoteShell
 from app.dynamic.file_manager import FileManager
+from app.dynamic.frida_manager import FridaManager
 import logging
+import tempfile
+import os
+import subprocess
 
 router = APIRouter()
 websocket_manager = WebSocketManager()
@@ -178,6 +190,48 @@ async def websocket_endpoint(
             finally:
                 await file_manager.stop()
 
+        elif action == "frida":
+            logger.info(f"Starting Frida session for device {device_id}")
+            frida_manager = FridaManager(websocket, device_id)
+            if not await frida_manager.start():
+                logger.error(f"Failed to start Frida manager for device {device_id}")
+                await websocket.close(code=4000, reason="Failed to start Frida manager")
+                return
+
+            logger.info(
+                f"Frida manager started successfully for device {device_id}, waiting for messages..."
+            )
+
+            try:
+                while True:
+                    try:
+                        message = await websocket.receive()
+                        logger.info(f"Received WebSocket message: {message}")
+
+                        if message["type"] == "websocket.disconnect":
+                            logger.info("WebSocket disconnect received")
+                            break
+                        elif message["type"] == "websocket.receive":
+                            if "text" in message:
+                                logger.info(f"Received text message: {message['text']}")
+                                await frida_manager.handle_message(message["text"])
+                            elif "bytes" in message:
+                                logger.info(
+                                    f"Received bytes message: {len(message['bytes'])} bytes"
+                                )
+                                pass
+                        else:
+                            logger.info(f"Unknown message type: {message['type']}")
+                    except Exception as e:
+                        logger.error(f"Error processing WebSocket message: {str(e)}")
+                        break
+            except WebSocketDisconnect:
+                logger.info(f"Frida WebSocket disconnected for device {device_id}")
+            except Exception as e:
+                logger.error(f"Error in Frida session: {str(e)}")
+            finally:
+                await frida_manager.stop()
+
         elif action == "multiplex":
             await websocket_manager.handle_multiplex(websocket, device_id)
 
@@ -216,6 +270,142 @@ async def multiplex_endpoint(websocket: WebSocket, action: Optional[str] = Query
             await websocket.close(code=4000, reason=str(e))
         except Exception:
             pass
+
+
+@router.post("/device/{device_id}/install-app")
+async def install_app_on_device(device_id: str, request: dict):
+    """
+    Install an APK file on the specified device
+    """
+    try:
+        file_hash = request.get("file_hash")
+        app_name = request.get("app_name")
+
+        if not file_hash or not app_name:
+            raise HTTPException(
+                status_code=400, detail="file_hash and app_name are required"
+            )
+
+        # Import storage service to get file info
+        from app.core.app_manager import AsyncStorageService
+
+        storage = AsyncStorageService()
+
+        # Get file info
+        file_info = await storage.get_scan_status(file_hash)
+        if not file_info:
+            raise HTTPException(status_code=404, detail="File not found in storage")
+
+        # Verify it's an APK file
+        if file_info.get("file_type") != "apk":
+            raise HTTPException(status_code=400, detail="File is not an APK")
+
+        # Build file path
+        storage_dir = "/shared_data"
+        folder_path = file_info.get("folder_path")
+        original_name = file_info.get("original_name")
+
+        apk_path = f"{storage_dir}/{folder_path}/{original_name}"
+
+        # Check if file exists
+        import os
+
+        if not os.path.exists(apk_path):
+            raise HTTPException(
+                status_code=404, detail=f"APK file not found at: {apk_path}"
+            )
+
+        # Install APK using ADB
+        import subprocess
+
+        process = subprocess.run(
+            ["adb", "-s", device_id, "install", "-r", apk_path],
+            capture_output=True,
+            text=True,
+        )
+
+        if process.returncode == 0:
+            return {
+                "status": "success",
+                "message": f"Successfully installed {app_name}",
+                "app_name": app_name,
+                "file_hash": file_hash,
+            }
+        else:
+            error_output = (
+                process.stderr.strip() if process.stderr else process.stdout.strip()
+            )
+            raise HTTPException(
+                status_code=500, detail=f"Failed to install {app_name}: {error_output}"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error installing app: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error installing app: {str(e)}")
+
+
+@router.post("/device/{device_id}/install-apk-direct")
+async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
+    """
+    Install an APK file directly on the device without storing in database
+    """
+    try:
+        # Validate file type
+        if not apk_file.filename.lower().endswith(".apk"):
+            raise HTTPException(status_code=400, detail="Only APK files are supported")
+
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".apk") as temp_file:
+            # Write uploaded file to temporary location
+            content = await apk_file.read()
+            temp_file.write(content)
+            temp_apk_path = temp_file.name
+
+        try:
+            # Install APK using ADB
+            logger.info(f"Installing APK {apk_file.filename} on device {device_id}")
+
+            process = subprocess.run(
+                ["adb", "-s", device_id, "install", "-r", temp_apk_path],
+                capture_output=True,
+                text=True,
+            )
+
+            if process.returncode == 0:
+                logger.info(
+                    f"Successfully installed {apk_file.filename} on device {device_id}"
+                )
+                return {
+                    "status": "success",
+                    "message": f"Successfully installed {apk_file.filename}",
+                    "app_name": apk_file.filename,
+                }
+            else:
+                error_output = (
+                    process.stderr.strip() if process.stderr else process.stdout.strip()
+                )
+                logger.error(f"Failed to install {apk_file.filename}: {error_output}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to install {apk_file.filename}: {error_output}",
+                )
+
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_apk_path)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to cleanup temporary file {temp_apk_path}: {str(e)}"
+                )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error installing APK directly: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error installing APK: {str(e)}")
 
 
 @router.post("/device/{device_id}/stop")
