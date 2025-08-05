@@ -2,7 +2,6 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Stage 1: Install system dependencies
 RUN apt update -y && \
     apt install -y --no-install-recommends \
     postgresql \
@@ -16,49 +15,8 @@ RUN apt update -y && \
     libswresample-dev \
     libsdl2-dev \
     xz-utils \
+    lsof \
     && apt clean
-
-# Stage 2: Install build dependencies
-RUN apt update -y && \
-    apt install -y --no-install-recommends \
-    gcc \
-    pkg-config \
-    meson \
-    ninja-build \
-    libusb-1.0-0 \
-    libusb-1.0-0-dev \
-    git \
-    make \
-    wget \
-    ca-certificates \
-    cmake \
-    && apt clean
-
-# Stage 3: Build and install scrcpy
-RUN cd /tmp && \
-    git clone https://github.com/Genymobile/scrcpy && \
-    cd scrcpy && \
-    wget https://github.com/Genymobile/scrcpy/releases/download/v3.3/scrcpy-server-v3.3 && \
-    mkdir -p /usr/local/share/scrcpy && \
-    mv scrcpy-server-v3.3 /usr/local/share/scrcpy/scrcpy-server && \
-    meson setup build --buildtype=release --strip -Db_lto=true \
-        -Dprebuilt_server=/usr/local/share/scrcpy/scrcpy-server && \
-    cd build && \
-    ninja && \
-    ninja install
-
-# Stage 4: Cleanup build dependencies
-RUN apt remove -y \
-    gcc \
-    pkg-config \
-    meson \
-    ninja-build \
-    git \
-    make \
-    cmake \
-    && apt autoremove -y \
-    && apt clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/*
 
 COPY requirements.txt /app/requirements.txt
 

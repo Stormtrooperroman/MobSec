@@ -1,6 +1,6 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import Dict, Any
+from typing import Any, Dict
 from app.dynamic.emulator_manager import EmulatorManager
 import os
 
@@ -156,7 +156,6 @@ async def get_emulator_logs(
                 detail=f"No container found for emulator {emulator_name}",
             )
 
-        # Get container logs
         try:
             container = emulator_manager.docker_client.containers.get(container_id)
             logs = container.logs(tail=lines, timestamps=True).decode("utf-8")

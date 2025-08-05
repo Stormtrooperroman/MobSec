@@ -372,6 +372,7 @@ class EmulatorManager:
         await self._update_emulator_status(emulator_name, "running", container.id)
 
         logger.info(f"Container started for {emulator_name}")
+        await self.connect_to_emulator(emulator_name)
         return {
             "name": emulator_name,
             "status": "running",
@@ -491,7 +492,6 @@ class EmulatorManager:
                 for emulator_name in active_emulators:
                     try:
                         await self.start_emulator(emulator_name)
-                        await self.connect_to_emulator(emulator_name)
                         started += 1
                     except Exception as e:
                         logger.error(f"Failed to start emulator {emulator_name}: {e}")

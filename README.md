@@ -14,6 +14,10 @@ A comprehensive platform for analyzing and security testing mobile applications.
 - Real-time module status monitoring
 - Support for [custom module implementations](https://github.com/Stormtrooperroman/MobSec/blob/master/docs/write_module.md)
 
+### Dynamic Testing
+- Test app from the web using dockered android
+- Support Frida scripts and Traffic view
+
 ## Getting Started
 
 ### Requirements
@@ -54,3 +58,5 @@ http://127.0.0.1:8000/docs
 ![](images/Report1.png)
 ![](images/Report2.png)
 ![](images/Settings.png)
+![](images/dynamic_testing.png)
+![](images/dynamic_testing_screen.png)

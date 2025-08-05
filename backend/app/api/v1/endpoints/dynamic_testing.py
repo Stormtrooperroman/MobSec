@@ -13,10 +13,12 @@ from app.dynamic.websocket_manager import WebSocketManager
 from app.dynamic.remote_shell import RemoteShell
 from app.dynamic.file_manager import FileManager
 from app.dynamic.frida_manager import FridaManager
+from app.dynamic.mitmproxy_manager import MitmproxyManager, get_mitmproxy_manager
 import logging
 import tempfile
 import os
 import subprocess
+import time
 
 router = APIRouter()
 websocket_manager = WebSocketManager()
@@ -30,7 +32,6 @@ async def get_devices() -> List[Dict[str, str]]:
     """
     devices = []
 
-    # Get all devices from DeviceManager (includes both physical and emulated)
     try:
         device_manager = DeviceManager()
         devices = await device_manager.get_devices()
@@ -130,7 +131,16 @@ async def websocket_endpoint(
                                 logger.info(
                                     f"Received bytes message: {len(message['bytes'])} bytes"
                                 )
-                                await shell.handle_input(message["bytes"].decode())
+                                try:
+                                    # Декодируем с явным указанием кодировки и обработкой ошибок
+                                    decoded_data = message["bytes"].decode(
+                                        "utf-8", errors="replace"
+                                    )
+                                    await shell.handle_input(decoded_data)
+                                except Exception as e:
+                                    logger.error(
+                                        f"Error decoding bytes message: {str(e)}"
+                                    )
                             elif "text" in message:
                                 logger.info(f"Received text message: {message['text']}")
                                 await shell.handle_input(message["text"])
@@ -232,6 +242,85 @@ async def websocket_endpoint(
             finally:
                 await frida_manager.stop()
 
+        elif action == "mitmproxy":
+            logger.info(f"Starting Mitmproxy session for device {device_id}")
+            mitmproxy_manager = await get_mitmproxy_manager(device_id)
+
+            # Регистрируем WebSocket для получения событий в реальном времени
+            mitmproxy_manager.add_websocket(websocket)
+
+            if not await mitmproxy_manager.start():
+                logger.error(
+                    f"Failed to start Mitmproxy manager for device {device_id}"
+                )
+                mitmproxy_manager.remove_websocket(websocket)
+                await websocket.close(
+                    code=4000, reason="Failed to start Mitmproxy manager"
+                )
+                return
+
+            logger.info(
+                f"Mitmproxy manager started successfully for device {device_id}, waiting for messages..."
+            )
+
+            try:
+                while True:
+                    try:
+                        message = await websocket.receive()
+                        logger.info(f"Received WebSocket message: {message}")
+
+                        if message["type"] == "websocket.disconnect":
+                            logger.info("WebSocket disconnect received")
+                            break
+                        elif message["type"] == "websocket.receive":
+                            if "text" in message:
+                                logger.info(f"Received text message: {message['text']}")
+                                try:
+                                    # Парсим JSON сообщение
+                                    import json
+
+                                    data = json.loads(message["text"])
+
+                                    # Добавляем device_id к сообщению если его нет
+                                    if "device_id" not in data:
+                                        data["device_id"] = device_id
+
+                                    # Передаем обновленное сообщение в mitmproxy_manager
+                                    await mitmproxy_manager.handle_message(
+                                        websocket, json.dumps(data)
+                                    )
+                                except json.JSONDecodeError:
+                                    logger.error(
+                                        f"Invalid JSON message: {message['text']}"
+                                    )
+                                    await websocket.send_text(
+                                        json.dumps(
+                                            {
+                                                "type": "mitmproxy",
+                                                "action": "error",
+                                                "message": "Invalid JSON format",
+                                            }
+                                        )
+                                    )
+                            elif "bytes" in message:
+                                logger.info(
+                                    f"Received bytes message: {len(message['bytes'])} bytes"
+                                )
+                                pass
+                        else:
+                            logger.info(f"Unknown message type: {message['type']}")
+                    except Exception as e:
+                        logger.error(f"Error processing WebSocket message: {str(e)}")
+                        break
+            except WebSocketDisconnect:
+                logger.info(f"Mitmproxy WebSocket disconnected for device {device_id}")
+            except Exception as e:
+                logger.error(f"Error in Mitmproxy session: {str(e)}")
+            finally:
+                # Удаляем WebSocket из регистрации
+                mitmproxy_manager.remove_websocket(websocket)
+                await mitmproxy_manager.stop()
+
         elif action == "multiplex":
             await websocket_manager.handle_multiplex(websocket, device_id)
 
@@ -286,37 +375,27 @@ async def install_app_on_device(device_id: str, request: dict):
                 status_code=400, detail="file_hash and app_name are required"
             )
 
-        # Import storage service to get file info
         from app.core.app_manager import AsyncStorageService
 
         storage = AsyncStorageService()
 
-        # Get file info
         file_info = await storage.get_scan_status(file_hash)
         if not file_info:
             raise HTTPException(status_code=404, detail="File not found in storage")
 
-        # Verify it's an APK file
         if file_info.get("file_type") != "apk":
             raise HTTPException(status_code=400, detail="File is not an APK")
 
-        # Build file path
         storage_dir = "/shared_data"
         folder_path = file_info.get("folder_path")
         original_name = file_info.get("original_name")
 
         apk_path = f"{storage_dir}/{folder_path}/{original_name}"
 
-        # Check if file exists
-        import os
-
         if not os.path.exists(apk_path):
             raise HTTPException(
                 status_code=404, detail=f"APK file not found at: {apk_path}"
             )
-
-        # Install APK using ADB
-        import subprocess
 
         process = subprocess.run(
             ["adb", "-s", device_id, "install", "-r", apk_path],
@@ -352,19 +431,15 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
     Install an APK file directly on the device without storing in database
     """
     try:
-        # Validate file type
         if not apk_file.filename.lower().endswith(".apk"):
             raise HTTPException(status_code=400, detail="Only APK files are supported")
 
-        # Create temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".apk") as temp_file:
-            # Write uploaded file to temporary location
             content = await apk_file.read()
             temp_file.write(content)
             temp_apk_path = temp_file.name
 
         try:
-            # Install APK using ADB
             logger.info(f"Installing APK {apk_file.filename} on device {device_id}")
 
             process = subprocess.run(
@@ -393,7 +468,6 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
                 )
 
         finally:
-            # Clean up temporary file
             try:
                 os.unlink(temp_apk_path)
             except Exception as e:
@@ -406,6 +480,444 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Error installing APK directly: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error installing APK: {str(e)}")
+
+
+# Global storage for mitmproxy managers to maintain state
+_mitmproxy_managers = {}
+
+# Mitmproxy HTTP API Endpoints
+
+
+@router.get("/device/{device_id}/mitmproxy/status")
+async def get_mitmproxy_status(device_id: str):
+    """Get mitmproxy status for a device"""
+    try:
+        # Проверяем существующий менеджер
+        if device_id in _mitmproxy_managers:
+            manager = _mitmproxy_managers[device_id]
+            proxy_running = (
+                manager.proxy_task is not None
+                and not manager.proxy_task.done()
+                and not getattr(manager.proxy_task, "error", None)
+            )
+
+            return {
+                "status": "success",
+                "data": {
+                    "proxy_running": proxy_running,
+                    "cert_installed": manager.cert_installed,
+                    "su_available": manager.su_available,
+                    "device_ip": manager.device_ip,
+                    "proxy_port": manager.proxy_port,
+                    "proxy_host": "0.0.0.0",
+                },
+            }
+        else:
+            # Нет активного менеджера
+            return {
+                "status": "success",
+                "data": {
+                    "proxy_running": False,
+                    "cert_installed": False,
+                    "su_available": False,
+                    "device_ip": None,
+                    "proxy_port": 8081,
+                    "proxy_host": "0.0.0.0",
+                },
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting mitmproxy status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/device/{device_id}/mitmproxy/start")
+async def start_mitmproxy_proxy(device_id: str):
+    """Start mitmproxy proxy for a device"""
+    try:
+        # Проверяем, есть ли уже запущенный менеджер
+        if device_id in _mitmproxy_managers:
+            manager = _mitmproxy_managers[device_id]
+            if manager.proxy_task and not manager.proxy_task.done():
+                return {
+                    "status": "success",
+                    "message": "Mitmproxy is already running",
+                    "data": {
+                        "proxy_running": True,
+                        "proxy_port": manager.proxy_port,
+                        "proxy_host": "0.0.0.0",
+                    },
+                }
+            else:
+                # Очищаем старый менеджер
+                await manager.stop()
+                del _mitmproxy_managers[device_id]
+
+        # Создаем новый менеджер
+        mitmproxy_manager = await get_mitmproxy_manager(device_id)
+
+        # Инициализируем менеджер
+        if not await mitmproxy_manager.start():
+            raise HTTPException(
+                status_code=500, detail="Failed to initialize mitmproxy manager"
+            )
+
+        # Запускаем прокси
+        success = await mitmproxy_manager.start_proxy()
+
+        if success:
+            # Сохраняем менеджер для дальнейшего использования
+            _mitmproxy_managers[device_id] = mitmproxy_manager
+
+            return {
+                "status": "success",
+                "message": "Mitmproxy started successfully",
+                "data": {
+                    "proxy_running": True,
+                    "proxy_port": mitmproxy_manager.proxy_port,
+                    "proxy_host": "0.0.0.0",
+                    "proxy_setting": f"{mitmproxy_manager.backend_ip}:{mitmproxy_manager.proxy_port}",
+                },
+            }
+        else:
+            await mitmproxy_manager.stop()
+            raise HTTPException(status_code=500, detail="Failed to start mitmproxy")
+
+    except Exception as e:
+        logger.error(f"Error starting mitmproxy: {str(e)}")
+        # Очищаем состояние в случае ошибки
+        if device_id in _mitmproxy_managers:
+            try:
+                await _mitmproxy_managers[device_id].stop()
+            except:
+                pass
+            del _mitmproxy_managers[device_id]
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/device/{device_id}/mitmproxy/stop")
+async def stop_mitmproxy_proxy(device_id: str):
+    """Stop mitmproxy proxy for a device"""
+    try:
+        if device_id not in _mitmproxy_managers:
+            return {
+                "status": "success",
+                "message": "Mitmproxy is not running",
+                "data": {"proxy_running": False},
+            }
+
+        manager = _mitmproxy_managers[device_id]
+
+        # Останавливаем прокси (stop() уже вызывает stop_proxy_threadsafe() внутри)
+        success = await manager.stop()
+
+        # Удаляем из глобального состояния
+        del _mitmproxy_managers[device_id]
+
+        return {
+            "status": "success",
+            "message": "Mitmproxy stopped successfully",
+            "data": {"proxy_running": False},
+        }
+
+    except Exception as e:
+        logger.error(f"Error stopping mitmproxy: {str(e)}")
+        # Очищаем состояние в любом случае
+        if device_id in _mitmproxy_managers:
+            del _mitmproxy_managers[device_id]
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/device/{device_id}/mitmproxy/generate-certificate")
+async def generate_mitmproxy_certificate(device_id: str):
+    """Generate and return mitmproxy certificate"""
+    try:
+        mitmproxy_manager = await get_mitmproxy_manager(device_id)
+
+        if not await mitmproxy_manager.start():
+            raise HTTPException(
+                status_code=500, detail="Failed to initialize mitmproxy manager"
+            )
+
+        cert_path = await mitmproxy_manager.generate_certificate()
+
+        if cert_path and os.path.exists(cert_path):
+            # Читаем содержимое сертификата
+            with open(cert_path, "r") as f:
+                cert_content = f.read()
+
+            return {
+                "status": "success",
+                "message": "Certificate generated successfully",
+                "data": {
+                    "certificate": cert_content,
+                    "cert_path": cert_path,
+                    "download_url": f"/api/v1/dynamic-testing/device/{device_id}/mitmproxy/download-certificate",
+                },
+            }
+        else:
+            raise HTTPException(
+                status_code=500, detail="Failed to generate certificate"
+            )
+
+    except Exception as e:
+        logger.error(f"Error generating certificate: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/device/{device_id}/mitmproxy/download-certificate")
+async def download_mitmproxy_certificate(device_id: str):
+    """Download mitmproxy certificate file"""
+    try:
+        from fastapi.responses import FileResponse
+
+        certs_dir = "/tmp/mitmproxy/certs"
+        cert_path = os.path.join(certs_dir, "mitmproxy-ca-cert.pem")
+
+        if not os.path.exists(cert_path):
+            # Генерируем сертификат если его нет
+            mitmproxy_manager = await get_mitmproxy_manager(device_id)
+            await mitmproxy_manager.start()
+            cert_path = await mitmproxy_manager.generate_certificate()
+
+            if not cert_path or not os.path.exists(cert_path):
+                raise HTTPException(status_code=404, detail="Certificate not found")
+
+        return FileResponse(
+            cert_path,
+            media_type="application/x-pem-file",
+            filename=f"mitmproxy-ca-cert-{device_id.replace(':', '_')}.pem",
+            headers={
+                "Content-Disposition": f"attachment; filename=mitmproxy-ca-cert-{device_id.replace(':', '_')}.pem"
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Error downloading certificate: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/device/{device_id}/mitmproxy/install-certificate")
+async def install_mitmproxy_certificate(device_id: str):
+    """Install mitmproxy certificate on device"""
+    try:
+        mitmproxy_manager = await get_mitmproxy_manager(device_id)
+
+        if not await mitmproxy_manager.start():
+            raise HTTPException(
+                status_code=500, detail="Failed to initialize mitmproxy manager"
+            )
+
+        success = await mitmproxy_manager.install_certificate(None)
+
+        if success:
+            return {
+                "status": "success",
+                "message": "Certificate installed successfully on device",
+                "data": {"cert_installed": True},
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to install certificate")
+
+    except Exception as e:
+        logger.error(f"Error installing certificate: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/device/{device_id}/mitmproxy/configure-proxy")
+async def configure_device_proxy(device_id: str):
+    """Configure proxy settings on device"""
+    try:
+        mitmproxy_manager = await get_mitmproxy_manager(device_id)
+
+        if not await mitmproxy_manager.start():
+            raise HTTPException(
+                status_code=500, detail="Failed to initialize mitmproxy manager"
+            )
+
+        success = await mitmproxy_manager.configure_device_proxy(None)
+
+        if success:
+            return {
+                "status": "success",
+                "message": "Proxy configured successfully on device",
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to configure proxy")
+
+    except Exception as e:
+        logger.error(f"Error configuring proxy: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/device/{device_id}/mitmproxy/export")
+async def export_mitmproxy_traffic(device_id: str, format: str = "json"):
+    """Export captured traffic in specified format"""
+    try:
+        mitmproxy_manager = await get_mitmproxy_manager(device_id)
+
+        if not await mitmproxy_manager.start():
+            raise HTTPException(
+                status_code=500, detail="Failed to initialize mitmproxy manager"
+            )
+
+        exported_data = await mitmproxy_manager.export_traffic(format)
+
+        if format == "json":
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse(
+                {"status": "success", "format": format, "data": exported_data}
+            )
+        else:
+            from fastapi.responses import Response
+
+            return Response(
+                content=exported_data,
+                media_type="text/plain",
+                headers={
+                    "Content-Disposition": f"attachment; filename=traffic_{device_id}_{int(time.time())}.{format}"
+                },
+            )
+
+    except Exception as e:
+        logger.error(f"Error exporting traffic: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/device/{device_id}/mitmproxy/clear-traffic")
+async def clear_mitmproxy_traffic(device_id: str):
+    """Clear captured traffic data"""
+    try:
+        if device_id not in _mitmproxy_managers:
+            return {
+                "status": "success",
+                "message": "No active mitmproxy session found - nothing to clear",
+            }
+
+        manager = _mitmproxy_managers[device_id]
+        await manager.clear_traffic()
+
+        return {"status": "success", "message": "Traffic data cleared successfully"}
+
+    except Exception as e:
+        logger.error(f"Error clearing traffic: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/device/{device_id}/mitmproxy/check-proxy")
+async def check_mitmproxy_proxy(device_id: str):
+    """Check if mitmproxy proxy is actually listening and accessible"""
+    try:
+        if device_id not in _mitmproxy_managers:
+            return {
+                "status": "error",
+                "message": "No active mitmproxy session",
+                "accessible": False,
+            }
+
+        manager = _mitmproxy_managers[device_id]
+
+        # Проверяем статус задачи
+        proxy_task_alive = (
+            manager.proxy_task is not None and not manager.proxy_task.done()
+        )
+
+        # Проверяем есть ли ошибки в задаче
+        proxy_error = (
+            getattr(manager.proxy_task, "error", None) if manager.proxy_task else None
+        )
+
+        # Проверяем доступность порта
+        import socket
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(("127.0.0.1", manager.proxy_port))
+            sock.close()
+            port_accessible = result == 0
+        except Exception as e:
+            port_accessible = False
+            logger.warning(f"Error checking port accessibility: {e}")
+
+        return {
+            "status": "success",
+            "data": {
+                "proxy_task_alive": proxy_task_alive,
+                "proxy_error": str(proxy_error) if proxy_error else None,
+                "port_accessible": port_accessible,
+                "proxy_port": manager.proxy_port,
+                "proxy_host": "0.0.0.0",
+                "accessible": proxy_task_alive and port_accessible and not proxy_error,
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"Error checking mitmproxy proxy: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/device/{device_id}/mitmproxy/logs")
+async def get_mitmproxy_logs(device_id: str):
+    """Get detailed logs for debugging mitmproxy issues"""
+    try:
+        import logging
+        import io
+
+        # Получаем логи из всех логгеров
+        logs = []
+
+        # Получаем root logger
+        root_logger = logging.getLogger()
+
+        # Создаем строковый буфер для захвата логов
+        log_stream = io.StringIO()
+
+        # Временно добавляем handler для захвата
+        handler = logging.StreamHandler(log_stream)
+        handler.setLevel(logging.DEBUG)
+        root_logger.addHandler(handler)
+
+        # Если есть активный менеджер - получаем его состояние
+        debug_info = {
+            "device_id": device_id,
+            "manager_exists": device_id in _mitmproxy_managers,
+            "timestamp": time.time(),
+        }
+
+        if device_id in _mitmproxy_managers:
+            manager = _mitmproxy_managers[device_id]
+            debug_info.update(
+                {
+                    "proxy_task_exists": manager.proxy_task is not None,
+                    "proxy_task_alive": (
+                        manager.proxy_task is not None and not manager.proxy_task.done()
+                        if manager.proxy_task
+                        else False
+                    ),
+                    "proxy_task_error": str(getattr(manager.proxy_task, "error", None)),
+                    "device_ip": manager.device_ip,
+                    "proxy_port": manager.proxy_port,
+                    "su_available": manager.su_available,
+                    "cert_installed": manager.cert_installed,
+                }
+            )
+
+        # Убираем временный handler
+        root_logger.removeHandler(handler)
+
+        return {
+            "status": "success",
+            "data": {
+                "debug_info": debug_info,
+                "logs": log_stream.getvalue().split("\n")[-50:],  # Последние 50 строк
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting mitmproxy logs: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/device/{device_id}/stop")

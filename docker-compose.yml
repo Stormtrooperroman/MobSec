@@ -21,6 +21,9 @@ services:
       - shared_data:/shared_data
     ports:
       - "8000:8000"
+      - "8080:8080"  # mitmproxy
+      - "8081:8081"  # mitmproxy alternative
+      - "8082:8082"  # mitmproxy main port
       - "27184:27184"  # scrcpy streaming (changed port)
     restart: always
     networks:

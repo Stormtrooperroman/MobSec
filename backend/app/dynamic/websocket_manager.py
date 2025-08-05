@@ -117,7 +117,7 @@ class WebSocketManager:
         """
         Handles messages from the WebSocket client
         """
-        self.logger.info(
+        self.logger.debug(
             f"Handling message for device '{device_id}', available devices: {list(self.proxies.keys())}"
         )
         if device_id in self.proxies and websocket in self.proxies[device_id]:
@@ -134,7 +134,7 @@ class WebSocketManager:
         """
         Handles binary messages from the WebSocket client
         """
-        self.logger.info(
+        self.logger.debug(
             f"Handling binary message for device '{device_id}', available devices: {list(self.proxies.keys())}"
         )
         if device_id in self.proxies and websocket in self.proxies[device_id]:

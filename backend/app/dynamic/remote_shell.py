@@ -93,8 +93,6 @@ class RemoteShell:
                         logger.info("No data from PTY, breaking")
                         break
 
-                    logger.info(f"Read {len(data)} bytes from PTY: {repr(data)}")
-
                     if self.websocket.client_state.CONNECTED:
                         await self.websocket.send_bytes(data)
                         logger.info(f"Sent {len(data)} bytes to WebSocket")
@@ -121,15 +119,10 @@ class RemoteShell:
     async def handle_input(self, data: str):
         """Handles incoming data from WebSocket"""
         try:
-            logger.info(f"Received input data: {repr(data)}")
-            logger.info(f"Data length: {len(data)}")
-            logger.info(f"Data char codes: {[ord(c) for c in data]}")
-
             try:
                 message = json.loads(data)
                 if isinstance(message, dict) and message.get("type") == "shell":
                     shell_data = message.get("data", {})
-                    logger.info(f"Shell data: {shell_data}")
                     if shell_data.get("type") == "start":
                         self.rows = shell_data.get("rows", 30)
                         self.cols = shell_data.get("cols", 100)
@@ -154,7 +147,6 @@ class RemoteShell:
                             )
                     elif shell_data.get("type") == "input":
                         input_data = shell_data.get("input", "")
-                        logger.info(f"Writing input to PTY: {repr(input_data)}")
                         if self.is_running and self.master_fd is not None:
                             loop = asyncio.get_event_loop()
                             await loop.run_in_executor(
@@ -181,14 +173,9 @@ class RemoteShell:
             except json.JSONDecodeError:
                 pass
 
-            logger.info(f"Writing raw data to PTY: {repr(data)}")
-            logger.info(f"Raw data length: {len(data)}")
-            logger.info(f"Raw data char codes: {[ord(c) for c in data]}")
             if self.is_running and self.master_fd is not None:
                 try:
                     encoded_data = data.encode()
-                    logger.info(f"Encoded data: {repr(encoded_data)}")
-                    logger.info(f"Encoded data length: {len(encoded_data)}")
                     loop = asyncio.get_event_loop()
                     bytes_written = await loop.run_in_executor(
                         None, os.write, self.master_fd, encoded_data

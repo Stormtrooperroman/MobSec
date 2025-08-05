@@ -13,7 +13,7 @@
           <div class="terminal-header">
             <span>Shell Terminal</span>
             <div class="terminal-controls">
-              <button @click="restartTerminal" class="terminal-restart-btn" title="Перезапустить терминал">
+              <button @click="restartTerminal" class="terminal-restart-btn" title="Restart terminal">
                 <font-awesome-icon icon="refresh" />
               </button>
               <span class="terminal-status" :class="{ 'connected': terminalConnected }">
@@ -60,6 +60,15 @@
             <div v-if="activeTab === 'frida'" class="tab-pane active">
               <FridaTool :device-id="deviceId" />
             </div>
+            
+            <!-- Traffic Monitor Tab -->
+            <div v-if="activeTab === 'traffic_monitor'" class="tab-pane active">
+              <TrafficMonitor 
+                :device-id="deviceId" 
+                @success="handleSuccess"
+                @error="handleError"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -73,7 +82,6 @@ import '@/assets/devicelist.css';
 import '@/ws-scrcpy/style/morebox.css';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
-import { AttachAddon } from 'xterm-addon-attach';
 import 'xterm/css/xterm.css';
 
 import { StreamClientScrcpy } from '@/ws-scrcpy/app/googDevice/client/StreamClientScrcpy';
@@ -88,6 +96,7 @@ import { FileListingClient } from '@/ws-scrcpy/app/googDevice/client/FileListing
 
 import FileManager from './tools/FileManager.vue';
 import FridaTool from './tools/FridaTool.vue';
+import TrafficMonitor from './tools/TrafficMonitor.vue';
 
 // Register available players
 StreamClientScrcpy.registerPlayer(TinyH264Player);
@@ -99,7 +108,8 @@ export default {
   name: 'DeviceStreamer',
   components: {
     FileManager,
-    FridaTool
+    FridaTool,
+    TrafficMonitor
   },
   props: {
     deviceId: {
@@ -165,13 +175,45 @@ export default {
     getToolIcon(action) {
       const icons = {
         'file_manager': 'folder',
-        'frida': 'bug'
+        'frida': 'bug',
+        'traffic_monitor': 'network-wired'
       };
       return icons[action] || 'tool';
+    },
+
+    async initializeMitmproxy() {
+      try {
+        const statusResponse = await fetch(`/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/status`);
+        const statusData = await statusResponse.json();
+        
+        if (statusData.status === 'success') {
+          if (!statusData.data.proxy_running) {
+            const startResponse = await fetch(`/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/start`, {
+              method: 'POST'
+            });
+            
+            if (startResponse.ok) {
+              console.log('Mitmproxy started successfully');
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing mitmproxy:', error);
+      }
+    },
+
+    handleSuccess(message) {
+      this.$emit('success', message);
+    },
+
+    handleError(message) {
+      this.$emit('error', message);
     },
     
     async initializeComponents() {
       try {
+        await this.initializeMitmproxy();
+        
         let retries = 3;
         let response;
         
@@ -280,6 +322,11 @@ export default {
           {
             title: 'Frida',
             ACTION: 'frida',
+            client: null
+          },
+          {
+            title: 'Traffic Monitor',
+            ACTION: 'traffic_monitor',
             client: null
           }
         ];
@@ -410,16 +457,22 @@ export default {
               scrollbarWidth: 8
             });
 
-            try {
+            this.terminal.onData(data => {
               if (shellWs.readyState === WebSocket.OPEN) {
-                const attachAddon = new AttachAddon(shellWs);
-                attachAddon.activate(this.terminal);
-              } else {
-                console.warn('WebSocket not ready for AttachAddon');
+                console.log('Sending terminal data:', JSON.stringify(data));
+                shellWs.send(data);
               }
-            } catch (error) {
-              console.warn('Error loading AttachAddon:', error);
-            }
+            });
+
+            shellWs.addEventListener('message', (event) => {
+              if (event.data instanceof ArrayBuffer) {
+                const uint8Array = new Uint8Array(event.data);
+                const text = new TextDecoder().decode(uint8Array);
+                this.terminal.write(text);
+              } else {
+                this.terminal.write(event.data);
+              }
+            });
             
             this.fitAddon = new FitAddon();
             this.fitAddon.activate(this.terminal);
@@ -493,17 +546,6 @@ export default {
                   document.body.removeChild(textArea);
                 });
               }
-            } else if (event.ctrlKey && event.shiftKey && event.key === 'V') {
-              event.preventDefault();
-              event.stopPropagation();
-              
-              navigator.clipboard.readText().then(text => {
-                if (text && this.currentShellClient && this.currentShellClient.readyState === WebSocket.OPEN) {
-                  this.terminal.write(text);
-                }
-              }).catch(() => {
-                // Failed to read clipboard
-              });
             }
           };
           

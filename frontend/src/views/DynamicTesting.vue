@@ -24,7 +24,7 @@
               @click="toggleAppInstallMenu(device)" 
               :class="['device-btn', 'btn-install', { 'active': device.showAppInstallMenu }]"
             >
-              <font-awesome-icon icon="mobile" />
+              <font-awesome-icon icon="mobile-screen-button" />
               Install App
               <font-awesome-icon 
                 :icon="device.showAppInstallMenu ? 'chevron-up' : 'chevron-down'" 
@@ -73,6 +73,8 @@
           v-if="device.isStreaming" 
           :device-id="device.id" 
           :key="device.id"
+          @success="handleStreamerSuccess"
+          @error="handleStreamerError"
         />
         
         <v-snackbar
@@ -107,24 +109,33 @@
         Refresh
       </v-btn>
     </div>
+    
+    <!-- Notification Toast -->
+    <NotificationToast 
+      :notifications="notifications"
+      @remove="removeNotification"
+    />
   </div>
 </template>
 
 <script>
 import DeviceStreamer from '@/components/DeviceStreamer.vue';
+import NotificationToast from '@/components/NotificationToast.vue';
 import axios from 'axios';
 
 export default {
   name: 'DynamicTesting',
   components: {
-    DeviceStreamer
+    DeviceStreamer,
+    NotificationToast
   },
   data() {
     return {
       devices: [],
       error: null,
       isLoadingDevices: false,
-      availableApps: []
+      availableApps: [],
+      notifications: []
     };
   },
   computed: {
@@ -146,6 +157,35 @@ export default {
     document.removeEventListener('click', this.handleClickOutside);
   },
   methods: {
+    addNotification(type, title, message) {
+      const id = Date.now() + Math.random();
+      this.notifications.push({
+        id,
+        type,
+        title,
+        message
+      });
+      
+      setTimeout(() => {
+        this.removeNotification(id);
+      }, 5000);
+    },
+    
+    removeNotification(id) {
+      const index = this.notifications.findIndex(n => n.id === id);
+      if (index !== -1) {
+        this.notifications.splice(index, 1);
+      }
+    },
+
+    handleStreamerSuccess(message) {
+      this.addNotification('success', 'Success', message);
+    },
+
+    handleStreamerError(message) {
+      this.addNotification('error', 'Error', message);
+    },
+
     async refreshDevices() {
       this.isLoadingDevices = true;
       try {
@@ -163,6 +203,7 @@ export default {
       } catch (error) {
         console.error('Failed to fetch devices:', error);
         this.error = 'Error fetching device list';
+        this.addNotification('error', 'Error', 'Failed to get device list');
       } finally {
         this.isLoadingDevices = false;
       }
@@ -190,6 +231,7 @@ export default {
         console.error('Failed to toggle stream:', error);
         device.error = error.response?.data?.detail || 'Error managing stream';
         device.showError = true;
+        this.addNotification('error', 'Error', `Failed to ${device.isStreaming ? 'stop' : 'start'} stream for device ${device.name}`);
       } finally {
         device.isLoading = false;
       }

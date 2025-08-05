@@ -11,7 +11,7 @@
         </span>
       </span>
       <div class="frida-controls">
-        <button @click="refreshFridaStatus" class="frida-refresh-btn" title="Обновить статус" :disabled="fridaRefreshing">
+        <button @click="refreshFridaStatus" class="frida-refresh-btn" title="Refresh status" :disabled="fridaRefreshing">
           <font-awesome-icon v-if="fridaRefreshing" icon="spinner" spin />
           <font-awesome-icon v-else icon="refresh" />
         </button>
@@ -19,26 +19,47 @@
     </div>
     
     <div class="frida-toolbar">
-      <button @click="installFrida" :disabled="fridaInstalled || fridaInstalling" class="frida-btn">
-        <font-awesome-icon v-if="fridaInstalling" icon="spinner" spin />
-        <font-awesome-icon v-else icon="download" />
-        Install Frida
-      </button>
-      <button @click="startFridaServer" :disabled="!fridaInstalled || fridaRunning || fridaStarting" class="frida-btn">
-        <font-awesome-icon v-if="fridaStarting" icon="spinner" spin />
-        <font-awesome-icon v-else icon="play" />
-        Start Server
-      </button>
-      <button @click="stopFridaServer" :disabled="!fridaRunning || fridaStopping" class="frida-btn">
-        <font-awesome-icon v-if="fridaStopping" icon="spinner" spin />
-        <font-awesome-icon v-else icon="stop" />
-        Stop Server
-      </button>
-      <button @click="listProcesses" :disabled="!fridaRunning || fridaProcessesLoading" class="frida-btn">
-        <font-awesome-icon v-if="fridaProcessesLoading" icon="spinner" spin />
-        <font-awesome-icon v-else icon="list" />
-        List Processes
-      </button>
+      <div class="frida-toolbar-left">
+        <button @click="installFrida" :disabled="fridaInstalled || fridaInstalling" class="frida-btn">
+          <font-awesome-icon v-if="fridaInstalling" icon="spinner" spin />
+          <font-awesome-icon v-else icon="download" />
+          Install Frida
+        </button>
+        <button @click="startFridaServer" :disabled="!fridaInstalled || fridaRunning || fridaStarting" class="frida-btn">
+          <font-awesome-icon v-if="fridaStarting" icon="spinner" spin />
+          <font-awesome-icon v-else icon="play" />
+          Start Server
+        </button>
+        <button @click="stopFridaServer" :disabled="!fridaRunning || fridaStopping" class="frida-btn">
+          <font-awesome-icon v-if="fridaStopping" icon="spinner" spin />
+          <font-awesome-icon v-else icon="stop" />
+          Stop Server
+        </button>
+        <button @click="listProcesses" :disabled="!fridaRunning || fridaProcessesLoading" class="frida-btn">
+          <font-awesome-icon v-if="fridaProcessesLoading" icon="spinner" spin />
+          <font-awesome-icon v-else icon="list" />
+          List Processes
+        </button>
+      </div>
+      
+      <div class="frida-toolbar-right">
+        <div class="process-input-group">
+          <input 
+            v-model="targetProcessName" 
+            type="text" 
+            placeholder="Enter process name"
+            class="process-input"
+            @keyup.enter="runSelectedScript"
+            :disabled="!fridaRunning || isScriptRunning"
+          />
+          <div v-if="showProcessError" class="process-error-overlay">
+            <div class="process-error">
+              <font-awesome-icon icon="exclamation-triangle" />
+              Please select a process before running a script
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     
     <div class="frida-content">
@@ -55,6 +76,11 @@
               <font-awesome-icon icon="plus" />
               New Script
             </button>
+            <button @click="loadScriptsFromAPI" :disabled="scriptsLoading" class="script-btn">
+              <font-awesome-icon v-if="scriptsLoading" icon="spinner" spin />
+              <font-awesome-icon v-else icon="refresh" />
+              Refresh Scripts
+            </button>
             <button @click="stopCurrentScript" :disabled="isStopButtonDisabled" class="script-btn stop-btn">
               <font-awesome-icon v-if="fridaStopping" icon="spinner" spin />
               <font-awesome-icon v-else icon="stop" />
@@ -63,7 +89,7 @@
           </div>
           
           <div class="scripts-list">
-            <div v-for="(script, name) in fridaScripts" :key="name" class="script-item">
+            <div v-for="(script, name) in fridaScripts" :key="name" class="script-item" :data-script="name">
               <span class="script-name">{{ name }}</span>
               <div class="script-item-actions">
                 <button @click="editScript(name)" class="action-btn">
@@ -87,9 +113,14 @@
       <div class="frida-processes" v-if="fridaProcesses.length > 0">
         <h4>Processes</h4>
         <div class="processes-list">
-          <div v-for="process in fridaProcesses" :key="process.pid" class="process-item">
-            <span class="process-name">{{ process.name }}</span>
-            <span class="process-pid">PID: {{ process.pid }}</span>
+          <div v-for="process in fridaProcesses" :key="process.pid" class="process-item" @click="selectProcess(process.name)">
+            <div class="process-info">
+              <div class="process-name">{{ process.name }}</div>
+              <div class="process-pid">PID: {{ process.pid }}</div>
+            </div>
+            <div class="process-icon">
+              <font-awesome-icon icon="chevron-right" />
+            </div>
           </div>
         </div>
       </div>
@@ -160,13 +191,17 @@ export default {
       currentRunningScript: null,
       showScriptEditor: false,
       editingScriptName: null,
+      selectedScriptName: null,
       newScriptName: '',
       scriptContent: '',
+      targetProcessName: '',
       fridaInstalling: false,
       fridaStarting: false,
       fridaStopping: false,
       fridaRefreshing: false,
       fridaProcessesLoading: false,
+      scriptsLoading: false,
+      showProcessError: false,
     };
   },
   computed: {
@@ -186,6 +221,7 @@ export default {
   },
   async mounted() {
     await this.openFridaTool();
+    await this.loadScriptsFromAPI();
   },
   beforeUnmount() {
     this.closeFridaTool();
@@ -300,14 +336,6 @@ export default {
         case 'script_completed':
           this.updateScriptState(false);
           console.log('Script completed:', message.script_name, 'with return code:', message.return_code);
-          
-          // Add completion message to output
-          this.fridaOutput.push({
-            timestamp: new Date().toLocaleTimeString(),
-            text: `Script '${message.script_name}' completed (code: ${message.return_code}) - ${message.message}`,
-            stream: message.return_code === 0 ? 'stdout' : 'stderr'
-          });
-          this.scrollToFridaOutput();
           break;
         case 'script_output':
           this.fridaOutput.push({
@@ -386,24 +414,24 @@ export default {
       }
     },
 
-    loadScriptFile(event) {
+    async loadScriptFile(event) {
       const file = event.target.files[0];
       if (file) {
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
           const scriptContent = e.target.result;
           const scriptName = file.name.replace('.js', '');
           
-          this.fridaScripts[scriptName] = scriptContent;
-          
-          if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
-            this.currentFridaClient.send(JSON.stringify({
-              type: 'frida',
-              action: 'load_script',
-              script_name: scriptName,
-              script_content: scriptContent
-            }));
+          try {
+            await this.createScriptAPI(scriptName, scriptContent);
+          } catch (error) {
+            this.fridaOutput.push({
+              timestamp: new Date().toLocaleTimeString(),
+              text: `Error loading script '${scriptName}': ${error.message}`,
+              stream: 'stderr'
+            });
           }
+          this.scrollToFridaOutput();
         };
         reader.readAsText(file);
       }
@@ -437,18 +465,101 @@ Java.perform(function() {
       this.scriptContent = '';
     },
 
-    saveScript() {
-      const scriptName = this.editingScriptName || this.newScriptName;
-      if (scriptName && this.scriptContent) {
-        this.fridaScripts[scriptName] = this.scriptContent;
+    selectScript(scriptName) {
+      this.selectedScriptName = scriptName;
+      
+      // Highlight the selected script
+      this.$nextTick(() => {
+        const scriptItems = document.querySelectorAll('.script-item');
+        scriptItems.forEach(item => {
+          item.classList.remove('selected');
+        });
+        const selectedItem = document.querySelector(`[data-script="${scriptName}"]`);
+        if (selectedItem) {
+          selectedItem.classList.add('selected');
+        }
+      });
+    },
+
+    runScript(scriptName) {
+      if (!this.targetProcessName.trim()) {
+        // Show error and highlight process input
+        this.showProcessError = true;
+        this.highlightProcessInput();
         
+        // Hide error after 3 seconds
+        setTimeout(() => {
+          this.showProcessError = false;
+        }, 3000);
+        
+        return;
+      }
+      
+      // Run the script
+      if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
+        this.currentFridaClient.send(JSON.stringify({
+          type: 'frida',
+          action: 'run_script',
+          script_name: scriptName,
+          target_process: this.targetProcessName.trim()
+        }));
+      }
+    },
+
+    highlightProcessInput() {
+      const processInput = document.querySelector('.process-input');
+      if (processInput) {
+        processInput.classList.add('error-highlight');
+        processInput.focus();
+        
+        // Remove highlight after animation
+        setTimeout(() => {
+          processInput.classList.remove('error-highlight');
+        }, 2000);
+      }
+    },
+
+    selectProcess(processName) {
+      this.targetProcessName = processName;
+      this.showProcessError = false; // Hide error when process is selected
+    },
+
+    runSelectedScript() {
+      if (this.targetProcessName.trim() && this.selectedScriptName) {
         if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
           this.currentFridaClient.send(JSON.stringify({
             type: 'frida',
-            action: 'load_script',
-            script_name: scriptName,
-            script_content: this.scriptContent
+            action: 'run_script',
+            script_name: this.selectedScriptName,
+            target_process: this.targetProcessName.trim()
           }));
+        }
+      } else if (!this.selectedScriptName) {
+        alert('Please select a script first');
+      } else if (!this.targetProcessName.trim()) {
+        alert('Please enter a process name');
+      }
+    },
+
+    async saveScript() {
+      const scriptName = this.editingScriptName || this.newScriptName;
+      if (scriptName && this.scriptContent) {
+        try {
+          if (this.editingScriptName) {
+            // Update existing script
+            await this.updateScriptAPI(scriptName, this.scriptContent);
+          } else {
+            // Create new script
+            await this.createScriptAPI(scriptName, this.scriptContent);
+          }
+          this.scrollToFridaOutput();
+        } catch (error) {
+          this.fridaOutput.push({
+            timestamp: new Date().toLocaleTimeString(),
+            text: `Error saving script '${scriptName}': ${error.message}`,
+            stream: 'stderr'
+          });
+          this.scrollToFridaOutput();
         }
         
         this.closeScriptEditor();
@@ -475,14 +586,6 @@ Java.perform(function() {
           action: 'stop_script',
           script_name: this.currentRunningScript
         }));
-        
-        // Add stop message to output
-        this.fridaOutput.push({
-          timestamp: new Date().toLocaleTimeString(),
-          text: `Stopping script '${this.currentRunningScript}'...`,
-          stream: 'stdout'
-        });
-        this.scrollToFridaOutput();
       }
     },
 
@@ -490,31 +593,18 @@ Java.perform(function() {
       this.fridaOutput = [];
     },
 
-    deleteScript(scriptName) {
+    async deleteScript(scriptName) {
       if (confirm(`Are you sure you want to delete script "${scriptName}"?`)) {
-        delete this.fridaScripts[scriptName];
-      }
-    },
-
-    runScript(scriptName) {
-      const targetProcess = prompt('Enter target process name:');
-      if (targetProcess) {
-        if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
-          this.currentFridaClient.send(JSON.stringify({
-            type: 'frida',
-            action: 'run_script',
-            script_name: scriptName,
-            target_process: targetProcess
-          }));
-          
-          // Add start message to output
+        try {
+          await this.deleteScriptAPI(scriptName);
+        } catch (error) {
           this.fridaOutput.push({
             timestamp: new Date().toLocaleTimeString(),
-            text: `Starting script '${scriptName}' against '${targetProcess}'...`,
-            stream: 'stdout'
+            text: `Error deleting script '${scriptName}': ${error.message}`,
+            stream: 'stderr'
           });
-          this.scrollToFridaOutput();
         }
+        this.scrollToFridaOutput();
       }
     },
 
@@ -536,6 +626,100 @@ Java.perform(function() {
       this.$nextTick(() => {
         this.$forceUpdate();
       });
+    },
+
+    // API methods for script management
+    async loadScriptsFromAPI() {
+      try {
+        this.scriptsLoading = true;
+        const response = await fetch('/api/v1/frida/scripts');
+        if (response.ok) {
+          const scripts = await response.json();
+          this.fridaScripts = {};
+          for (const script of scripts) {
+            // Load script content
+            const contentResponse = await fetch(`/api/v1/frida/scripts/${script.name}/content`);
+            if (contentResponse.ok) {
+              const contentData = await contentResponse.json();
+              this.fridaScripts[script.name] = contentData.content;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading scripts from API:', error);
+      } finally {
+        this.scriptsLoading = false;
+      }
+    },
+
+    async createScriptAPI(name, content) {
+      try {
+        const response = await fetch('/api/v1/frida/scripts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: name,
+            content: content
+          })
+        });
+        
+        if (response.ok) {
+          this.fridaScripts[name] = content;
+          return true;
+        } else {
+          const error = await response.json();
+          throw new Error(error.detail || 'Failed to create script');
+        }
+      } catch (error) {
+        console.error('Error creating script:', error);
+        throw error;
+      }
+    },
+
+    async updateScriptAPI(name, content) {
+      try {
+        const response = await fetch(`/api/v1/frida/scripts/${name}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            content: content
+          })
+        });
+        
+        if (response.ok) {
+          this.fridaScripts[name] = content;
+          return true;
+        } else {
+          const error = await response.json();
+          throw new Error(error.detail || 'Failed to update script');
+        }
+      } catch (error) {
+        console.error('Error updating script:', error);
+        throw error;
+      }
+    },
+
+    async deleteScriptAPI(name) {
+      try {
+        const response = await fetch(`/api/v1/frida/scripts/${name}`, {
+          method: 'DELETE'
+        });
+        
+        if (response.ok) {
+          delete this.fridaScripts[name];
+          return true;
+        } else {
+          const error = await response.json();
+          throw new Error(error.detail || 'Failed to delete script');
+        }
+      } catch (error) {
+        console.error('Error deleting script:', error);
+        throw error;
+      }
     }
   }
 };
@@ -621,12 +805,96 @@ Java.perform(function() {
 }
 
 .frida-toolbar {
+  position: relative;
   display: flex;
-  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
   padding: 10px 15px;
   background: #e0e0e0;
   border-bottom: 1px solid #ccc;
   flex-wrap: wrap;
+}
+
+.frida-toolbar-left {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.frida-toolbar-right {
+  display: flex;
+  align-items: center;
+}
+
+.process-input-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 250px;
+}
+
+.process-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  font-size: 12px;
+  outline: none;
+  transition: all 0.2s ease;
+  min-width: 150px;
+}
+
+.process-input:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.process-input:disabled {
+  background: #f5f5f5;
+  color: #999;
+  cursor: not-allowed;
+}
+
+.process-input.error-highlight {
+  border-color: #f44336;
+  box-shadow: 0 0 0 2px rgba(244, 67, 54, 0.25);
+  animation: shake 0.5s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+.process-error-overlay {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1000;
+  margin-top: 5px;
+}
+
+.process-error {
+  padding: 8px 12px;
+  background: #ffebee;
+  border: 1px solid #f44336;
+  border-radius: 4px;
+  color: #d32f2f;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  animation: fadeIn 0.3s ease-in;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .frida-btn {
@@ -725,6 +993,16 @@ Java.perform(function() {
   align-items: center;
   padding: 10px 15px;
   border-bottom: 1px solid #eee;
+  transition: all 0.2s ease;
+}
+
+.script-item:hover {
+  background: #f8f9fa;
+}
+
+.script-item.selected {
+  background: #e3f2fd;
+  border-left: 3px solid #007bff;
 }
 
 .script-item:last-child {
@@ -778,32 +1056,66 @@ Java.perform(function() {
 
 .processes-list {
   background: #fff;
-  border-radius: 4px;
-  border: 1px solid #ddd;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
   max-height: 300px;
   overflow-y: auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .process-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  border-bottom: 1px solid #eee;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+}
+
+.process-item:hover {
+  background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+  transform: translateX(2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .process-item:last-child {
   border-bottom: none;
 }
 
+.process-item:active {
+  transform: translateX(1px);
+  background: linear-gradient(135deg, #bbdefb 0%, #e1bee7 100%);
+}
+
+.process-info {
+  flex: 1;
+}
+
 .process-name {
-  font-weight: 500;
-  color: #333;
+  font-weight: 600;
+  color: #2c3e50;
+  font-size: 14px;
+  margin-bottom: 2px;
 }
 
 .process-pid {
   font-size: 12px;
-  color: #666;
+  color: #7f8c8d;
+  font-weight: 500;
+}
+
+.process-icon {
+  color: #3498db;
+  font-size: 14px;
+  opacity: 0.7;
+  transition: all 0.2s ease;
+}
+
+.process-item:hover .process-icon {
+  opacity: 1;
+  transform: translateX(2px);
 }
 
 .frida-output {
@@ -1087,6 +1399,16 @@ Java.perform(function() {
   .frida-content {
     max-height: 250px;
   }
+  
+  .frida-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  
+  .process-input-group {
+    min-width: auto;
+  }
 }
 
 @media (max-width: 768px) {
@@ -1112,6 +1434,11 @@ Java.perform(function() {
     gap: 2px;
     font-size: 10px;
     min-height: 36px;
+  }
+  
+  .process-input-group {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style> 

@@ -28,7 +28,6 @@ class FileManager:
 
         try:
             self.is_running = True
-            logger.info(f"Starting file manager for device {self.device_id}")
 
             await self.check_su_availability()
 
@@ -57,7 +56,6 @@ class FileManager:
     async def check_su_availability(self):
         """Checks the availability of su on the device"""
         try:
-            logger.info(f"Checking SU availability for device {self.device_id}")
 
             which_process = await asyncio.create_subprocess_exec(
                 "adb",
@@ -70,10 +68,7 @@ class FileManager:
             )
             which_stdout, which_stderr = await which_process.communicate()
 
-            logger.info(f"which su result: {which_stdout.decode().strip()}")
-
             if which_process.returncode != 0:
-                logger.info("su binary not found")
                 self.su_available = False
                 return
 
@@ -89,13 +84,10 @@ class FileManager:
             stdout, stderr = await process.communicate()
 
             output = stdout.decode("utf-8", errors="ignore").strip()
-            logger.info(f"SU test output: '{output}'")
-            logger.info(f"SU test stderr: '{stderr.decode().strip()}'")
 
             if "SU_WORKS" in output:
                 self.su_available = True
             else:
-                logger.info("Primary SU test failed, trying simple su test")
                 simple_process = await asyncio.create_subprocess_exec(
                     "adb",
                     "-s",
@@ -108,12 +100,7 @@ class FileManager:
                 simple_stdout, simple_stderr = await simple_process.communicate()
                 simple_output = simple_stdout.decode("utf-8", errors="ignore").strip()
 
-                logger.info(f"Simple SU test output: '{simple_output}'")
                 self.su_available = "SU_SIMPLE_WORKS" in simple_output
-
-            logger.info(
-                f"SU availability for device {self.device_id}: {self.su_available}"
-            )
 
         except Exception as e:
             logger.error(f"Error checking su availability: {str(e)}")
@@ -139,10 +126,6 @@ class FileManager:
             else:
                 self.current_user = "unknown"
 
-            logger.info(
-                f"Current user for device {self.device_id}: {self.current_user}"
-            )
-
         except Exception as e:
             logger.error(f"Error getting current user: {str(e)}")
             self.current_user = "unknown"
@@ -154,7 +137,6 @@ class FileManager:
             return
 
         self.use_su = not self.use_su
-        logger.info(f"SU mode toggled for device {self.device_id}: {self.use_su}")
 
         await self.get_current_user()
 
@@ -179,7 +161,6 @@ class FileManager:
     async def handle_message(self, data: str):
         """Handles incoming messages from WebSocket"""
         try:
-            logger.info(f"Received file manager message: {data}")
 
             try:
                 message = json.loads(data)
@@ -224,12 +205,10 @@ class FileManager:
     async def list_directory(self, path: str):
         """Gets the list of files and directories"""
         try:
-            logger.info(f"Listing directory: {path} (SU mode: {self.use_su})")
 
             check_command = self.get_shell_command(
                 f'test -d "{path}" && echo "DIR_EXISTS" || echo "NOT_DIR"'
             )
-            logger.info(f"Check command: {check_command}")
 
             check_process = await asyncio.create_subprocess_exec(
                 "adb",
@@ -245,10 +224,6 @@ class FileManager:
             check_output = check_stdout.decode().strip()
             check_error = check_stderr.decode().strip()
 
-            logger.info(
-                f"Check result: stdout='{check_output}', stderr='{check_error}', returncode={check_process.returncode}"
-            )
-
             if "NOT_DIR" in check_output or check_process.returncode != 0:
                 error_msg = f"Path is not a directory or does not exist: {path}"
                 if check_error:
@@ -257,7 +232,6 @@ class FileManager:
                 return
 
             ls_command = self.get_shell_command(f'ls -la "{path}" 2>/dev/null')
-            logger.info(f"LS command: {ls_command}")
 
             process = await asyncio.create_subprocess_exec(
                 "adb",
@@ -272,10 +246,6 @@ class FileManager:
 
             ls_output = stdout.decode("utf-8", errors="ignore")
             ls_error = stderr.decode("utf-8", errors="ignore")
-
-            logger.info(
-                f"LS result: returncode={process.returncode}, stdout_len={len(ls_output)}, stderr='{ls_error}'"
-            )
 
             if process.returncode != 0:
                 error_msg = f"Cannot access directory: {path}"
@@ -294,27 +264,20 @@ class FileManager:
             entries = []
             lines = ls_output.strip().split("\n")
 
-            logger.info(f"LS output lines: {len(lines)}")
-            logger.info(f"LS raw output: {repr(ls_output)}")
-
             for i, line in enumerate(lines):
-                logger.info(f"Line {i}: {repr(line)}")
                 if not line.strip() or line.startswith("total"):
-                    logger.info(f"Skipping line {i} (empty or total)")
+                    logger.debug(f"Skipping line {i} (empty or total)")
                     continue
 
                 entry = self.parse_ls_line(line)
                 if entry:
                     entries.append(entry)
-                    logger.info(f"Parsed entry: {entry}")
                 else:
-                    logger.warning(f"Failed to parse line {i}: {repr(line)}")
+                    logger.debug(f"Failed to parse line {i}: {repr(line)}")
 
             entries.sort(key=lambda x: (not x["is_directory"], x["name"].lower()))
 
             self.current_path = path
-
-            logger.info(f"Successfully listed {len(entries)} entries in {path}")
 
             await self.send_response(
                 {
@@ -420,7 +383,6 @@ class FileManager:
     async def stat_file(self, path: str):
         """Gets detailed information about a file"""
         try:
-            logger.info(f"Getting file stats: {path}")
 
             process = await asyncio.create_subprocess_exec(
                 "adb",
@@ -495,7 +457,6 @@ class FileManager:
     async def download_file(self, path: str):
         """Downloads a file from the device"""
         try:
-            logger.info(f"Downloading file: {path}")
 
             check_command = self.get_shell_command(
                 f'test -f "{path}" && echo "FILE" || echo "NOT_FILE"'
@@ -611,7 +572,6 @@ class FileManager:
     async def upload_file(self, path: str, data: str):
         """Uploads a file to the device"""
         try:
-            logger.info(f"Uploading file: {path}")
 
             import base64
 
@@ -661,7 +621,7 @@ class FileManager:
     async def delete_file(self, path: str):
         """Deletes a file or directory"""
         try:
-            logger.info(f"Deleting: {path}")
+            logger.debug(f"Deleting: {path}")
 
             rm_command = self.get_shell_command(
                 f'rm -rf "{path}" && echo "SUCCESS" || echo "FAILED"'
@@ -697,7 +657,7 @@ class FileManager:
     async def create_directory(self, path: str):
         """Creates a directory"""
         try:
-            logger.info(f"Creating directory: {path}")
+            logger.debug(f"Creating directory: {path}")
 
             mkdir_command = self.get_shell_command(
                 f'mkdir -p "{path}" && echo "SUCCESS" || echo "FAILED"'
@@ -733,7 +693,7 @@ class FileManager:
     async def move_file(self, source: str, destination: str):
         """Moves a file or directory"""
         try:
-            logger.info(f"Moving {source} to {destination}")
+            logger.debug(f"Moving {source} to {destination}")
 
             mv_command = self.get_shell_command(
                 f'mv "{source}" "{destination}" && echo "SUCCESS" || echo "FAILED"'
@@ -770,7 +730,7 @@ class FileManager:
     async def copy_file(self, source: str, destination: str):
         """Copies a file or directory"""
         try:
-            logger.info(f"Copying {source} to {destination}")
+            logger.debug(f"Copying {source} to {destination}")
 
             cp_command = self.get_shell_command(
                 f'cp -r "{source}" "{destination}" && echo "SUCCESS" || echo "FAILED"'
@@ -826,4 +786,3 @@ class FileManager:
             return
 
         self.is_running = False
-        logger.info(f"File manager stopped for device {self.device_id}")
