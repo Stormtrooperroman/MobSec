@@ -144,35 +144,25 @@
     </div>
     
     <!-- Script Editor Modal -->
-    <div v-if="showScriptEditor" class="modal-overlay" @click="closeScriptEditor">
-      <div class="modal-container script-editor-modal" @click.stop>
-        <div class="modal-header">
-          <h3>{{ editingScriptName ? 'Edit Script' : 'New Script' }}: {{ editingScriptName || newScriptName }}</h3>
-          <button @click="closeScriptEditor" class="modal-close-btn">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="script-editor-container">
-            <textarea 
-              v-model="scriptContent" 
-              class="script-editor"
-              placeholder="Enter your Frida script here..."
-              spellcheck="false"
-              @keydown.tab.prevent="insertTab"
-            ></textarea>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button @click="closeScriptEditor" class="modal-btn cancel-btn">Cancel</button>
-          <button @click="saveScript" class="modal-btn save-btn">Save</button>
-        </div>
-      </div>
-    </div>
+    <ScriptEditorModal
+      :show="showScriptEditor"
+      :editing-script-name="editingScriptName"
+      :new-script-name="newScriptName"
+      :script-content="scriptContent"
+      @close="closeScriptEditor"
+      @save="handleScriptSave"
+    />
   </div>
 </template>
 
 <script>
+import ScriptEditorModal from '@/components/modals/ScriptEditorModal.vue'
+
 export default {
   name: 'FridaTool',
+  components: {
+    ScriptEditorModal
+  },
   props: {
     deviceId: {
       type: String,
@@ -566,8 +556,12 @@ Java.perform(function() {
       }
     },
 
+    handleScriptSave(content) {
+      this.scriptContent = content;
+      this.saveScript();
+    },
+
     insertTab(event) {
-      // Handle tab key in textarea
       const textarea = event.target;
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
@@ -1212,184 +1206,7 @@ Java.perform(function() {
   cursor: not-allowed;
 }
 
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.7);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
 
-.modal-container {
-  background-color: #2d2d2d;
-  border-radius: 8px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-  width: 90%;
-  max-width: 600px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  color: #ffffff;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 15px 20px;
-  background-color: #333;
-  border-bottom: 1px solid #444;
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 1.2em;
-  color: #ffffff;
-}
-
-.modal-close-btn {
-  background: none;
-  border: none;
-  color: #ffffff;
-  font-size: 24px;
-  cursor: pointer;
-  padding: 0 5px;
-  line-height: 1;
-}
-
-.modal-close-btn:hover {
-  color: #ff4444;
-}
-
-.modal-body {
-  padding: 20px;
-  overflow-y: auto;
-  flex-grow: 1;
-}
-
-.script-editor-container {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.script-editor {
-  width: 100%;
-  height: 100%;
-  background-color: #1e1e1e;
-  color: #ffffff;
-  font-family: monospace;
-  font-size: 14px;
-  line-height: 1.5;
-  padding: 10px;
-  border: 1px solid #444;
-  border-radius: 4px;
-  resize: none;
-  outline: none;
-  box-sizing: border-box;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  caret-color: #ffffff;
-  -webkit-text-fill-color: #ffffff;
-  caret-shape: block;
-  tab-size: 4;
-}
-
-.script-editor::-webkit-scrollbar {
-  width: 10px;
-}
-
-.script-editor::-webkit-scrollbar-track {
-  background: #333;
-  border-radius: 5px;
-}
-
-.script-editor::-webkit-scrollbar-thumb {
-  background: #666;
-  border-radius: 5px;
-}
-
-.script-editor::-webkit-scrollbar-thumb:hover {
-  background: #888;
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 15px 20px;
-  background-color: #333;
-  border-top: 1px solid #444;
-}
-
-.modal-btn {
-  padding: 8px 15px;
-  border: 1px solid #007bff;
-  background: #007bff;
-  color: white;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s ease;
-}
-
-.modal-btn:hover:not(:disabled) {
-  background: #0056b3;
-  border-color: #0056b3;
-}
-
-.modal-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: #444;
-  border-color: #444;
-}
-
-.modal-btn.cancel-btn {
-  border-color: #666;
-  background: #444;
-}
-
-.modal-btn.cancel-btn:hover:not(:disabled) {
-  background: #555;
-  border-color: #555;
-}
-
-.modal-btn.save-btn {
-  border-color: #4caf50;
-  background: #4caf50;
-}
-
-.modal-btn.save-btn:hover:not(:disabled) {
-  background: #388e3c;
-  border-color: #388e3c;
-}
-
-.modal-container.script-editor-modal {
-  width: 95%;
-  max-width: 900px;
-  height: 80vh;
-  max-height: 80vh;
-}
-
-.modal-container.script-editor-modal .modal-body {
-  display: flex;
-  flex-direction: column;
-  height: calc(100% - 120px);
-}
-
-.modal-container.script-editor-modal .script-editor {
-  height: 400px;
-  min-height: 300px;
-  flex-grow: 1;
-}
 
 @media (max-width: 1024px) {
   .frida-section {

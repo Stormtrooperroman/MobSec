@@ -97,7 +97,7 @@
 </template>
 
 <script>
-import RunModuleModal from './RunModuleModal.vue';
+import RunModuleModal from '@/components/modals/RunModuleModal.vue';
 
 export default {
   name: 'StoredAppsView',

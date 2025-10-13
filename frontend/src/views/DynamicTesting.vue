@@ -2,12 +2,16 @@
   <div class="dynamic-testing">
     <h1>Dynamic Testing</h1>
     
+
     <div class="device-list" v-if="devices.length > 0">
       <div v-for="device in visibleDevices" :key="device.id" class="device-card">
           <div class="device-info">
-          <h3>{{ device.name || device.id }}</h3>
-          <p>Status: {{ device.status }}</p>
-    </div>
+            <h3>{{ device.name || device.id }}</h3>
+            <p>Status: {{ device.status }}</p>
+            <p v-if="device.device_type" class="device-type">
+              Type: <span :class="['type-badge', device.device_type]">{{ device.device_type }}</span>
+            </p>
+          </div>
 
         <div class="device-actions">
           <button
@@ -87,27 +91,42 @@
       </div>
     </div>
 
-    <div v-else-if="isLoadingDevices" class="loading-devices">
-      <div class="loading-content">
-        <v-progress-circular 
-          indeterminate 
-          color="primary"
-          size="64"
-        ></v-progress-circular>
-        <p>Loading devices...</p>
+    <WiFiConnectionModal
+      :show="showWiFiModal"
+      @close="closeWiFiModal"
+      @success="handleWiFiSuccess"
+      @error="handleWiFiError"
+    />
+
+    <div v-if="devices.length > 0 || isLoadingDevices">
+      <div v-if="isLoadingDevices" class="loading-devices">
+        <div class="loading-content">
+          <div class="loading-spinner"></div>
+          <p>Loading devices...</p>
+        </div>
       </div>
     </div>
 
-    <div v-else class="no-devices">
-      <p>No connected devices</p>
-      <v-btn 
-        color="primary" 
-        @click="refreshDevices"
-        :loading="isLoadingDevices"
-        :disabled="isLoadingDevices"
+    <div v-else-if="devices.length === 0" class="no-devices">
+        <p>No connected devices</p>
+        <button 
+          class="btn btn-primary"
+          @click="refreshDevices"
+          :disabled="isLoadingDevices"
+        >
+          {{ isLoadingDevices ? 'Loading...' : 'Refresh' }}
+        </button>
+      </div>
+    
+
+    <div class="wifi-connection-section" v-if="!hasConnectedDevices">
+      <button 
+        class="wifi-connect-btn"
+        @click="showWiFiConnectModal"
       >
-        Refresh
-      </v-btn>
+        <font-awesome-icon icon="wifi" />
+        Connect using WiFi
+      </button>
     </div>
     
     <!-- Notification Toast -->
@@ -121,13 +140,15 @@
 <script>
 import DeviceStreamer from '@/components/DeviceStreamer.vue';
 import NotificationToast from '@/components/NotificationToast.vue';
+import WiFiConnectionModal from '@/components/modals/WiFiConnectionModal.vue';
 import axios from 'axios';
 
 export default {
   name: 'DynamicTesting',
   components: {
     DeviceStreamer,
-    NotificationToast
+    NotificationToast,
+    WiFiConnectionModal
   },
   data() {
     return {
@@ -135,7 +156,9 @@ export default {
       error: null,
       isLoadingDevices: false,
       availableApps: [],
-      notifications: []
+      notifications: [],
+      showWiFiModal: false,
+      isDisconnectingWiFi: false
     };
   },
   computed: {
@@ -147,6 +170,11 @@ export default {
       }
       
       return this.devices;
+    },
+    hasConnectedDevices() {
+      return this.devices.some(device => 
+        device.isStreaming
+      );
     }
   },
   async created() {
@@ -193,12 +221,13 @@ export default {
         this.devices = response.data.map(device => ({
           id: device.udid,
           name: device.name || device.udid,
-          status: device.status,
+          status: device.status || 'unknown',
           isStreaming: false,
           isLoading: false,
           error: null,
           showError: false,
-          showAppInstallMenu: false
+          showAppInstallMenu: false,
+          device_type: device.device_type
         }));
       } catch (error) {
         console.error('Failed to fetch devices:', error);
@@ -316,6 +345,57 @@ export default {
       }
     },
 
+    async enableWirelessDebugging(device) {
+      if (!device.id) {
+        device.error = 'Device ID not defined';
+        device.showError = true;
+        return;
+      }
+
+      device.isLoading = true;
+      device.error = null;
+      device.showError = false;
+
+      try {
+        const response = await axios.post(`/api/v1/dynamic-testing/device/${device.id}/enable-wireless-debugging`);
+        this.addNotification('success', 'Success', `Wireless debugging enabled for ${device.name}`);
+        device.status = response.data.status;
+      } catch (error) {
+        console.error('Failed to enable wireless debugging:', error);
+        device.error = error.response?.data?.detail || 'Error enabling wireless debugging';
+        device.showError = true;
+      } finally {
+        device.isLoading = false;
+      }
+    },
+
+    showWiFiConnectModal(device = null) {
+      console.log('Opening WiFi modal', device ? `for device: ${device.name}` : '');
+      this.showWiFiModal = true;
+    },
+
+    closeWiFiModal() {
+      console.log('Closing WiFi modal');
+      this.showWiFiModal = false;
+    },
+
+    async handleWiFiSuccess(message) {
+      this.addNotification('success', 'Success', message);
+      this.closeWiFiModal();
+      await this.refreshDevices();
+      
+      // Обновляем статус устройств после успешного WiFi подключения
+      this.devices.forEach(device => {
+        if (device.status === 'disconnected' || device.status === 'offline') {
+          device.status = 'wireless_debugging_enabled';
+        }
+      });
+    },
+
+    handleWiFiError(message) {
+      this.addNotification('error', 'Error', message);
+    },
+
     formatFileSize(bytes) {
       if (bytes === 0) return '0 B';
       const k = 1024;
@@ -345,6 +425,28 @@ export default {
           device.showAppInstallMenu = false;
         });
       }
+    },
+
+    async disconnectWiFi() {
+      this.isDisconnectingWiFi = true;
+      try {
+        await axios.post('/api/v1/dynamic-testing/disconnect-wifi');
+        this.addNotification('success', 'Success', 'WiFi connection disconnected.');
+        
+        // Обновляем статус устройств после отключения WiFi
+        this.devices.forEach(device => {
+          if (device.status === 'wireless_debugging_enabled') {
+            device.status = 'disconnected';
+          }
+        });
+        
+        await this.refreshDevices();
+      } catch (error) {
+        console.error('Failed to disconnect WiFi:', error);
+        this.addNotification('error', 'Error', 'Failed to disconnect WiFi: ' + (error.response?.data?.detail || error.message));
+      } finally {
+        this.isDisconnectingWiFi = false;
+      }
     }
   }
 };
@@ -352,21 +454,71 @@ export default {
 
 <style scoped>
 :root {
-  
   --border-color: #e0e0e0;
   --stream-bg: #000000;
+  --wifi-status-bg: #e0f2f7;
+  --wifi-status-border: #17a2b8;
+  --wifi-status-text: #17a2b8;
+  --disconnect-btn-bg: #f44336;
+  --disconnect-btn-hover: #d32f2f;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    
     --stream-bg: #000000;
+    --wifi-status-bg: #1a3a4a;
+    --wifi-status-border: #17a2b8;
+    --wifi-status-text: #17a2b8;
+    --disconnect-btn-bg: #f44336;
+    --disconnect-btn-hover: #d32f2f;
   }
 }
 
 .dynamic-testing {
   padding: 2rem;
   color: var(--text-primary);
+}
+
+.wifi-connection-section {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 2rem;
+  margin-top: 2rem;
+}
+
+.wifi-connect-btn {
+  background-color: #17a2b8;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.wifi-connect-btn:hover {
+  background-color: #138496;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-top: 2px solid currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .device-list {
@@ -396,9 +548,44 @@ export default {
   color: var(--text-secondary);
 }
 
+.device-type {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.type-badge {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.type-badge.physical {
+  background-color: #e0f2f7;
+  color: #17a2b8;
+}
+
+.type-badge.emulator {
+  background-color: #f8f9fa;
+  color: #6c757d;
+}
+
+.type-badge.unknown {
+  background-color: #f8f9fa;
+  color: #6c757d;
+}
+
 .device-actions {
   display: flex;
   gap: 1rem;
+}
+
+.physical-device-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
 }
 
 .device-btn {
@@ -443,53 +630,31 @@ export default {
   color: white;
 }
 
+.btn-wireless {
+  border-color: #28a745;
+  color: #28a745;
+}
+
+.btn-wireless:hover {
+  background-color: #28a745;
+  color: white;
+}
+
+.btn-wifi-connect {
+  border-color: #007bff;
+  color: #007bff;
+}
+
+.btn-wifi-connect:hover {
+  background-color: #007bff;
+  color: white;
+}
+
 .device-btn:disabled {
   opacity: 0.6;
   transform: none;
   box-shadow: none;
   cursor: not-allowed;
-}
-
-.loading-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid transparent;
-  border-top: 2px solid currentColor;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.loading-devices {
-  text-align: center;
-  margin-top: 4rem;
-}
-
-.loading-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-}
-
-.loading-content p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 1.1rem;
-}
-
-.no-devices {
-  text-align: center;
-  margin-top: 4rem;
-}
-
-.no-devices p {
-  margin-bottom: 1rem;
-  color: var(--text-secondary);
 }
 
 /* App Installation Dropdown Styles */
@@ -642,6 +807,133 @@ export default {
   to {
     opacity: 1;
     transform: scaleY(1);
+  }
+}
+
+.loading-devices {
+  text-align: center;
+  margin-top: 4rem;
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.loading-content p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+}
+
+.no-devices {
+  text-align: center;
+  margin-top: 4rem;
+}
+
+.no-devices p {
+  margin-bottom: 1rem;
+  color: var(--text-secondary);
+}
+
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #0056b3;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.connection-status {
+  margin-bottom: 2rem;
+  text-align: right;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: var(--wifi-status-bg);
+  border: 1px solid var(--wifi-status-border);
+  border-radius: 6px;
+  padding: 10px 15px;
+  color: var(--wifi-status-text);
+  font-weight: 600;
+  font-size: 14px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.status-indicator .wifi-icon {
+  color: var(--wifi-status-text);
+  font-size: 18px;
+}
+
+.status-indicator .disconnect-btn {
+  background-color: var(--disconnect-btn-bg);
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  white-space: nowrap;
+}
+
+.status-indicator .disconnect-btn:hover {
+  background-color: var(--disconnect-btn-hover);
+}
+
+.status-indicator .disconnect-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.status-indicator .disconnect-btn:disabled:hover {
+  background-color: var(--disconnect-btn-bg);
+}
+
+@media (max-width: 768px) {
+  .wifi-connect-btn {
+    font-size: 14px;
+    padding: 10px 20px;
+  }
+  
+  .connection-status {
+    text-align: center;
+  }
+  
+  .status-indicator {
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+  }
+  
+  .status-indicator .disconnect-btn {
+    width: 100%;
+    justify-content: center;
   }
 }
 </style>

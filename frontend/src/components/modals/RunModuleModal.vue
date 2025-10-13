@@ -11,7 +11,6 @@
         <div v-if="error" class="error-message">{{ error }}</div>
 
         <form v-if="!loading" @submit.prevent="runProcess">
-          <!-- Mode Selection -->
           <div class="form-group">
             <label class="form-label">Run Type:</label>
             <div class="radio-group">
@@ -26,7 +25,6 @@
             </div>
           </div>
 
-          <!-- Module Selection -->
           <div v-if="runType === 'module'" class="form-group">
             <label class="form-label">Select Module:</label>
             <select v-model="selectedModule" class="form-select" required>
@@ -54,7 +52,6 @@
             </select>
           </div>
 
-          <!-- Chain Selection -->
           <div v-if="runType === 'chain'" class="form-group">
             <label class="form-label">Select Chain:</label>
             <select v-model="selectedChain" class="form-select" required>
@@ -65,7 +62,6 @@
             </select>
           </div>
 
-          <!-- Task Options -->
           <div class="form-group">
             <label class="form-label">Application:</label>
             <select v-model="selectedApp" class="form-select" required>
@@ -76,7 +72,6 @@
             </select>
           </div>
 
-          <!-- Run Button -->
           <div class="form-actions">
             <button type="submit" class="submit-button" :disabled="isSubmitDisabled">
               Run {{ runType === 'module' ? 'Module' : 'Chain' }}
@@ -84,7 +79,6 @@
           </div>
         </form>
 
-        <!-- Results -->
         <div v-if="taskResult" class="result-section">
           <h3>Task Submitted</h3>
           <div class="result-info">

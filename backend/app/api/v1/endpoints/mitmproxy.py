@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Request, Query
-from fastapi.responses import Response, FileResponse
+from fastapi.responses import Response, FileResponse, JSONResponse
 from typing import List, Optional, Dict, Any
 import json
 import logging
@@ -9,6 +9,7 @@ import re
 import tempfile
 import os
 from app.dynamic.mitmproxy_manager import MitmproxyManager, get_mitmproxy_manager
+import time
 
 router = APIRouter()
 
@@ -163,36 +164,48 @@ async def dump_flows(
     request: Request,
     manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency),
 ):
-    """Download flows as binary dump"""
+    """Download flows as binary dump or HAR format"""
     try:
         filter_param = request.query_params.get("filter", "")
+        format_param = request.query_params.get("format", "dump")
 
         # Apply filter if provided
         flows = manager.get_flows()
         if filter_param:
             flows = manager.filter_flows(flows, filter_param)
 
-        # Create binary dump
-        dump_content = manager.export_flows_to_dump(flows)
+        if format_param == "har":
+            # Export as HAR format
+            har_data = await manager.export_traffic("har")
+            return JSONResponse(
+                content=har_data,
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": f"attachment; filename=flows_{int(time.time())}.har"
+                }
+            )
+        else:
+            # Create binary dump (default behavior)
+            dump_content = manager.export_flows_to_dump(flows)
 
-        # Create temporary file for response
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".dump") as tmp_file:
-            tmp_file.write(dump_content)
-            tmp_file_path = tmp_file.name
+            # Create temporary file for response
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".dump") as tmp_file:
+                tmp_file.write(dump_content)
+                tmp_file_path = tmp_file.name
 
-        # Return file response and schedule cleanup
-        def cleanup():
-            try:
-                os.unlink(tmp_file_path)
-            except:
-                pass
+            # Return file response and schedule cleanup
+            def cleanup():
+                try:
+                    os.unlink(tmp_file_path)
+                except:
+                    pass
 
-        return FileResponse(
-            path=tmp_file_path,
-            filename="flows.dump",
-            media_type="application/octet-stream",
-            background=cleanup,
-        )
+            return FileResponse(
+                path=tmp_file_path,
+                filename="flows.dump",
+                media_type="application/octet-stream",
+                background=cleanup,
+            )
     except Exception as e:
         logger.error(f"Error dumping flows: {e}")
         raise HTTPException(status_code=500, detail=str(e))

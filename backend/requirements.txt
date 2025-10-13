@@ -26,3 +26,4 @@ mitmproxy>=11.0.0
 dataclasses-json>=0.5.7
 urllib3>=1.26.0
 cryptography>=3.4.0
+scapy>=2.5.0

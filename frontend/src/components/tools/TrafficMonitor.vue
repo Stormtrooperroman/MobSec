@@ -1,108 +1,110 @@
 <template>
   <div class="traffic-monitor">
     <div class="traffic-monitor-header">
-      <h3>Network Traffic Monitoring</h3>
-      <div class="status-section">
-        <div class="status-item">
-          <span class="status-label">Proxy:</span>
-          <span class="status-value" :class="statusClass">{{ proxyStatusText }}</span>
-        </div>
-        <div class="status-item" v-if="status.device_ip">
-          <span class="status-label">Device IP:</span>
-          <span class="status-value">{{ status.device_ip }}</span>
-        </div>
-        <div class="status-item" v-if="status.backend_ip">
-          <span class="status-label">Backend IP:</span>
-          <span class="status-value">{{ status.backend_ip }}</span>
-        </div>
-        <div class="status-item">
-          <span class="status-label">Proxy Port:</span>
-          <span class="status-value">{{ status.proxy_port || 8082 }}</span>
-        </div>
+      <span>
+        Network Traffic Monitoring
+        <span class="user-info">
+          [{{ status.proxy_running ? 'Active' : 'Inactive' }}]
+        </span>
+      </span>
+    </div>
+    
+    <div class="traffic-monitor-path">
+      <div class="current-path">
+        <span class="path-label">Proxy Status:</span>
+        <span class="path-value" :class="statusClass">{{ proxyStatusText }}</span>
+      </div>
+      <div class="current-path" v-if="status.device_ip">
+        <span class="path-label">Device IP:</span>
+        <span class="path-value">{{ status.device_ip }}</span>
+      </div>
+      <div class="current-path" v-if="status.backend_ip">
+        <span class="path-label">Backend IP:</span>
+        <span class="path-value">{{ status.backend_ip }}</span>
+      </div>
+      <div class="current-path">
+        <span class="path-label">Proxy Port:</span>
+        <span class="path-value">{{ status.proxy_port || 8082 }}</span>
       </div>
     </div>
 
-    <div class="control-section">
-      <div class="control-group">
-        <button 
-          @click="startProxy" 
-          :disabled="status.proxy_running || isLoading"
-          class="btn btn-primary"
-        >
-          <font-awesome-icon icon="play" /> Start Proxy
-        </button>
-        
-        <button 
-          @click="stopProxy" 
-          :disabled="!status.proxy_running || isLoading"
-          class="btn btn-danger"
-        >
-          <font-awesome-icon icon="stop" /> Stop Proxy
-        </button>
-        
-        <button 
-          @click="configureProxy" 
-          :disabled="!status.proxy_running || isLoading"
-          class="btn btn-warning"
-        >
-          <font-awesome-icon icon="cog" /> Configure on Device
-        </button>
-      </div>
-
-      <div class="control-group">
-        <button 
-          @click="generateCertificate" 
-          :disabled="isLoading"
-          class="btn btn-info"
-        >
-          <font-awesome-icon icon="certificate" /> Generate Certificate
-        </button>
-        
-        <button 
-          @click="installCertificate" 
-          :disabled="isLoading"
-          class="btn btn-success"
-        >
-          <font-awesome-icon icon="download" /> Install Certificate
-        </button>
-        
-        <button 
-          @click="downloadCertificate" 
-          :disabled="isLoading"
-          class="btn btn-secondary"
-        >
-          <font-awesome-icon icon="file-download" /> Download Certificate
-        </button>
-        
-        <button 
-          @click="rebootDevice" 
-          :disabled="isLoading"
-          class="btn btn-info"
-          title="Reboot device to apply certificates"
-        >
-          <font-awesome-icon icon="power-off" /> Reboot Device
-        </button>
-      </div>
+    <div class="traffic-monitor-toolbar">
+      <button 
+        @click="startProxy" 
+        v-if="!status.proxy_running"
+        :disabled="isLoading"
+        class="toolbar-btn"
+      >
+        <font-awesome-icon icon="play" /> Start Proxy
+      </button>
+      
+      <button 
+        @click="stopProxy" 
+        v-if="status.proxy_running"
+        :disabled="isLoading"
+        class="toolbar-btn"
+      >
+        <font-awesome-icon icon="stop" /> Stop Proxy
+      </button>
+      
+      <button 
+        @click="configureProxy" 
+        :disabled="!status.proxy_running || isLoading"
+        class="toolbar-btn"
+      >
+        <font-awesome-icon icon="cog" /> Configure on Device
+      </button>
+      
+      <button 
+        @click="generateCertificate" 
+        :disabled="isLoading"
+        class="toolbar-btn"
+      >
+        <font-awesome-icon icon="certificate" /> Generate Certificate
+      </button>
+      
+      <button 
+        @click="installCertificate" 
+        :disabled="isLoading"
+        class="toolbar-btn"
+      >
+        <font-awesome-icon icon="download" /> Install Certificate
+      </button>
+      
+      <button 
+        @click="downloadCertificate" 
+        :disabled="isLoading"
+        class="toolbar-btn"
+      >
+        <font-awesome-icon icon="file-download" /> Download Certificate
+      </button>
+      
+      <button 
+        @click="rebootDevice" 
+        :disabled="isLoading"
+        class="toolbar-btn"
+        title="Reboot device to apply certificates"
+      >
+        <font-awesome-icon icon="power-off" /> Reboot Device
+      </button>
     </div>
 
-    <div class="traffic-section">
+    <div class="traffic-monitor-content">
       <div class="traffic-header">
         <h4>Captured Traffic</h4>
         <div class="traffic-controls">
           <button 
             @click="refreshTraffic" 
             :disabled="isLoading"
-            class="btn btn-sm btn-outline-primary"
+            class="control-btn"
           >
             <font-awesome-icon icon="sync" /> Refresh
           </button>
           
-
-          
           <button 
             @click="clearTraffic" 
             :disabled="isLoading"
-            class="btn btn-sm btn-outline-danger"
+            class="control-btn"
           >
             <font-awesome-icon icon="trash" /> Clear
           </button>
@@ -158,6 +160,7 @@
               :key="index"
               @click="selectEntry(entry)"
               :class="{ 'selected': selectedEntry === entry }"
+              class="traffic-row"
             >
               <td>{{ formatTime(entry.timestamp) }}</td>
               <td>
@@ -178,7 +181,7 @@
                 <div class="action-buttons">
                   <button 
                     @click.stop="viewDetails(entry)" 
-                    class="btn btn-xs btn-outline-info"
+                    class="action-btn"
                     title="View details"
                   >
                     <font-awesome-icon icon="eye" />
@@ -186,14 +189,14 @@
                   <button 
                     v-if="entry.intercepted"
                     @click.stop="resumeFlow(entry.id)" 
-                    class="btn btn-xs btn-outline-success"
+                    class="action-btn"
                     title="Resume flow"
                   >
                     <font-awesome-icon icon="play" />
                   </button>
                   <button 
                     @click.stop="killFlow(entry.id)" 
-                    class="btn btn-xs btn-outline-danger"
+                    class="action-btn delete-btn"
                     title="Stop flow"
                   >
                     <font-awesome-icon icon="times" />
@@ -215,7 +218,7 @@
         <button 
           @click="currentPage--" 
           :disabled="currentPage === 1"
-          class="btn btn-sm btn-outline-secondary"
+          class="control-btn"
         >
           <font-awesome-icon icon="chevron-left" />
         </button>
@@ -227,7 +230,7 @@
         <button 
           @click="currentPage++" 
           :disabled="currentPage === totalPages"
-          class="btn btn-sm btn-outline-secondary"
+          class="control-btn"
         >
           <font-awesome-icon icon="chevron-right" />
         </button>
@@ -274,202 +277,15 @@
     </div>
 
     <!-- Traffic Details Modal -->
-    <div class="modal" v-if="showDetailsModal" @click="closeModal">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h5>Request Details</h5>
-          <button @click="closeModal" class="close-btn">
-            <font-awesome-icon icon="times" />
-          </button>
-        </div>
-        
-        <div class="modal-body" v-if="selectedEntry">
-          <!-- Content loading indicator -->
-          <div class="content-loading" v-if="isLoading">
-            <div class="spinner"></div>
-            <span>Loading content...</span>
-          </div>
-          <div class="detail-section">
-            <h6>Basic Information</h6>
-            <div class="detail-grid">
-              <div class="detail-item">
-                <label>URL:</label>
-                <span>{{ selectedEntry.url }}</span>
-              </div>
-              <div class="detail-item">
-                <label>Method:</label>
-                <span>{{ selectedEntry.method }}</span>
-              </div>
-              <div class="detail-item">
-                <label>Status:</label>
-                <span>{{ selectedEntry.status_code }}</span>
-              </div>
-              <div class="detail-item">
-                <label>Time:</label>
-                <span>{{ formatTime(selectedEntry.timestamp) }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="detail-section">
-            <h6>Request Headers</h6>
-            <div class="headers-list">
-              <div 
-                v-for="(value, key) in selectedEntry.request_headers" 
-                :key="key"
-                class="header-item"
-              >
-                <span class="header-key">{{ key }}:</span>
-                <span class="header-value">{{ value }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="detail-section">
-            <h6>Response Headers</h6>
-            <div class="headers-list">
-              <div 
-                v-for="(value, key) in selectedEntry.response_headers" 
-                :key="key"
-                class="header-item"
-              >
-                <span class="header-key">{{ key }}:</span>
-                <span class="header-value">{{ value }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="detail-section">
-            <div class="section-header">
-              <h6>Request Content</h6>
-              <div class="section-controls">
-                <div class="content-view-controls" v-if="selectedEntry.id">
-                  <button 
-                    @click="changeContentView('request', 'auto')"
-                    :class="['btn', 'btn-xs', selectedEntry.request_view === 'auto' ? 'btn-primary' : 'btn-outline-secondary']"
-                    title="Auto mode"
-                  >
-                    <font-awesome-icon icon="magic" />
-                  </button>
-                  <button 
-                    @click="changeContentView('request', 'text')"
-                    :class="['btn', 'btn-xs', selectedEntry.request_view === 'text' ? 'btn-primary' : 'btn-outline-secondary']"
-                    title="Text mode"
-                  >
-                    <font-awesome-icon icon="font" />
-                  </button>
-                  <button 
-                    @click="changeContentView('request', 'hex')"
-                    :class="['btn', 'btn-xs', selectedEntry.request_view === 'hex' ? 'btn-primary' : 'btn-outline-secondary']"
-                    title="Hex mode"
-                  >
-                    <font-awesome-icon icon="code" />
-                  </button>
-                  <button 
-                    @click="changeContentView('request', 'raw')"
-                    :class="['btn', 'btn-xs', selectedEntry.request_view === 'raw' ? 'btn-primary' : 'btn-outline-secondary']"
-                    title="Raw mode"
-                  >
-                    <font-awesome-icon icon="file-code" />
-                  </button>
-                </div>
-                <button 
-                  v-if="selectedEntry.id" 
-                  @click="downloadFlowContent(selectedEntry.id, 'request')"
-                  class="btn btn-xs btn-outline-secondary"
-                  title="Download request content"
-                >
-                  <font-awesome-icon icon="download" />
-                </button>
-              </div>
-            </div>
-            <pre class="content-block" v-if="selectedEntry.request_content">{{ selectedEntry.request_content }}</pre>
-            <div class="content-placeholder" v-else>
-              <font-awesome-icon icon="info-circle" />
-              <span>Request content unavailable or empty</span>
-            </div>
-          </div>
-
-          <div class="detail-section">
-            <div class="section-header">
-              <h6>Response Content</h6>
-              <div class="section-controls">
-                <div class="content-view-controls" v-if="selectedEntry.id">
-                  <button 
-                    @click="changeContentView('response', 'auto')"
-                    :class="['btn', 'btn-xs', selectedEntry.response_view === 'auto' ? 'btn-primary' : 'btn-outline-secondary']"
-                    title="Auto mode"
-                  >
-                    <font-awesome-icon icon="magic" />
-                  </button>
-                  <button 
-                    @click="changeContentView('response', 'text')"
-                    :class="['btn', 'btn-xs', selectedEntry.response_view === 'text' ? 'btn-primary' : 'btn-outline-secondary']"
-                    title="Text mode"
-                  >
-                    <font-awesome-icon icon="font" />
-                  </button>
-                  <button 
-                    @click="changeContentView('response', 'hex')"
-                    :class="['btn', 'btn-xs', selectedEntry.response_view === 'hex' ? 'btn-primary' : 'btn-outline-secondary']"
-                    title="Hex mode"
-                  >
-                    <font-awesome-icon icon="code" />
-                  </button>
-                  <button 
-                    @click="changeContentView('response', 'raw')"
-                    :class="['btn', 'btn-xs', selectedEntry.response_view === 'raw' ? 'btn-primary' : 'btn-outline-secondary']"
-                    title="Raw mode"
-                  >
-                    <font-awesome-icon icon="file-code" />
-                  </button>
-                </div>
-                <button 
-                  v-if="selectedEntry.id" 
-                  @click="downloadFlowContent(selectedEntry.id, 'response')"
-                  class="btn btn-xs btn-outline-secondary"
-                  title="Download response content"
-                >
-                  <font-awesome-icon icon="download" />
-                </button>
-              </div>
-            </div>
-            <pre class="content-block" v-if="selectedEntry.response_content">{{ selectedEntry.response_content }}</pre>
-            <div class="content-placeholder" v-else>
-              <font-awesome-icon icon="info-circle" />
-              <span>Response content unavailable or empty</span>
-            </div>
-          </div>
-
-          <!-- Additional flow information -->
-          <div class="detail-section" v-if="selectedEntry.detailed">
-            <h6>Additional Information</h6>
-            <div class="detail-grid">
-              <div class="detail-item" v-if="selectedEntry.intercepted">
-                <label>Intercepted:</label>
-                <span class="badge badge-warning">Yes</span>
-              </div>
-              <div class="detail-item" v-if="selectedEntry.is_replay">
-                <label>Replay:</label>
-                <span class="badge badge-info">Yes</span>
-              </div>
-              <div class="detail-item" v-if="selectedEntry.modified">
-                <label>Modified:</label>
-                <span class="badge badge-warning">Yes</span>
-              </div>
-              <div class="detail-item" v-if="selectedEntry.marked">
-                <label>Marked:</label>
-                <span>{{ selectedEntry.marked }}</span>
-              </div>
-              <div class="detail-item" v-if="selectedEntry.comment">
-                <label>Comment:</label>
-                <span>{{ selectedEntry.comment }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <TrafficDetailsModal
+      :show="showDetailsModal"
+      :entry="selectedEntry"
+      :device-id="deviceId"
+      @close="closeModal"
+      @content-changed="handleContentChanged"
+      @success="handleModalSuccess"
+      @error="handleModalError"
+    />
 
     <!-- Loading overlay -->
     <div class="loading-overlay" v-if="isLoading">
@@ -480,9 +296,13 @@
 
 <script>
 import axios from 'axios'
+import TrafficDetailsModal from '@/components/modals/TrafficDetailsModal.vue'
 
 export default {
   name: 'TrafficMonitor',
+  components: {
+    TrafficDetailsModal
+  },
   props: {
     deviceId: {
       type: String,
@@ -512,7 +332,6 @@ export default {
       },
       selectedEntry: null,
       showDetailsModal: false,
-      showExportMenu: false,
       currentPage: 1,
       itemsPerPage: 20,
       autoRefresh: true,
@@ -908,24 +727,9 @@ export default {
             this.selectedEntry.request_view = 'auto'
             this.selectedEntry.response_view = 'auto'
             
-            const [requestContent, responseContent] = await Promise.allSettled([
-              this.getFlowContent(entry.id, 'request', 'auto'),
-              this.getFlowContent(entry.id, 'response', 'auto')
-            ])
-            
-            if (requestContent.status === 'fulfilled' && requestContent.value) {
-              this.selectedEntry.request_content = requestContent.value
-            } else {
-              console.warn('Could not load request content:', requestContent.reason)
-              this.selectedEntry.request_content = 'Request content unavailable'
-            }
-            
-            if (responseContent.status === 'fulfilled' && responseContent.value) {
-              this.selectedEntry.response_content = responseContent.value
-            } else {
-              console.warn('Could not load response content:', responseContent.reason)
-              this.selectedEntry.response_content = 'Response content unavailable'
-            }
+            // Контент будет загружен в модальном компоненте
+            this.selectedEntry.request_content = ''
+            this.selectedEntry.response_content = ''
           } else {
             this.selectedEntry = entry
           }
@@ -943,56 +747,7 @@ export default {
       }
     },
 
-    async getFlowContent(flowId, messageType, contentView = 'auto') {
-      try {
-        const response = await axios.get(`/api/v1/mitmproxy/flows/${flowId}/${messageType}/content/${contentView}`, {
-          params: { 
-            device_id: this.deviceId,
-            lines: 1000 
-          },
-          responseType: contentView === 'raw' ? 'arraybuffer' : 'text'
-        })
-        
-        if (typeof response.data === 'string') {
-          return response.data
-        } else if (response.data instanceof ArrayBuffer) {
-          try {
-            const decoder = new TextDecoder('utf-8')
-            return decoder.decode(response.data)
-          } catch (e) {
-            return `[Binary data, size: ${response.data.byteLength} bytes]`
-          }
-        } else {
-          return JSON.stringify(response.data, null, 2)
-        }
-      } catch (error) {
-        console.error('Error getting flow content:', error)
-        if (error.response?.status === 404) {
-          return 'Content unavailable (404)'
-        } else if (error.response?.status === 400) {
-          return 'Bad request (400)'
-        } else {
-          return `Loading error: ${error.message}`
-        }
-      }
-    },
 
-    async downloadFlowContent(flowId, messageType) {
-      try {
-        const url = `/api/v1/mitmproxy/flows/${flowId}/${messageType}/content.data?device_id=${encodeURIComponent(this.deviceId)}`
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `${flowId}_${messageType}.data`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        
-        this.$emit('success', `${messageType} content downloaded`)
-      } catch (error) {
-        console.error('Error downloading flow content:', error)
-        this.$emit('error', 'Error downloading content')
-      }
-    },
 
     async resumeFlow(flowId) {
       try {
@@ -1050,39 +805,28 @@ export default {
       }
     },
 
-    async changeContentView(messageType, viewType) {
-      if (!this.selectedEntry || !this.selectedEntry.id) {
-        return
-      }
 
-      try {
-        this.isLoading = true
-        
-        if (messageType === 'request') {
-          this.selectedEntry.request_view = viewType
-        } else if (messageType === 'response') {
-          this.selectedEntry.response_view = viewType
-        }
-        
-        const content = await this.getFlowContent(this.selectedEntry.id, messageType, viewType)
-        
-        if (content) {
-          if (messageType === 'request') {
-            this.selectedEntry.request_content = content
-          } else if (messageType === 'response') {
-            this.selectedEntry.response_content = content
-          }
-        }
-      } catch (error) {
-        console.error('Error changing content view:', error)
-        this.$emit('error', 'Error changing content view')
-      } finally {
-        this.isLoading = false
-      }
-    },
 
     closeModal() {
       this.showDetailsModal = false
+    },
+
+    handleContentChanged(data) {
+      if (data.messageType === 'request') {
+        this.selectedEntry.request_content = data.content;
+        this.selectedEntry.request_view = data.viewType;
+      } else if (data.messageType === 'response') {
+        this.selectedEntry.response_content = data.content;
+        this.selectedEntry.response_view = data.viewType;
+      }
+    },
+
+    handleModalSuccess(message) {
+      this.$emit('success', message);
+    },
+
+    handleModalError(message) {
+      this.$emit('error', message);
     },
 
     setupWebSocketHandlers() {
@@ -1457,10 +1201,14 @@ export default {
 
 <style scoped>
 .traffic-monitor {
-  max-width: 100%;
-  background: #f8f9fa;
+  margin-top: 0;
+  margin-bottom: 0;
+  background: #f5f5f5;
   border-radius: 8px;
-  padding: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
@@ -1468,159 +1216,105 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 15px;
-  border-bottom: 2px solid #e9ecef;
+  padding: 10px 15px;
+  background: #2d2d2d;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  color: #ffffff;
 }
 
-.traffic-monitor-header h3 {
-  margin: 0;
-  color: #333;
+.traffic-monitor-header span {
   font-weight: 600;
+  font-size: 16px;
 }
 
-.status-section {
-  display: flex;
-  gap: 20px;
+.user-info {
+  color: #666;
+  font-size: 0.9em;
+  margin-left: 8px;
 }
 
-.status-item {
+.traffic-monitor-path {
+  padding: 10px 15px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.current-path {
+  display: flex;
   align-items: center;
+  gap: 10px;
 }
 
-.status-label {
-  font-size: 12px;
-  color: #6c757d;
-  margin-bottom: 4px;
-}
-
-.status-value {
+.path-label {
   font-weight: 600;
+  color: #333;
   font-size: 14px;
 }
 
-.status-success {
+.path-value {
+  font-family: monospace;
+  background: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  color: #555;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.path-value.status-success {
   color: #28a745;
+  border-color: #28a745;
 }
 
-.status-error {
+.path-value.status-error {
   color: #dc3545;
+  border-color: #dc3545;
 }
 
-.control-section {
-  margin-bottom: 25px;
-}
-
-.control-group {
+.traffic-monitor-toolbar {
   display: flex;
   gap: 10px;
-  margin-bottom: 15px;
+  padding: 10px 15px;
+  background: #e0e0e0;
+  border-bottom: 1px solid #ccc;
   flex-wrap: wrap;
 }
 
-.btn {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
+.toolbar-btn {
+  padding: 5px 10px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s ease;
+  font-size: 12px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  transition: all 0.2s ease;
 }
 
-.btn:hover:not(:disabled) {
+.toolbar-btn:hover:not(:disabled) {
+  background: #f0f0f0;
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-.btn:disabled {
-  opacity: 0.6;
+.toolbar-btn:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-.btn-primary {
-  background: #007bff;
-  color: white;
-}
-
-.btn-danger {
-  background: #dc3545;
-  color: white;
-}
-
-.btn-warning {
-  background: #ffc107;
-  color: #212529;
-}
-
-.btn-info {
-  background: #17a2b8;
-  color: white;
-}
-
-.btn-success {
-  background: #28a745;
-  color: white;
-}
-
-.btn-secondary {
-  background: #6c757d;
-  color: white;
-}
-
-.btn-outline-primary {
-  background: transparent;
-  color: #007bff;
-  border: 1px solid #007bff;
-}
-
-.btn-outline-danger {
-  background: transparent;
-  color: #dc3545;
-  border: 1px solid #dc3545;
-}
-
-.btn-outline-secondary {
-  background: transparent;
-  color: #6c757d;
-  border: 1px solid #6c757d;
-}
-
-.btn-outline-info {
-  background: transparent;
-  color: #17a2b8;
-  border: 1px solid #17a2b8;
-}
-
-.btn-info {
-  background: #17a2b8;
-  color: white;
-}
-
-.btn-info:hover:not(:disabled) {
-  background: #138496;
-}
-
-.btn-sm {
-  padding: 4px 8px;
-  font-size: 12px;
-}
-
-.btn-xs {
-  padding: 2px 6px;
-  font-size: 11px;
-}
-
-.traffic-section {
-  background: white;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+.traffic-monitor-content {
+  flex: 1;
+  padding: 15px;
+  background: #fff;
+  overflow-y: auto;
+  max-height: 400px;
 }
 
 .traffic-header {
@@ -1633,12 +1327,35 @@ export default {
 .traffic-header h4 {
   margin: 0;
   color: #333;
+  font-size: 16px;
 }
 
 .traffic-controls {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.control-btn {
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.control-btn:hover:not(:disabled) {
+  background: #f0f0f0;
+}
+
+.control-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .dropdown {
@@ -1711,27 +1428,27 @@ export default {
 .traffic-table td {
   padding: 8px 12px;
   text-align: left;
-  border-bottom: 1px solid #dee2e6;
+  border-bottom: 1px solid #eee;
 }
 
 .traffic-table th {
   background: #f8f9fa;
   font-weight: 600;
-  color: #495057;
+  color: #333;
   position: sticky;
   top: 0;
 }
 
-.traffic-table tbody tr {
+.traffic-row {
   cursor: pointer;
   transition: background-color 0.2s ease;
 }
 
-.traffic-table tbody tr:hover {
+.traffic-row:hover {
   background: #f8f9fa;
 }
 
-.traffic-table tbody tr.selected {
+.traffic-row.selected {
   background: #e3f2fd;
 }
 
@@ -1959,251 +1676,51 @@ export default {
   font-style: italic;
 }
 
-.modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0,0,0,0.5);
+.action-buttons {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 2000;
-}
-
-.modal-content {
-  background: white;
-  border-radius: 8px;
-  max-width: 800px;
-  max-height: 80vh;
-  width: 90%;
-  overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #dee2e6;
-  background: #f8f9fa;
-}
-
-.modal-header h5 {
-  margin: 0;
-  color: #333;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 18px;
-  cursor: pointer;
-  color: #6c757d;
-  padding: 4px;
-}
-
-.modal-body {
-  padding: 20px;
-  overflow-y: auto;
-  max-height: calc(80vh - 80px);
-}
-
-.detail-section {
-  margin-bottom: 20px;
-}
-
-.detail-section h6 {
-  margin: 0 0 10px 0;
-  color: #333;
-  font-weight: 600;
-  border-bottom: 1px solid #dee2e6;
-  padding-bottom: 5px;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.section-header h6 {
-  margin: 0;
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.section-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.content-view-controls {
-  display: flex;
-  gap: 2px;
-}
-
-.content-view-controls .btn {
-  padding: 4px 8px;
-  font-size: 10px;
-  min-width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.content-view-controls .btn i {
-  font-size: 10px;
-}
-
-.badge {
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 11px;
-  font-weight: 600;
-  display: inline-block;
-}
-
-.badge-warning {
-  background: #fff3cd;
-  color: #856404;
-  border: 1px solid #ffeaa7;
-}
-
-.badge-info {
-  background: #d1ecf1;
-  color: #0c5460;
-  border: 1px solid #bee5eb;
-}
-
-.badge-success {
-  background: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
-}
-
-.badge-danger {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
-}
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 10px;
-}
-
-.detail-item {
-  display: flex;
-  flex-direction: column;
-}
-
-.detail-item label {
-  font-size: 12px;
-  color: #6c757d;
-  font-weight: 600;
-  margin-bottom: 2px;
-}
-
-.detail-item span {
-  color: #333;
-  word-break: break-all;
-}
-
-.headers-list {
-  display: flex;
-  flex-direction: column;
   gap: 4px;
+  align-items: center;
 }
 
-.header-item {
-  display: flex;
-  font-size: 13px;
-}
-
-.header-key {
-  font-weight: 600;
-  color: #495057;
-  min-width: 150px;
-  margin-right: 10px;
-}
-
-.header-value {
-  color: #333;
-  word-break: break-all;
-}
-
-.content-block {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 4px;
-  padding: 15px;
+.action-btn {
+  padding: 2px 6px;
+  margin-right: 5px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 3px;
+  cursor: pointer;
   font-size: 12px;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.content-placeholder {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 4px;
-  padding: 20px;
-  text-align: center;
-  color: #6c757d;
-  font-style: italic;
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  gap: 4px;
+  min-width: 24px;
+  height: 24px;
   justify-content: center;
-  gap: 8px;
-  min-height: 60px;
 }
 
-.content-placeholder i {
-  font-size: 16px;
-  color: #adb5bd;
+.action-btn:hover:not(:disabled) {
+  background: #f0f0f0;
 }
 
-.content-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 20px;
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 4px;
-  margin-bottom: 15px;
-  color: #6c757d;
+.action-btn.delete-btn {
+  color: #d32f2f;
+  border-color: #d32f2f;
 }
 
-.content-loading .spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid #f3f3f3;
-  border-top: 2px solid #007bff;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
+.action-btn.delete-btn:hover:not(:disabled) {
+  background: #ffebee;
 }
 
 .loading-overlay {
   position: absolute;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(255,255,255,0.8);
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
   display: flex;
-  justify-content: center;
   align-items: center;
+  justify-content: center;
   z-index: 1000;
 }
 
@@ -2211,7 +1728,7 @@ export default {
   width: 40px;
   height: 40px;
   border: 4px solid #f3f3f3;
-  border-top: 4px solid #007bff;
+  border-top: 4px solid #3498db;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -2221,39 +1738,39 @@ export default {
   100% { transform: rotate(360deg); }
 }
 
-.action-buttons {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-
-.action-buttons .btn {
-  padding: 2px 6px;
-  font-size: 10px;
-  min-width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.action-buttons .btn i {
-  font-size: 10px;
+@media (max-width: 1024px) {
+  .traffic-monitor {
+    max-height: 500px;
+  }
+  
+  .traffic-monitor-content {
+    max-height: 350px;
+  }
 }
 
 @media (max-width: 768px) {
+  .traffic-monitor {
+    max-height: 450px;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  
+  .traffic-monitor-content {
+    max-height: 300px;
+  }
+  
   .traffic-monitor-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 15px;
+    gap: 10px;
   }
   
-  .status-section {
+  .traffic-monitor-path {
     flex-direction: column;
     gap: 10px;
   }
   
-  .control-group {
+  .traffic-monitor-toolbar {
     flex-direction: column;
   }
   
@@ -2266,11 +1783,6 @@ export default {
   .security-stats {
     flex-direction: column;
     gap: 10px;
-  }
-  
-  .modal-content {
-    width: 95%;
-    margin: 10px;
   }
 }
 </style>

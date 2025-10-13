@@ -63,7 +63,7 @@
 </template>
 
 <script>
-import CreateChainModal from './CreateChainModal.vue';
+import CreateChainModal from '@/components/modals/CreateChainModal.vue';
 
 export default {
   name: 'ChainView',

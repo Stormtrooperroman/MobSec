@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 from app.dynamic.device import Device
+from app.dynamic.physical_device_manager import PhysicalDeviceManager
 
 
 class DeviceManager:
@@ -22,53 +23,68 @@ class DeviceManager:
         self.devices: Dict[str, Device] = {}
         self.logger = logging.getLogger(__name__)
         self.active_servers = {}
+        self.physical_device_manager = PhysicalDeviceManager()
 
         asyncio.create_task(self._monitor_devices())
 
     async def _monitor_devices(self):
-        """Continuous monitoring of connected devices"""
+        """Continuous monitoring of connected devices (both emulators and physical)"""
         while True:
             try:
-                env = self._get_adb_env()
-                process = await asyncio.create_subprocess_exec(
-                    "adb",
-                    "devices",
-                    "-l",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                )
-                stdout, stderr = await process.communicate()
+                emulator_devices = await self._get_emulator_devices()
+                physical_devices = await self.physical_device_manager.get_physical_devices()
+                
+                all_devices = emulator_devices + physical_devices
+                
+                await self._update_device_list(all_devices)
 
-                if process.returncode != 0:
-                    self.logger.error(f"Failed to get devices: {stderr.decode()}")
-                    await asyncio.sleep(5)
-                    continue
+                await asyncio.sleep(5)
 
-                current_devices = []
-                lines = stdout.decode().split("\n")[1:]
-                for line in lines:
-                    if line.strip():
-                        parts = line.split()
-                        if (
-                            len(parts) >= 2 and parts[1] == "device"
-                        ):  # Only include ready devices
+            except Exception as e:
+                self.logger.error(f"Error monitoring devices: {e}")
+                await asyncio.sleep(5)
+
+    async def _get_emulator_devices(self) -> List[Dict[str, str]]:
+        """Get devices from emulator manager"""
+        try:
+            env = self._get_adb_env()
+            process = await asyncio.create_subprocess_exec(
+                "adb",
+                "devices",
+                "-l",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                self.logger.error(f"Failed to get emulator devices: {stderr.decode()}")
+                return []
+
+            current_devices = []
+            lines = stdout.decode().split("\n")[1:]
+            for line in lines:
+                if line.strip():
+                    parts = line.split()
+                    if (
+                        len(parts) >= 2 and parts[1] == "device"
+                    ):
+                        if any(emulator_indicator in line.lower() for emulator_indicator in ['emulator', 'localhost', '127.0.0.1']):
                             device = {
                                 "udid": parts[0],
                                 "status": parts[1],
                                 "name": (
                                     parts[0] if len(parts) == 2 else " ".join(parts[2:])
                                 ),
+                                "type": "emulator"
                             }
                             current_devices.append(device)
 
-                await self._update_device_list(current_devices)
-
-                await asyncio.sleep(5)  # Less frequent monitoring
-
-            except Exception as e:
-                self.logger.error(f"Error monitoring devices: {e}")
-                await asyncio.sleep(5)
+            return current_devices
+        except Exception as e:
+            self.logger.error(f"Error getting emulator devices: {str(e)}")
+            return []
 
     async def _update_device_list(self, current_devices: List[Dict[str, str]]):
         """Updates the list of devices"""
@@ -82,6 +98,10 @@ class DeviceManager:
             serial = device["udid"]
             if serial not in self.devices:
                 self.devices[serial] = Device(serial, device["status"])
+                if "type" in device:
+                    self.devices[serial].device_type = device["type"]
+                if "name" in device:
+                    self.devices[serial].display_name = device["name"]
             else:
                 self.devices[serial].state = device["status"]
 
@@ -90,7 +110,6 @@ class DeviceManager:
         Initializes the ADB server
         """
         try:
-            # Just ensure ADB server is running
             env = self._get_adb_env()
             start_process = await asyncio.create_subprocess_exec(
                 "adb",
@@ -120,42 +139,15 @@ class DeviceManager:
 
     async def get_devices(self) -> List[Dict[str, str]]:
         """
-        Gets the list of connected Android devices
+        Gets the list of all connected Android devices (emulators + physical)
         """
         try:
-            env = self._get_adb_env()
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "devices",
-                "-l",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-            stdout, stderr = await process.communicate()
-
-            if process.returncode != 0:
-                self.logger.error(f"Failed to get devices: {stderr.decode()}")
-                return []
-
-            raw_output = stdout.decode()
-
-            devices = []
-            lines = raw_output.split("\n")[1:]
-            for line in lines:
-                if line.strip():
-                    parts = line.split()
-                    if len(parts) >= 2 and parts[1] == "device":
-                        device = {
-                            "udid": parts[0],
-                            "status": parts[1],
-                            "name": (
-                                parts[0] if len(parts) == 2 else " ".join(parts[2:])
-                            ),
-                        }
-                        devices.append(device)
-
-            return devices
+            emulator_devices = await self._get_emulator_devices()
+            physical_devices = await self.physical_device_manager.get_physical_devices()
+            
+            all_devices = emulator_devices + physical_devices
+            return all_devices
+            
         except Exception as e:
             self.logger.error(f"Error getting devices: {str(e)}")
             return []
@@ -172,6 +164,11 @@ class DeviceManager:
         for device_info in devices:
             if device_info["udid"] == device_id:
                 device = Device(device_info["udid"], device_info["status"])
+                if "type" in device_info:
+                    device.device_type = device_info["type"]
+                if "name" in device_info:
+                    device.display_name = device_info["name"]
+                
                 self.devices[device_id] = device
                 return device
 
@@ -229,3 +226,27 @@ class DeviceManager:
         except Exception as e:
             self.logger.error(f"Error stopping server: {str(e)}")
             return False
+
+    async def connect_wifi_device(self, ip_address: str, port: int = 5555) -> bool:
+        """Connect to a device via WiFi"""
+        return await self.physical_device_manager.connect_wifi_device(ip_address, port)
+
+    async def disconnect_wifi_device(self, ip_address: str, port: int = 5555) -> bool:
+        """Disconnect from a WiFi device"""
+        return await self.physical_device_manager.disconnect_wifi_device(ip_address, port)
+
+    async def enable_wireless_debugging(self, device_id: str) -> bool:
+        """Enable wireless debugging on a USB-connected device"""
+        return await self.physical_device_manager.enable_wireless_debugging(device_id)
+
+    async def get_device_properties(self, device_id: str) -> Dict[str, str]:
+        """Get detailed properties of a device"""
+        return await self.physical_device_manager.get_device_properties(device_id)
+
+    async def get_device_screen_info(self, device_id: str) -> Optional[Dict[str, int]]:
+        """Get device screen dimensions"""
+        return await self.physical_device_manager.get_device_screen_info(device_id)
+
+    async def check_device_connectivity(self, device_id: str) -> bool:
+        """Check if a device is still connected and responsive"""
+        return await self.physical_device_manager.check_device_connectivity(device_id)

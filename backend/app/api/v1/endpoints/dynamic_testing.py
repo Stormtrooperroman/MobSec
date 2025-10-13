@@ -485,6 +485,190 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
 # Global storage for mitmproxy managers to maintain state
 _mitmproxy_managers = {}
 
+# Physical Device Management Endpoints
+
+@router.post("/device/{device_id}/enable-wireless")
+async def enable_wireless_debugging(device_id: str):
+    """Enable wireless debugging on a USB-connected device"""
+    try:
+        device_manager = DeviceManager()
+        success = await device_manager.enable_wireless_debugging(device_id)
+        
+        if success:
+            return {
+                "status": "success",
+                "message": "Wireless debugging enabled successfully",
+                "data": {"wireless_enabled": True}
+            }
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to enable wireless debugging"
+            )
+            
+    except Exception as e:
+        logger.error(f"Error enabling wireless debugging: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error enabling wireless debugging: {str(e)}"
+        )
+
+
+@router.post("/device/connect-wifi")
+async def connect_wifi_device(request: dict):
+    """Connect to a device via WiFi"""
+    try:
+        ip_address = request.get("ip_address")
+        port = request.get("port", 5555)
+        
+        if not ip_address:
+            raise HTTPException(
+                status_code=400, 
+                detail="ip_address is required"
+            )
+        
+        device_manager = DeviceManager()
+        success = await device_manager.connect_wifi_device(ip_address, port)
+        
+        if success:
+            return {
+                "status": "success",
+                "message": f"Successfully connected to device at {ip_address}:{port}",
+                "data": {
+                    "ip_address": ip_address,
+                    "port": port,
+                    "connected": True
+                }
+            }
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to connect to device at {ip_address}:{port}"
+            )
+            
+    except Exception as e:
+        logger.error(f"Error connecting to WiFi device: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error connecting to WiFi device: {str(e)}"
+        )
+
+
+@router.post("/device/disconnect-wifi")
+async def disconnect_wifi_device(request: dict):
+    """Disconnect from a WiFi device"""
+    try:
+        ip_address = request.get("ip_address")
+        port = request.get("port", 5555)
+        
+        if not ip_address:
+            raise HTTPException(
+                status_code=400, 
+                detail="ip_address is required"
+            )
+        
+        device_manager = DeviceManager()
+        success = await device_manager.disconnect_wifi_device(ip_address, port)
+        
+        if success:
+            return {
+                "status": "success",
+                "message": f"Successfully disconnected from device at {ip_address}:{port}",
+                "data": {
+                    "ip_address": ip_address,
+                    "port": port,
+                    "connected": False
+                }
+            }
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to disconnect from device at {ip_address}:{port}"
+            )
+            
+    except Exception as e:
+        logger.error(f"Error disconnecting from WiFi device: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error disconnecting from WiFi device: {str(e)}"
+        )
+
+
+@router.get("/device/{device_id}/properties")
+async def get_device_properties(device_id: str):
+    """Get detailed properties of a device"""
+    try:
+        device_manager = DeviceManager()
+        properties = await device_manager.get_device_properties(device_id)
+        
+        return {
+            "status": "success",
+            "data": {
+                "device_id": device_id,
+                "properties": properties
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting device properties: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error getting device properties: {str(e)}"
+        )
+
+
+@router.get("/device/{device_id}/screen-info")
+async def get_device_screen_info(device_id: str):
+    """Get device screen dimensions"""
+    try:
+        device_manager = DeviceManager()
+        screen_info = await device_manager.get_device_screen_info(device_id)
+        
+        if screen_info:
+            return {
+                "status": "success",
+                "data": {
+                    "device_id": device_id,
+                    "screen_info": screen_info
+                }
+            }
+        else:
+            raise HTTPException(
+                status_code=404, 
+                detail="Screen information not available for this device"
+            )
+        
+    except Exception as e:
+        logger.error(f"Error getting device screen info: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error getting device screen info: {str(e)}"
+        )
+
+
+@router.get("/device/{device_id}/connectivity")
+async def check_device_connectivity(device_id: str):
+    """Check if a device is still connected and responsive"""
+    try:
+        device_manager = DeviceManager()
+        is_connected = await device_manager.check_device_connectivity(device_id)
+        
+        return {
+            "status": "success",
+            "data": {
+                "device_id": device_id,
+                "connected": is_connected
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking device connectivity: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error checking device connectivity: {str(e)}"
+        )
+
+
 # Mitmproxy HTTP API Endpoints
 
 
@@ -763,7 +947,7 @@ async def export_mitmproxy_traffic(device_id: str, format: str = "json"):
 
         exported_data = await mitmproxy_manager.export_traffic(format)
 
-        if format == "json":
+        if format == "json" or format == "har":
             from fastapi.responses import JSONResponse
 
             return JSONResponse(

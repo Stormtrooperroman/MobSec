@@ -954,13 +954,14 @@ class MitmproxyManager:
             flows = self.get_flows()
 
             if format == "json":
-                # Export as JSON
                 flows_data = []
                 for flow_obj in flows:
                     flows_data.append(flow_to_json(flow_obj))
                 return flows_data
+            elif format == "har":
+                har_data = self._convert_flows_to_har(flows)
+                return har_data
             elif format == "dump":
-                # Export as mitmproxy dump format
                 return self.export_flows_to_dump(flows)
             else:
                 raise ValueError(f"Unsupported export format: {format}")
@@ -968,6 +969,200 @@ class MitmproxyManager:
         except Exception as e:
             logger.error(f"Error exporting traffic: {e}")
             raise
+
+    def _convert_flows_to_har(self, flows: List[flow.Flow]) -> dict:
+        """Convert mitmproxy flows to HAR format"""
+        try:
+            har_data = {
+                "log": {
+                    "version": "1.2",
+                    "creator": {
+                        "name": "MobSec Mitmproxy",
+                        "version": "1.0"
+                    },
+                    "browser": {
+                        "name": "MobSec",
+                        "version": "1.0"
+                    },
+                    "pages": [],
+                    "entries": []
+                }
+            }
+
+            for flow_obj in flows:
+                if hasattr(flow_obj, 'request') and hasattr(flow_obj, 'response'):
+                    entry = self._convert_flow_to_har_entry(flow_obj)
+                    if entry:
+                        har_data["log"]["entries"].append(entry)
+
+            return har_data
+
+        except Exception as e:
+            logger.error(f"Error converting flows to HAR: {e}")
+            return {"log": {"version": "1.2", "entries": []}}
+
+    def _convert_flow_to_har_entry(self, flow_obj) -> Optional[dict]:
+        """Convert a single flow to HAR entry format"""
+        try:
+            if not hasattr(flow_obj, 'request') or not flow_obj.request:
+                return None
+
+            start_time = flow_obj.timestamp_created
+            end_time = getattr(flow_obj, 'timestamp_end', start_time)
+            duration = (end_time - start_time) * 1000
+
+            entry = {
+                "startedDateTime": datetime.fromtimestamp(start_time).isoformat() + "Z",
+                "time": duration,
+                "request": self._convert_request_to_har(flow_obj.request),
+                "response": self._convert_response_to_har(flow_obj.response) if hasattr(flow_obj, 'response') and flow_obj.response else None,
+                "cache": {},
+                "timings": {
+                    "dns": -1,
+                    "connect": -1,
+                    "ssl": -1,
+                    "send": 0,
+                    "wait": duration,
+                    "receive": 0
+                },
+                "serverIPAddress": None,
+                "connection": None
+            }
+
+            if hasattr(flow_obj, 'server_conn') and flow_obj.server_conn and flow_obj.server_conn.peername:
+                entry["serverIPAddress"] = flow_obj.server_conn.peername[0]
+
+            return entry
+
+        except Exception as e:
+            logger.error(f"Error converting flow to HAR entry: {e}")
+            return None
+
+    def _convert_request_to_har(self, request) -> dict:
+        """Convert mitmproxy request to HAR request format"""
+        try:
+            headers = []
+            for name, value in request.headers.items(True):
+                headers.append({
+                    "name": name,
+                    "value": str(value)
+                })
+
+            query_string = []
+            if hasattr(request, 'query') and request.query:
+                for name, value in request.query.items():
+                    query_string.append({
+                        "name": name,
+                        "value": str(value)
+                    })
+
+            har_request = {
+                "method": request.method,
+                "url": f"{request.scheme}://{request.pretty_host}:{request.port}{request.path}",
+                "httpVersion": request.http_version,
+                "headers": headers,
+                "queryString": query_string,
+                "cookies": [],
+                "headersSize": -1,
+                "bodySize": len(request.raw_content) if request.raw_content else 0
+            }
+
+            if request.raw_content:
+                try:
+                    content = request.get_text(strict=False)
+                    if content is None:
+                        content = request.get_content(strict=False)
+                        if content:
+                            content = content.hex()
+                except:
+                    content = request.get_content(strict=False)
+                    if content:
+                        content = content.hex()
+                
+                if content:
+                    har_request["postData"] = {
+                        "mimeType": request.headers.get("content-type", "text/plain"),
+                        "text": content,
+                        "params": []
+                    }
+
+            return har_request
+
+        except Exception as e:
+            logger.error(f"Error converting request to HAR: {e}")
+            return {
+                "method": "GET",
+                "url": "",
+                "httpVersion": "HTTP/1.1",
+                "headers": [],
+                "queryString": [],
+                "cookies": [],
+                "headersSize": -1,
+                "bodySize": 0
+            }
+
+    def _convert_response_to_har(self, response) -> dict:
+        """Convert mitmproxy response to HAR response format"""
+        try:
+            headers = []
+            for name, value in response.headers.items(True):
+                headers.append({
+                    "name": name,
+                    "value": str(value)
+                })
+
+            har_response = {
+                "status": response.status_code,
+                "statusText": response.reason,
+                "httpVersion": response.http_version,
+                "headers": headers,
+                "cookies": [],
+                "content": {
+                    "size": len(response.raw_content) if response.raw_content else 0,
+                    "mimeType": response.headers.get("content-type", "text/plain"),
+                    "text": None,
+                    "encoding": None
+                },
+                "redirectURL": "",
+                "headersSize": -1,
+                "bodySize": len(response.raw_content) if response.raw_content else 0
+            }
+
+            if response.raw_content:
+                try:
+                    content = response.get_text(strict=False)
+                    if content is None:
+                        content = response.get_content(strict=False)
+                        if content:
+                            content = content.hex()
+                except:
+                    content = response.get_content(strict=False)
+                    if content:
+                        content = content.hex()
+                
+                if content:
+                    har_response["content"]["text"] = content
+
+            return har_response
+
+        except Exception as e:
+            logger.error(f"Error converting response to HAR: {e}")
+            return {
+                "status": 200,
+                "statusText": "OK",
+                "httpVersion": "HTTP/1.1",
+                "headers": [],
+                "cookies": [],
+                "content": {
+                    "size": 0,
+                    "mimeType": "text/plain",
+                    "text": "",
+                    "encoding": None
+                },
+                "redirectURL": "",
+                "headersSize": -1,
+                "bodySize": 0
+            }
 
     async def clear_traffic(self) -> bool:
         """Clear all captured traffic"""
@@ -984,7 +1179,6 @@ class MitmproxyManager:
 
             message = json.loads(data)
 
-            # Check device_id if it exists in the message
             if "device_id" in message and message["device_id"] != self.device_id:
                 await self.send_response(
                     websocket,
@@ -1019,15 +1213,12 @@ class MitmproxyManager:
                     )
 
                 elif action == "get_state":
-                    # Check su availability before getting state
                     await self._check_su_availability()
 
-                    # Get backend container IP if not set
                     if not self.backend_ip:
                         self.backend_ip = await self._get_backend_ip()
 
                     state = await self.get_state()
-                    # Add su availability information to state
                     state["su_available"] = self.su_available
                     await self.send_response(
                         websocket,
