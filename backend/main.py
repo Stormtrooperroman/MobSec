@@ -5,7 +5,7 @@ from app.api.v1.router import api_router
 from app.core.app_manager import AsyncStorageService
 from app.modules.chain_manager import ChainManager
 from app.modules.module_manager import ModuleManager
-from app.dynamic.emulator_manager import EmulatorManager
+from app.dynamic.device_management.emulator_manager import EmulatorManager
 from app.report_generator import start_report_generator, stop_report_generator
 from app.core.settings_db import init_db
 import os

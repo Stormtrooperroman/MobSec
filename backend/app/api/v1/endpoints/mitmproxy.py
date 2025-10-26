@@ -8,7 +8,13 @@ import hashlib
 import re
 import tempfile
 import os
-from app.dynamic.mitmproxy_manager import MitmproxyManager, get_mitmproxy_manager
+import base64
+from app.dynamic.tools.mitmproxy_manager import (
+    MitmproxyManager,
+    get_mitmproxy_manager,
+    cert_to_json,
+    flow_to_json,
+)
 import time
 
 router = APIRouter()
@@ -27,120 +33,6 @@ async def get_mitmproxy_manager_dependency(
         raise HTTPException(
             status_code=500, detail=f"Failed to get mitmproxy manager: {str(e)}"
         )
-
-
-# Helper functions from the original code
-def cert_to_json(certs) -> dict | None:
-    """Convert certificate to JSON format"""
-    if not certs:
-        return None
-    cert = certs[0]
-    return {
-        "keyinfo": cert.keyinfo,
-        "sha256": cert.fingerprint().hex(),
-        "notbefore": int(cert.notbefore.timestamp()),
-        "notafter": int(cert.notafter.timestamp()),
-        "serial": str(cert.serial),
-        "subject": cert.subject,
-        "issuer": cert.issuer,
-        "altnames": [str(x.value) for x in cert.altnames],
-    }
-
-
-def flow_to_json(flow) -> dict:
-    """Convert mitmproxy flow to JSON format"""
-    f = {
-        "id": flow.id,
-        "intercepted": flow.intercepted,
-        "is_replay": flow.is_replay,
-        "type": flow.type,
-        "modified": flow.modified(),
-        "marked": flow.marked,
-        "comment": flow.comment,
-        "timestamp_created": flow.timestamp_created,
-    }
-
-    # Add client connection info
-    if flow.client_conn:
-        f["client_conn"] = {
-            "id": flow.client_conn.id,
-            "peername": flow.client_conn.peername,
-            "sockname": flow.client_conn.sockname,
-            "tls_established": flow.client_conn.tls_established,
-            "cert": cert_to_json(flow.client_conn.certificate_list),
-            "sni": flow.client_conn.sni,
-            "cipher": flow.client_conn.cipher,
-            "timestamp_start": flow.client_conn.timestamp_start,
-            "timestamp_end": flow.client_conn.timestamp_end,
-        }
-
-    # Add server connection info
-    if flow.server_conn:
-        f["server_conn"] = {
-            "id": flow.server_conn.id,
-            "peername": flow.server_conn.peername,
-            "sockname": flow.server_conn.sockname,
-            "address": flow.server_conn.address,
-            "tls_established": flow.server_conn.tls_established,
-            "cert": cert_to_json(flow.server_conn.certificate_list),
-            "sni": flow.server_conn.sni,
-            "cipher": flow.server_conn.cipher,
-            "timestamp_start": flow.server_conn.timestamp_start,
-            "timestamp_end": flow.server_conn.timestamp_end,
-        }
-
-    # Add error info
-    if flow.error:
-        f["error"] = flow.error.get_state()
-
-    # Handle HTTP flows
-    if hasattr(flow, "request") and flow.request:
-        content_length = (
-            len(flow.request.raw_content) if flow.request.raw_content else None
-        )
-        content_hash = (
-            hashlib.sha256(flow.request.raw_content).hexdigest()
-            if flow.request.raw_content
-            else None
-        )
-
-        f["request"] = {
-            "method": flow.request.method,
-            "scheme": flow.request.scheme,
-            "host": flow.request.host,
-            "port": flow.request.port,
-            "path": flow.request.path,
-            "http_version": flow.request.http_version,
-            "headers": list(flow.request.headers.items()),
-            "contentLength": content_length,
-            "contentHash": content_hash,
-            "timestamp_start": flow.request.timestamp_start,
-            "timestamp_end": flow.request.timestamp_end,
-            "pretty_host": flow.request.pretty_host,
-        }
-
-        if flow.response:
-            content_length = (
-                len(flow.response.raw_content) if flow.response.raw_content else None
-            )
-            content_hash = (
-                hashlib.sha256(flow.response.raw_content).hexdigest()
-                if flow.response.raw_content
-                else None
-            )
-
-            f["response"] = {
-                "http_version": flow.response.http_version,
-                "status_code": flow.response.status_code,
-                "reason": flow.response.reason,
-                "headers": list(flow.response.headers.items()),
-                "contentLength": content_length,
-                "contentHash": content_hash,
-                "timestamp_start": flow.response.timestamp_start,
-                "timestamp_end": flow.response.timestamp_end,
-            }
-
-    return f
 
 
 # API Routes
@@ -164,7 +56,7 @@ async def dump_flows(
     request: Request,
     manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency),
 ):
-    """Download flows as binary dump or HAR format"""
+    """Download flows as binary dump, JSON or HAR format"""
     try:
         filter_param = request.query_params.get("filter", "")
         format_param = request.query_params.get("format", "dump")
@@ -182,7 +74,17 @@ async def dump_flows(
                 media_type="application/json",
                 headers={
                     "Content-Disposition": f"attachment; filename=flows_{int(time.time())}.har"
-                }
+                },
+            )
+        elif format_param == "json":
+            # Export as JSON format
+            json_data = await manager.export_traffic("json")
+            return JSONResponse(
+                content=json_data,
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": f"attachment; filename=flows_{int(time.time())}.json"
+                },
             )
         else:
             # Create binary dump (default behavior)

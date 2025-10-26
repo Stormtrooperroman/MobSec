@@ -13,16 +13,12 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from redis import Redis
 from app.models.emulator import Emulator, Base
+from app.dynamic.utils.adb_utils import get_adb_env
 
 logger = logging.getLogger(__name__)
 
 
 class EmulatorManager:
-    @staticmethod
-    def get_adb_env():
-        """Get environment variables for ADB commands"""
-        env = os.environ.copy()
-        return env
 
     def __init__(self, redis_url: str, emulators_path: str):
         self.redis_url = redis_url
@@ -53,6 +49,19 @@ class EmulatorManager:
         """Ensure ADB server is running and return port"""
         if self.adb_port:
             return self.adb_port
+
+        # Check if ADB server is already running
+        try:
+            result = subprocess.run(
+                ["adb", "devices"], capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                self.adb_port = 5037
+                logger.info("ADB server already running on port 5037")
+                os.environ["ANDROID_ADB_SERVER_PORT"] = "5037"
+                return 5037
+        except Exception:
+            pass
 
         try:
             result = subprocess.run(
@@ -108,7 +117,7 @@ class EmulatorManager:
         """Wait for Android system to fully boot"""
         logger.info(f"Waiting for Android system to boot...")
 
-        env = self.get_adb_env()
+        env = get_adb_env()
         start_time = asyncio.get_event_loop().time()
 
         while (asyncio.get_event_loop().time() - start_time) < timeout:
@@ -169,7 +178,7 @@ class EmulatorManager:
         try:
             await self._ensure_adb_server()
 
-            env = self.get_adb_env()
+            env = get_adb_env()
 
             check_result = subprocess.run(
                 ["adb", "devices"], capture_output=True, text=True, timeout=10, env=env

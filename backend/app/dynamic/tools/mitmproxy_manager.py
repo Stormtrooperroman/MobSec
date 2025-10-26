@@ -9,6 +9,7 @@ import socket
 import subprocess
 import ssl
 import hashlib
+import base64
 from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +39,7 @@ from mitmproxy.dns import DNSFlow
 from mitmproxy import flowfilter
 from mitmproxy.utils.emoji import emoji
 from mitmproxy.utils.strutils import always_str
+from app.dynamic.utils.su_utils import check_su_availability
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,15 @@ def cert_to_json(certs) -> dict | None:
         "issuer": cert.issuer,
         "altnames": [str(x.value) for x in cert.altnames],
     }
+
+
+__all__ = [
+    "cert_to_json",
+    "flow_to_json",
+    "MitmproxyManager",
+    "get_mitmproxy_manager",
+    "cleanup_mitmproxy_manager",
+]
 
 
 def flow_to_json(flow: flow.Flow) -> dict:
@@ -121,6 +132,33 @@ def flow_to_json(flow: flow.Flow) -> dict:
         else:
             content_length = None
             content_hash = None
+
+        # Get request content (decrypted for HTTPS)
+        request_content = None
+        try:
+            # Try to get text content first
+            request_content = flow.request.get_text(strict=False)
+            # If None or empty string, try to get content and decode
+            if not request_content or request_content == "":
+                # Get raw content
+                raw_data = flow.request.get_content(strict=False)
+                if raw_data:
+                    try:
+                        # Try to decode as UTF-8
+                        request_content = raw_data.decode("utf-8")
+                    except (UnicodeDecodeError, AttributeError):
+                        # If not UTF-8 text, encode as base64
+                        request_content = base64.b64encode(raw_data).decode("utf-8")
+        except Exception as e:
+            logger.warning(f"Error getting request content: {e}")
+            try:
+                # Fallback: try to get content
+                raw_data = flow.request.get_content(strict=False)
+                if raw_data:
+                    request_content = raw_data.decode("utf-8", errors="replace")
+            except Exception:
+                request_content = None
+
         f["request"] = {
             "method": flow.request.method,
             "scheme": flow.request.scheme,
@@ -131,6 +169,7 @@ def flow_to_json(flow: flow.Flow) -> dict:
             "headers": tuple(flow.request.headers.items(True)),
             "contentLength": content_length,
             "contentHash": content_hash,
+            "content": request_content,
             "timestamp_start": flow.request.timestamp_start,
             "timestamp_end": flow.request.timestamp_end,
             "pretty_host": flow.request.pretty_host,
@@ -142,6 +181,35 @@ def flow_to_json(flow: flow.Flow) -> dict:
             else:
                 content_length = None
                 content_hash = None
+
+            # Get response content (decrypted for HTTPS)
+            response_content = None
+            try:
+                # Try to get text content first
+                response_content = flow.response.get_text(strict=False)
+                # If None or empty string, try to get content and decode
+                if not response_content or response_content == "":
+                    # Get raw content
+                    raw_data = flow.response.get_content(strict=False)
+                    if raw_data:
+                        try:
+                            # Try to decode as UTF-8
+                            response_content = raw_data.decode("utf-8")
+                        except (UnicodeDecodeError, AttributeError):
+                            # If not UTF-8 text, encode as base64
+                            response_content = base64.b64encode(raw_data).decode(
+                                "utf-8"
+                            )
+            except Exception as e:
+                logger.warning(f"Error getting response content: {e}")
+                try:
+                    # Fallback: try to get content
+                    raw_data = flow.response.get_content(strict=False)
+                    if raw_data:
+                        response_content = raw_data.decode("utf-8", errors="replace")
+                except Exception:
+                    response_content = None
+
             f["response"] = {
                 "http_version": flow.response.http_version,
                 "status_code": flow.response.status_code,
@@ -149,6 +217,7 @@ def flow_to_json(flow: flow.Flow) -> dict:
                 "headers": tuple(flow.response.headers.items(True)),
                 "contentLength": content_length,
                 "contentHash": content_hash,
+                "content": response_content,
                 "timestamp_start": flow.response.timestamp_start,
                 "timestamp_end": flow.response.timestamp_end,
             }
@@ -371,6 +440,17 @@ class MitmproxyManager:
         # Create necessary directories
         os.makedirs(self.certs_dir, exist_ok=True)
         os.makedirs(self.data_dir, exist_ok=True)
+
+    async def _get_device(self):
+        """Get Device instance for this device_id"""
+        try:
+            from app.dynamic.device_management.device_manager import DeviceManager
+
+            device_manager = DeviceManager()
+            return await device_manager.get_device(self.device_id)
+        except Exception as e:
+            logger.error(f"Error getting device {self.device_id}: {e}")
+            return None
 
     async def _initialize_master(self):
         """Initialize mitmproxy master"""
@@ -976,21 +1056,15 @@ class MitmproxyManager:
             har_data = {
                 "log": {
                     "version": "1.2",
-                    "creator": {
-                        "name": "MobSec Mitmproxy",
-                        "version": "1.0"
-                    },
-                    "browser": {
-                        "name": "MobSec",
-                        "version": "1.0"
-                    },
+                    "creator": {"name": "MobSec Mitmproxy", "version": "1.0"},
+                    "browser": {"name": "MobSec", "version": "1.0"},
                     "pages": [],
-                    "entries": []
+                    "entries": [],
                 }
             }
 
             for flow_obj in flows:
-                if hasattr(flow_obj, 'request') and hasattr(flow_obj, 'response'):
+                if hasattr(flow_obj, "request") and hasattr(flow_obj, "response"):
                     entry = self._convert_flow_to_har_entry(flow_obj)
                     if entry:
                         har_data["log"]["entries"].append(entry)
@@ -1004,18 +1078,22 @@ class MitmproxyManager:
     def _convert_flow_to_har_entry(self, flow_obj) -> Optional[dict]:
         """Convert a single flow to HAR entry format"""
         try:
-            if not hasattr(flow_obj, 'request') or not flow_obj.request:
+            if not hasattr(flow_obj, "request") or not flow_obj.request:
                 return None
 
             start_time = flow_obj.timestamp_created
-            end_time = getattr(flow_obj, 'timestamp_end', start_time)
+            end_time = getattr(flow_obj, "timestamp_end", start_time)
             duration = (end_time - start_time) * 1000
 
             entry = {
                 "startedDateTime": datetime.fromtimestamp(start_time).isoformat() + "Z",
                 "time": duration,
                 "request": self._convert_request_to_har(flow_obj.request),
-                "response": self._convert_response_to_har(flow_obj.response) if hasattr(flow_obj, 'response') and flow_obj.response else None,
+                "response": (
+                    self._convert_response_to_har(flow_obj.response)
+                    if hasattr(flow_obj, "response") and flow_obj.response
+                    else None
+                ),
                 "cache": {},
                 "timings": {
                     "dns": -1,
@@ -1023,13 +1101,17 @@ class MitmproxyManager:
                     "ssl": -1,
                     "send": 0,
                     "wait": duration,
-                    "receive": 0
+                    "receive": 0,
                 },
                 "serverIPAddress": None,
-                "connection": None
+                "connection": None,
             }
 
-            if hasattr(flow_obj, 'server_conn') and flow_obj.server_conn and flow_obj.server_conn.peername:
+            if (
+                hasattr(flow_obj, "server_conn")
+                and flow_obj.server_conn
+                and flow_obj.server_conn.peername
+            ):
                 entry["serverIPAddress"] = flow_obj.server_conn.peername[0]
 
             return entry
@@ -1043,18 +1125,12 @@ class MitmproxyManager:
         try:
             headers = []
             for name, value in request.headers.items(True):
-                headers.append({
-                    "name": name,
-                    "value": str(value)
-                })
+                headers.append({"name": name, "value": str(value)})
 
             query_string = []
-            if hasattr(request, 'query') and request.query:
+            if hasattr(request, "query") and request.query:
                 for name, value in request.query.items():
-                    query_string.append({
-                        "name": name,
-                        "value": str(value)
-                    })
+                    query_string.append({"name": name, "value": str(value)})
 
             har_request = {
                 "method": request.method,
@@ -1064,7 +1140,7 @@ class MitmproxyManager:
                 "queryString": query_string,
                 "cookies": [],
                 "headersSize": -1,
-                "bodySize": len(request.raw_content) if request.raw_content else 0
+                "bodySize": len(request.raw_content) if request.raw_content else 0,
             }
 
             if request.raw_content:
@@ -1078,12 +1154,12 @@ class MitmproxyManager:
                     content = request.get_content(strict=False)
                     if content:
                         content = content.hex()
-                
+
                 if content:
                     har_request["postData"] = {
                         "mimeType": request.headers.get("content-type", "text/plain"),
                         "text": content,
-                        "params": []
+                        "params": [],
                     }
 
             return har_request
@@ -1098,7 +1174,7 @@ class MitmproxyManager:
                 "queryString": [],
                 "cookies": [],
                 "headersSize": -1,
-                "bodySize": 0
+                "bodySize": 0,
             }
 
     def _convert_response_to_har(self, response) -> dict:
@@ -1106,10 +1182,7 @@ class MitmproxyManager:
         try:
             headers = []
             for name, value in response.headers.items(True):
-                headers.append({
-                    "name": name,
-                    "value": str(value)
-                })
+                headers.append({"name": name, "value": str(value)})
 
             har_response = {
                 "status": response.status_code,
@@ -1121,11 +1194,11 @@ class MitmproxyManager:
                     "size": len(response.raw_content) if response.raw_content else 0,
                     "mimeType": response.headers.get("content-type", "text/plain"),
                     "text": None,
-                    "encoding": None
+                    "encoding": None,
                 },
                 "redirectURL": "",
                 "headersSize": -1,
-                "bodySize": len(response.raw_content) if response.raw_content else 0
+                "bodySize": len(response.raw_content) if response.raw_content else 0,
             }
 
             if response.raw_content:
@@ -1139,7 +1212,7 @@ class MitmproxyManager:
                     content = response.get_content(strict=False)
                     if content:
                         content = content.hex()
-                
+
                 if content:
                     har_response["content"]["text"] = content
 
@@ -1157,11 +1230,11 @@ class MitmproxyManager:
                     "size": 0,
                     "mimeType": "text/plain",
                     "text": "",
-                    "encoding": None
+                    "encoding": None,
                 },
                 "redirectURL": "",
                 "headersSize": -1,
-                "bodySize": 0
+                "bodySize": 0,
             }
 
     async def clear_traffic(self) -> bool:
@@ -1294,6 +1367,17 @@ class MitmproxyManager:
                         {
                             "type": "mitmproxy",
                             "action": "proxy_configured",
+                            "success": success,
+                        },
+                    )
+
+                elif action == "disable_proxy":
+                    success = await self.disable_device_proxy(websocket)
+                    await self.send_response(
+                        websocket,
+                        {
+                            "type": "mitmproxy",
+                            "action": "proxy_disabled",
                             "success": success,
                         },
                     )
@@ -1467,6 +1551,10 @@ class MitmproxyManager:
     async def get_state(self) -> dict:
         """Get mitmproxy state"""
         try:
+            # Get proxy_configured from Device
+            device = await self._get_device()
+            proxy_configured = device.proxy_configured if device else False
+
             state = {
                 "version": "mitmproxy",
                 "proxy_port": self.proxy_port,
@@ -1477,6 +1565,7 @@ class MitmproxyManager:
                 "flows_count": len(self.get_flows()) if self.master_instance else 0,
                 "su_available": self.su_available,
                 "cert_installed": self.cert_installed,
+                "proxy_configured": proxy_configured,
                 "port_available": await self._check_port_available(self.proxy_port),
                 "port_listening": self._check_port_listening(self.proxy_port),
             }
@@ -2033,6 +2122,11 @@ class MitmproxyManager:
             if process.returncode == 0:
                 logger.info(f"Proxy configured successfully: {proxy_setting}")
 
+                # Mark proxy as configured in Device
+                device = await self._get_device()
+                if device:
+                    device.proxy_configured = True
+
                 # Check that setting was applied
                 check_cmd = (
                     f"adb -s {self.device_id} shell settings get global http_proxy"
@@ -2066,6 +2160,69 @@ class MitmproxyManager:
 
         except Exception as e:
             logger.error(f"Error configuring proxy: {str(e)}")
+            return False
+
+    async def disable_device_proxy(self, websocket: Optional[WebSocket] = None) -> bool:
+        """Disable proxy on device"""
+        try:
+            logger.info(f"Disabling proxy on device {self.device_id}")
+
+            # Check su availability
+            await self._check_su_availability()
+
+            # Use command to disable proxy
+            if self.su_available:
+                # Use su for global proxy configuration
+                cmd = f"adb -s {self.device_id} shell su 0 settings put global http_proxy 0"
+            else:
+                # Try to disable without su
+                cmd = f"adb -s {self.device_id} shell settings put global http_proxy 0"
+
+            process = await asyncio.create_subprocess_shell(
+                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode == 0:
+                logger.info("Proxy disabled successfully")
+
+                # Mark proxy as not configured in Device
+                device = await self._get_device()
+                if device:
+                    device.proxy_configured = False
+
+                # Check that setting was applied
+                check_cmd = (
+                    f"adb -s {self.device_id} shell settings get global http_proxy"
+                )
+                check_process = await asyncio.create_subprocess_shell(
+                    check_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                check_stdout, _ = await check_process.communicate()
+
+                current_proxy = check_stdout.decode().strip()
+                logger.info(f"Current proxy setting: {current_proxy}")
+
+                # Send response
+                await self.send_response(
+                    websocket,
+                    {
+                        "type": "mitmproxy",
+                        "action": "proxy_disabled",
+                        "success": True,
+                        "message": "Proxy disabled successfully",
+                    },
+                )
+
+                return True
+            else:
+                logger.error(f"Failed to disable proxy: {stderr.decode()}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error disabling proxy: {str(e)}")
             return False
 
     async def _get_emulator_name_by_device_id(self) -> Optional[str]:
@@ -2214,19 +2371,11 @@ class MitmproxyManager:
     async def _check_su_availability(self) -> None:
         """Check su availability on device"""
         try:
-            cmd = f"adb -s {self.device_id} shell su 0 id"
-            process = await asyncio.create_subprocess_shell(
-                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await process.communicate()
-
-            if process.returncode == 0 and "root" in stdout.decode():
-                self.su_available = True
+            self.su_available = await check_su_availability(self.device_id)
+            if self.su_available:
                 logger.info("su is available on device")
             else:
-                self.su_available = False
                 logger.info("su is not available on device")
-
         except Exception as e:
             logger.error(f"Error checking su availability: {str(e)}")
             self.su_available = False

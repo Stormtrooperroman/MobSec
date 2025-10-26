@@ -1,7 +1,7 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Any, Dict
-from app.dynamic.emulator_manager import EmulatorManager
+from app.dynamic.device_management.emulator_manager import EmulatorManager
 import os
 
 logger = logging.getLogger(__name__)

@@ -7,10 +7,7 @@
       <div v-for="device in visibleDevices" :key="device.id" class="device-card">
           <div class="device-info">
             <h3>{{ device.name || device.id }}</h3>
-            <p>Status: {{ device.status }}</p>
-            <p v-if="device.device_type" class="device-type">
-              Type: <span :class="['type-badge', device.device_type]">{{ device.device_type }}</span>
-            </p>
+            <p>Type: {{ device.type }}</p>
           </div>
 
         <div class="device-actions">
@@ -221,7 +218,7 @@ export default {
         this.devices = response.data.map(device => ({
           id: device.udid,
           name: device.name || device.udid,
-          status: device.status || 'unknown',
+          type: device.type || 'unknown',
           isStreaming: false,
           isLoading: false,
           error: null,
@@ -359,7 +356,7 @@ export default {
       try {
         const response = await axios.post(`/api/v1/dynamic-testing/device/${device.id}/enable-wireless-debugging`);
         this.addNotification('success', 'Success', `Wireless debugging enabled for ${device.name}`);
-        device.status = response.data.status;
+        device.type = response.data.type;
       } catch (error) {
         console.error('Failed to enable wireless debugging:', error);
         device.error = error.response?.data?.detail || 'Error enabling wireless debugging';
@@ -384,12 +381,6 @@ export default {
       this.closeWiFiModal();
       await this.refreshDevices();
       
-      // Обновляем статус устройств после успешного WiFi подключения
-      this.devices.forEach(device => {
-        if (device.status === 'disconnected' || device.status === 'offline') {
-          device.status = 'wireless_debugging_enabled';
-        }
-      });
     },
 
     handleWiFiError(message) {
@@ -433,12 +424,6 @@ export default {
         await axios.post('/api/v1/dynamic-testing/disconnect-wifi');
         this.addNotification('success', 'Success', 'WiFi connection disconnected.');
         
-        // Обновляем статус устройств после отключения WiFi
-        this.devices.forEach(device => {
-          if (device.status === 'wireless_debugging_enabled') {
-            device.status = 'disconnected';
-          }
-        });
         
         await this.refreshDevices();
       } catch (error) {

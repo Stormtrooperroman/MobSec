@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Optional, Dict, Any
-from app.dynamic.frida_script_service import FridaScriptService
+from app.dynamic.tools.frida_script_service import FridaScriptService
 
 router = APIRouter()
 

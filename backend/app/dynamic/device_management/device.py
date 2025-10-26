@@ -29,6 +29,7 @@ class Device:
         self.port = 8886
         self.device_type = "unknown"
         self.display_name = serial
+        self.proxy_configured = False
 
     async def get_server_pid(self) -> List[int]:
         """Get PID of running scrcpy server process"""

@@ -48,6 +48,7 @@ import {
   faCode,
   faInbox,
   faChevronLeft,
+  faUnlink,
 } from '@fortawesome/free-solid-svg-icons';
 
 import {
@@ -98,7 +99,8 @@ library.add(
   faCode,
   faInbox,
   faChevronLeft,
-  faAndroid
+  faAndroid,
+  faUnlink
 );
 
 const app = createApp(App);

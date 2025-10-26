@@ -8,13 +8,15 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from fastapi import WebSocket
 import subprocess
+from app.dynamic.communication.base_websocket_manager import BaseWebSocketManager
+from app.dynamic.utils.su_utils import check_su_availability
 
 logger = logging.getLogger(__name__)
 
 
-class FileManager:
+class FileManager(BaseWebSocketManager):
     def __init__(self, websocket: WebSocket, device_id: str):
-        self.websocket = websocket
+        super().__init__(websocket, "file_manager")
         self.device_id = device_id
         self.is_running = False
         self.current_path = "/data/local/tmp"
@@ -56,52 +58,7 @@ class FileManager:
     async def check_su_availability(self):
         """Checks the availability of su on the device"""
         try:
-
-            which_process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                "which su",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            which_stdout, which_stderr = await which_process.communicate()
-
-            if which_process.returncode != 0:
-                self.su_available = False
-                return
-
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                'echo "echo SU_WORKS" | timeout 5 su 2>/dev/null || echo "SU_FAILED"',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await process.communicate()
-
-            output = stdout.decode("utf-8", errors="ignore").strip()
-
-            if "SU_WORKS" in output:
-                self.su_available = True
-            else:
-                simple_process = await asyncio.create_subprocess_exec(
-                    "adb",
-                    "-s",
-                    self.device_id,
-                    "shell",
-                    'echo "exit" | su 2>/dev/null && echo "SU_SIMPLE_WORKS" || echo "SU_SIMPLE_FAILED"',
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                simple_stdout, simple_stderr = await simple_process.communicate()
-                simple_output = simple_stdout.decode("utf-8", errors="ignore").strip()
-
-                self.su_available = "SU_SIMPLE_WORKS" in simple_output
-
+            self.su_available = await check_su_availability(self.device_id)
         except Exception as e:
             logger.error(f"Error checking su availability: {str(e)}")
             self.su_available = False
@@ -763,22 +720,6 @@ class FileManager:
         except Exception as e:
             logger.error(f"Error copying {source} to {destination}: {str(e)}")
             await self.send_error(f"Error copying file: {str(e)}")
-
-    async def send_response(self, data: Dict[str, Any]):
-        """Sends a response to the client"""
-        try:
-            if self.websocket.client_state.CONNECTED:
-                await self.websocket.send_text(json.dumps(data))
-            else:
-                logger.warning("WebSocket not connected, cannot send response")
-        except Exception as e:
-            logger.error(f"Error sending response: {str(e)}")
-
-    async def send_error(self, message: str):
-        """Sends an error message"""
-        await self.send_response(
-            {"type": "file_manager", "action": "error", "message": message}
-        )
 
     async def stop(self):
         """Stops the file manager"""

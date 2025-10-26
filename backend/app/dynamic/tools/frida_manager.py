@@ -6,15 +6,17 @@ import tempfile
 from typing import Dict, Any, List
 from fastapi import WebSocket
 import socket
-from app.dynamic.frida_script_service import FridaScriptService
-from app.dynamic.emulator_manager import EmulatorManager
+from app.dynamic.tools.frida_script_service import FridaScriptService
+from app.dynamic.device_management.emulator_manager import EmulatorManager
+from app.dynamic.communication.base_websocket_manager import BaseWebSocketManager
+from app.dynamic.utils.device_info_helper import DeviceInfoHelper
 
 logger = logging.getLogger(__name__)
 
 
-class FridaManager:
+class FridaManager(BaseWebSocketManager):
     def __init__(self, websocket: WebSocket, device_id: str):
-        self.websocket = websocket
+        super().__init__(websocket, "frida")
         self.device_id = device_id
         self.is_running = False
         self.frida_process = None
@@ -121,16 +123,7 @@ class FridaManager:
 
     def _is_valid_ip(self, ip: str) -> bool:
         """Check if string is a valid IP address"""
-        try:
-            parts = ip.split(".")
-            if len(parts) != 4:
-                return False
-            for part in parts:
-                if not 0 <= int(part) <= 255:
-                    return False
-            return True
-        except:
-            return False
+        return DeviceInfoHelper.is_valid_ip(ip)
 
     async def get_device_ip_via_adb(self):
         """Get device IP address via ADB commands (fallback method)"""
@@ -1228,22 +1221,6 @@ class FridaManager:
         else:
             logger.warning(f"Unknown Frida action: {action}")
             await self.send_error(f"Unknown action: {action}")
-
-    async def send_response(self, data: Dict[str, Any]):
-        """Send response to client"""
-        try:
-            if self.websocket.client_state.CONNECTED:
-                await self.websocket.send_text(json.dumps(data))
-            else:
-                logger.warning("WebSocket not connected, cannot send response")
-        except Exception as e:
-            logger.error(f"Error sending response: {str(e)}")
-
-    async def send_error(self, message: str):
-        """Send error message"""
-        await self.send_response(
-            {"type": "frida", "action": "error", "message": message}
-        )
 
     async def stop(self):
         """Stop Frida manager"""

@@ -17,7 +17,7 @@ class Settings:
     )
     MODULES_HEALTH_CHECK_INTERVAL: int = int(
         os.getenv("MODULES_HEALTH_CHECK_INTERVAL", "30")
-    )  # интервал проверки здоровья в секундах
+    )  # health check interval in seconds
 
 
 settings = Settings()

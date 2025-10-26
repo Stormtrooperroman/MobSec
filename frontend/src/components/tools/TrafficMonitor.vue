@@ -49,10 +49,20 @@
       
       <button 
         @click="configureProxy" 
+        v-if="!status.proxy_configured"
         :disabled="!status.proxy_running || isLoading"
         class="toolbar-btn"
       >
         <font-awesome-icon icon="cog" /> Configure on Device
+      </button>
+      
+      <button 
+        @click="disableProxy" 
+        v-if="status.proxy_configured"
+        :disabled="isLoading"
+        class="toolbar-btn"
+      >
+        <font-awesome-icon icon="unlink" /> Disable Proxy
       </button>
       
       <button 
@@ -125,7 +135,7 @@
         </div>
       </div>
 
-      <div class="traffic-stats" v-if="trafficData.length > 0">
+      <div class="traffic-stats">
         <div class="stat-item">
           <span class="stat-label">Total Requests:</span>
           <span class="stat-value">{{ trafficData.length }}</span>
@@ -141,20 +151,109 @@
       </div>
 
       <div class="traffic-table-container">
-        <table class="traffic-table" v-if="trafficData.length > 0">
+        <table class="traffic-table">
           <thead>
             <tr>
-              <th>Time</th>
-              <th>Method</th>
-              <th>Host</th>
+              <th class="sortable-header" @click="toggleSort('timestamp')">
+                <div class="header-content">
+                  <span>Time</span>
+                  <span class="sort-indicator" :class="getSortClass('timestamp')">
+                    <font-awesome-icon icon="sort" />
+                  </span>
+                </div>
+              </th>
+              <th class="sortable-header filterable-header" @click="toggleMethodFilter">
+                <div class="header-content">
+                  <span>Method</span>
+                  <span class="filter-indicator" :class="{ 'active': filters.method }">
+                    <font-awesome-icon icon="filter" />
+                  </span>
+                </div>
+                <div class="header-dropdown" v-show="showMethodDropdown">
+                  <div class="dropdown-content">
+                    <label v-for="method in availableMethods" :key="method" class="dropdown-item">
+                      <input 
+                        type="checkbox" 
+                        :value="method" 
+                        :checked="selectedMethods.includes(method)"
+                        @click.stop="toggleMethod(method)"
+                      />
+                      <span>{{ method }}</span>
+                    </label>
+                    <div class="dropdown-actions">
+                      <button @click="clearMethodFilter" class="clear-btn">Clear</button>
+                    </div>
+                  </div>
+                </div>
+              </th>
+              <th class="sortable-header filterable-header" @click="toggleHostFilter">
+                <div class="header-content">
+                  <span>Host</span>
+                  <div class="header-controls">
+                    <span class="sort-indicator" :class="getSortClass('host')" @click.stop="toggleSort('host')">
+                      <font-awesome-icon icon="sort" />
+                    </span>
+                    <span class="filter-indicator" :class="{ 'active': filters.host }">
+                      <font-awesome-icon icon="filter" />
+                    </span>
+                  </div>
+                </div>
+                <div class="header-dropdown" v-show="showHostDropdown">
+                  <div class="dropdown-content">
+                    <div class="host-filter-input">
+                      <input 
+                        v-model="filters.host" 
+                        type="text" 
+                        placeholder="Enter hostname..."
+                        class="filter-input"
+                        @input="applyFilters"
+                        @click.stop
+                      />
+                    </div>
+                    <div class="dropdown-actions">
+                      <button @click="clearHostFilter" class="clear-btn">Clear</button>
+                    </div>
+                  </div>
+                </div>
+              </th>
               <th>Path</th>
-              <th>Status</th>
+              <th class="sortable-header filterable-header" @click="toggleStatusFilter">
+                <div class="header-content">
+                  <span>Status</span>
+                  <span class="filter-indicator" :class="{ 'active': filters.status }">
+                    <font-awesome-icon icon="filter" />
+                  </span>
+                </div>
+                <div class="header-dropdown" v-show="showStatusDropdown">
+                  <div class="dropdown-content">
+                    <label v-for="status in availableStatuses" :key="status.value" class="dropdown-item">
+                      <input 
+                        type="checkbox" 
+                        :value="status.value" 
+                        :checked="selectedStatuses.includes(status.value)"
+                        @click.stop="toggleStatus(status.value)"
+                      />
+                      <span>{{ status.label }}</span>
+                    </label>
+                    <div class="dropdown-actions">
+                      <button @click="clearStatusFilter" class="clear-btn">Clear</button>
+                    </div>
+                  </div>
+                </div>
+              </th>
               <th>Size</th>
-              <th>Duration</th>
+              <th class="sortable-header" @click="toggleSort('duration')">
+                <div class="header-content">
+                  <span>Duration</span>
+                  <span class="sort-indicator" :class="getSortClass('duration')">
+                    <font-awesome-icon icon="sort" />
+                  </span>
+                </div>
+              </th>
               <th>Actions</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody v-if="filteredTraffic.length > 0">
             <tr 
               v-for="(entry, index) in paginatedTraffic" 
               :key="index"
@@ -205,13 +304,18 @@
               </td>
             </tr>
           </tbody>
+          <tbody v-else>
+            <tr>
+              <td colspan="8" class="no-traffic">
+                <font-awesome-icon icon="inbox" />
+                <p v-if="trafficData.length === 0">No traffic captured</p>
+                <p v-else>No traffic matches current filters</p>
+                <small v-if="trafficData.length === 0">Start proxy and configure device to capture traffic</small>
+                <small v-else>Try adjusting your filters or <a @click="clearFilters" class="clear-filters-link">clear all filters</a></small>
+              </td>
+            </tr>
+          </tbody>
         </table>
-        
-        <div v-else class="no-traffic">
-          <font-awesome-icon icon="inbox" />
-          <p>No traffic captured</p>
-          <small>Start proxy and configure device to capture traffic</small>
-        </div>
       </div>
 
       <div class="pagination" v-if="totalPages > 1">
@@ -225,6 +329,9 @@
         
         <span class="pagination-info">
           Page {{ currentPage }} of {{ totalPages }}
+          <span v-if="filteredTraffic.length !== trafficData.length" class="pagination-note">
+            ({{ filteredTraffic.length }} filtered)
+          </span>
         </span>
         
         <button 
@@ -323,9 +430,11 @@ export default {
         su_available: false,
         device_ip: null,
         proxy_port: 8082,
-        proxy_host: "0.0.0.0"
+        proxy_host: "0.0.0.0",
+        proxy_configured: false
       },
       trafficData: [],
+      filteredTraffic: [],
       securityReport: {
         issues: [],
         summary: { total: 0, high: 0, medium: 0, low: 0 }
@@ -336,7 +445,26 @@ export default {
       itemsPerPage: 20,
       autoRefresh: true,
       refreshInterval: null,
-      mitmproxyWebSocket: null
+      mitmproxyWebSocket: null,
+      filters: {
+        host: '',
+        method: '',
+        status: ''
+      },
+      sortBy: 'timestamp_desc',
+      showExportMenu: false,
+      showMethodDropdown: false,
+      showStatusDropdown: false,
+      showHostDropdown: false,
+      selectedMethods: [],
+      selectedStatuses: [],
+      availableMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'],
+      availableStatuses: [
+        { value: '2xx', label: '2xx Success' },
+        { value: '3xx', label: '3xx Redirect' },
+        { value: '4xx', label: '4xx Client Error' },
+        { value: '5xx', label: '5xx Server Error' }
+      ]
     }
   },
 
@@ -362,14 +490,18 @@ export default {
       return this.trafficData.filter(entry => entry.scheme === 'http').length
     },
 
+    httpCountFiltered() {
+      return this.filteredTraffic.filter(entry => entry.scheme === 'http').length
+    },
+
     totalPages() {
-      return Math.ceil(this.trafficData.length / this.itemsPerPage)
+      return Math.ceil(this.filteredTraffic.length / this.itemsPerPage)
     },
 
     paginatedTraffic() {
       const start = (this.currentPage - 1) * this.itemsPerPage
       const end = start + this.itemsPerPage
-      return this.trafficData.slice(start, end)
+      return this.filteredTraffic.slice(start, end)
     }
   },
 
@@ -377,14 +509,247 @@ export default {
     this.checkStatus()
     this.openMitmproxyWebSocket()
     this.startAutoRefresh()
+    this.applyFilters()
+    
+    // Ensure arrays are properly initialized
+    this.selectedMethods = []
+    this.selectedStatuses = []
+    
+    // Add click outside listener to close dropdowns
+    document.addEventListener('click', this.handleClickOutside)
   },
 
   beforeUnmount() {
     this.closeMitmproxyWebSocket()
     this.stopAutoRefresh()
+    
+    // Remove click outside listener
+    document.removeEventListener('click', this.handleClickOutside)
   },
 
   methods: {
+    applyFilters() {
+      let filtered = [...this.trafficData]
+      
+      // Apply host filter
+      if (this.filters.host) {
+        filtered = filtered.filter(entry => 
+          entry.host.toLowerCase().includes(this.filters.host.toLowerCase())
+        )
+      }
+      
+      // Apply method filter
+      if (this.filters.method) {
+        if (this.filters.method.includes(',')) {
+          // Multiple methods selected
+          const methods = this.filters.method.split(',')
+          filtered = filtered.filter(entry => methods.includes(entry.method))
+        } else {
+          // Single method selected
+          filtered = filtered.filter(entry => entry.method === this.filters.method)
+        }
+      }
+      
+      // Apply status filter
+      if (this.filters.status) {
+        if (this.filters.status.includes(',')) {
+          // Multiple statuses selected
+          const statuses = this.filters.status.split(',')
+          filtered = filtered.filter(entry => {
+            const statusCode = Math.floor(entry.status_code / 100)
+            return statuses.some(status => parseInt(status.charAt(0)) === statusCode)
+          })
+        } else {
+          // Single status selected
+          const statusCode = parseInt(this.filters.status.charAt(0))
+          filtered = filtered.filter(entry => 
+            Math.floor(entry.status_code / 100) === statusCode
+          )
+        }
+      }
+      
+      // Apply sorting
+      this.applySorting(filtered)
+      
+      // Reset to first page when filters change
+      this.currentPage = 1
+    },
+
+    applySorting(data = null) {
+      const dataToSort = data || this.filteredTraffic
+      if (!Array.isArray(dataToSort)) {
+        console.error('applySorting: dataToSort is not an array:', dataToSort)
+        return
+      }
+      let sorted = [...dataToSort]
+      
+      const [field, direction] = this.sortBy.split('_')
+      
+      sorted.sort((a, b) => {
+        let aVal, bVal
+        
+        switch (field) {
+          case 'timestamp':
+            aVal = a.timestamp
+            bVal = b.timestamp
+            break
+          case 'host':
+            aVal = a.host.toLowerCase()
+            bVal = b.host.toLowerCase()
+            break
+          case 'method':
+            aVal = a.method.toLowerCase()
+            bVal = b.method.toLowerCase()
+            break
+          case 'status':
+            aVal = a.status_code
+            bVal = b.status_code
+            break
+          case 'duration':
+            aVal = a.duration || 0
+            bVal = b.duration || 0
+            break
+          default:
+            return 0
+        }
+        
+        if (direction === 'asc') {
+          return aVal > bVal ? 1 : aVal < bVal ? -1 : 0
+        } else {
+          return aVal < bVal ? 1 : aVal > bVal ? -1 : 0
+        }
+      })
+      
+      this.filteredTraffic = sorted
+    },
+
+    clearFilters() {
+      this.filters = {
+        host: '',
+        method: '',
+        status: ''
+      }
+      this.sortBy = 'timestamp_desc'
+      this.selectedMethods = []
+      this.selectedStatuses = []
+      this.showMethodDropdown = false
+      this.showStatusDropdown = false
+      this.showHostDropdown = false
+      this.applyFilters()
+    },
+
+    toggleSort(field) {
+      const [currentField, currentDirection] = this.sortBy.split('_')
+      
+      if (currentField === field) {
+        // Toggle direction if same field
+        this.sortBy = currentDirection === 'asc' ? `${field}_desc` : `${field}_asc`
+      } else {
+        // Set new field with default direction
+        this.sortBy = `${field}_desc`
+      }
+      
+      this.applySorting()
+    },
+
+    getSortClass(field) {
+      const [currentField, currentDirection] = this.sortBy.split('_')
+      if (currentField === field) {
+        return currentDirection === 'asc' ? 'sort-asc' : 'sort-desc'
+      }
+      return ''
+    },
+
+    toggleMethodFilter() {
+      this.showMethodDropdown = !this.showMethodDropdown
+      this.showStatusDropdown = false
+      this.showHostDropdown = false
+    },
+
+    toggleStatusFilter() {
+      this.showStatusDropdown = !this.showStatusDropdown
+      this.showMethodDropdown = false
+      this.showHostDropdown = false
+    },
+
+    toggleHostFilter() {
+      this.showHostDropdown = !this.showHostDropdown
+      this.showMethodDropdown = false
+      this.showStatusDropdown = false
+    },
+
+    clearHostFilter() {
+      this.filters.host = ''
+      this.applyFilters()
+    },
+
+    toggleMethod(method) {
+      console.log('toggleMethod called with:', method)
+      const index = this.selectedMethods.indexOf(method)
+      if (index > -1) {
+        this.selectedMethods.splice(index, 1)
+      } else {
+        this.selectedMethods.push(method)
+      }
+      console.log('selectedMethods after toggle:', this.selectedMethods)
+      this.applyMethodFilter()
+    },
+
+    toggleStatus(status) {
+      console.log('toggleStatus called with:', status)
+      const index = this.selectedStatuses.indexOf(status)
+      if (index > -1) {
+        this.selectedStatuses.splice(index, 1)
+      } else {
+        this.selectedStatuses.push(status)
+      }
+      console.log('selectedStatuses after toggle:', this.selectedStatuses)
+      this.applyStatusFilter()
+    },
+
+    applyMethodFilter() {
+      console.log('applyMethodFilter called, selectedMethods:', this.selectedMethods)
+      if (this.selectedMethods.length === 0) {
+        this.filters.method = ''
+      } else {
+        this.filters.method = this.selectedMethods.join(',')
+      }
+      console.log('filters.method set to:', this.filters.method)
+      this.applyFilters()
+    },
+
+    applyStatusFilter() {
+      console.log('applyStatusFilter called, selectedStatuses:', this.selectedStatuses)
+      if (this.selectedStatuses.length === 0) {
+        this.filters.status = ''
+      } else {
+        this.filters.status = this.selectedStatuses.join(',')
+      }
+      console.log('filters.status set to:', this.filters.status)
+      this.applyFilters()
+    },
+
+    clearMethodFilter() {
+      this.selectedMethods = []
+      this.filters.method = ''
+      this.applyFilters()
+    },
+
+    clearStatusFilter() {
+      this.selectedStatuses = []
+      this.filters.status = ''
+      this.applyFilters()
+    },
+
+    handleClickOutside(event) {
+      // Close dropdowns if clicking outside
+      if (!event.target.closest('.filterable-header')) {
+        this.showMethodDropdown = false
+        this.showStatusDropdown = false
+        this.showHostDropdown = false
+      }
+    },
+
     async checkStatus() {
       try {
         this.isLoading = true
@@ -475,12 +840,39 @@ export default {
           const response = await axios.post(`/api/v1/dynamic-testing/device/${encodeURIComponent(this.deviceId)}/mitmproxy/configure-proxy`)
           
           if (response.data.status === 'success') {
+            this.status.proxy_configured = true
             this.$emit('success', 'Proxy configured on device')
           }
         }
       } catch (error) {
         console.error('Error configuring proxy:', error)
         this.$emit('error', 'Error configuring proxy: ' + (error.response?.data?.detail || error.message))
+      } finally {
+        this.isLoading = false
+      }
+    },
+
+    async disableProxy() {
+      try {
+        this.isLoading = true
+        
+        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
+          this.mitmproxyWebSocket.send(JSON.stringify({
+            type: "mitmproxy",
+            action: "disable_proxy",
+            device_id: this.deviceId
+          }))
+        } else {
+          const response = await axios.post(`/api/v1/dynamic-testing/device/${encodeURIComponent(this.deviceId)}/mitmproxy/disable-proxy`)
+          
+          if (response.data.status === 'success') {
+            this.status.proxy_configured = false
+            this.$emit('success', 'Proxy disabled on device')
+          }
+        }
+      } catch (error) {
+        console.error('Error disabling proxy:', error)
+        this.$emit('error', 'Error disabling proxy: ' + (error.response?.data?.detail || error.message))
       } finally {
         this.isLoading = false
       }
@@ -612,10 +1004,12 @@ export default {
               console.warn('Unexpected response format:', response.data)
               this.trafficData = []
             }
+            this.applyFilters()
           } catch (error) {
             const fallbackResponse = await axios.get(`/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/traffic?detailed=true`)
             if (fallbackResponse.data.status === 'success') {
               this.trafficData = fallbackResponse.data.data.traffic || []
+              this.applyFilters()
             }
           }
         }
@@ -648,6 +1042,7 @@ export default {
         }
         
         this.trafficData = []
+        this.filteredTraffic = []
         this.securityReport = { issues: [], summary: { total: 0, high: 0, medium: 0, low: 0 } }
         this.$emit('success', 'Traffic cleared')
       } catch (error) {
@@ -663,34 +1058,79 @@ export default {
         this.showExportMenu = false
         
         let response
+        let useBlobResponse = false
+        
         try {
+          // Try primary endpoint with blob response
           response = await axios.get(`/api/v1/mitmproxy/flows/dump`, {
             params: {
               device_id: this.deviceId,
               format: format
-            }
+            },
+            responseType: 'blob'
           })
+          useBlobResponse = true
         } catch (error) {
-          response = await axios.get(`/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/export?format=${format}`)
+          // Fallback to alternative endpoint
+          try {
+            response = await axios.get(`/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/export?format=${format}`, {
+              responseType: 'blob'
+            })
+            useBlobResponse = true
+          } catch (fallbackError) {
+            // Last resort: try without blob response
+            response = await axios.get(`/api/v1/mitmproxy/flows/dump`, {
+              params: {
+                device_id: this.deviceId,
+                format: format
+              }
+            })
+            useBlobResponse = false
+          }
         }
         
-        let content, filename, mimeType
+        // Determine filename and mime type
+        let filename, mimeType
         
         if (format === 'json') {
-          content = typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2)
           filename = `flows_${this.deviceId.replace(':', '_')}_${Date.now()}.json`
           mimeType = 'application/json'
         } else if (format === 'har') {
-          content = typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2)
           filename = `flows_${this.deviceId.replace(':', '_')}_${Date.now()}.har`
           mimeType = 'application/json'
         } else {
-          content = response.data
           filename = `flows_${this.deviceId.replace(':', '_')}_${Date.now()}.${format}`
           mimeType = format === 'csv' ? 'text/csv' : 'application/octet-stream'
         }
         
-        const blob = new Blob([content], { type: mimeType })
+        // Handle different response types
+        let blob
+        
+        if (useBlobResponse && response.data instanceof Blob) {
+          // Check if Blob contains JSON
+          if (mimeType === 'application/json') {
+            // Read blob as text for JSON data
+            const text = await response.data.text()
+            blob = new Blob([text], { type: mimeType })
+          } else {
+            // Binary data - use blob as is
+            blob = response.data
+          }
+        } else if (useBlobResponse && typeof response.data === 'string') {
+          // String from blob response
+          blob = new Blob([response.data], { type: mimeType })
+        } else if (typeof response.data === 'string') {
+          // Direct string response
+          blob = new Blob([response.data], { type: mimeType })
+        } else if (typeof response.data === 'object') {
+          // JSON object - stringify it
+          const content = JSON.stringify(response.data, null, 2)
+          blob = new Blob([content], { type: mimeType })
+        } else {
+          // Fallback: wrap in Blob
+          blob = new Blob([response.data], { type: mimeType })
+        }
+        
         const url = window.URL.createObjectURL(blob)
         const link = document.createElement('a')
         link.href = url
@@ -703,7 +1143,7 @@ export default {
         this.$emit('success', `Traffic exported in ${format.toUpperCase()} format`)
       } catch (error) {
         console.error('Error exporting traffic:', error)
-        this.$emit('error', 'Error exporting traffic')
+        this.$emit('error', 'Error exporting traffic: ' + (error.response?.data?.detail || error.message))
       }
     },
 
@@ -727,7 +1167,7 @@ export default {
             this.selectedEntry.request_view = 'auto'
             this.selectedEntry.response_view = 'auto'
             
-            // Контент будет загружен в модальном компоненте
+            // Content will be loaded in the modal component
             this.selectedEntry.request_content = ''
             this.selectedEntry.response_content = ''
           } else {
@@ -856,7 +1296,8 @@ export default {
             su_available: data.su_available,
             device_ip: data.device_ip,
             proxy_port: data.proxy_port,
-            proxy_host: data.proxy_host
+            proxy_host: data.proxy_host,
+            proxy_configured: data.proxy_configured || false
           }
           break
           
@@ -869,7 +1310,8 @@ export default {
               device_ip: data.data.device_ip,
               proxy_port: data.data.proxy_port || 8082,
               proxy_host: data.data.proxy_host || "0.0.0.0",
-              backend_ip: data.data.backend_ip
+              backend_ip: data.data.backend_ip,
+              proxy_configured: data.data.proxy_configured || false
             }
           }
           break
@@ -877,12 +1319,14 @@ export default {
         case 'flows':
           if (data.data && Array.isArray(data.data)) {
             this.trafficData = data.data.map(flow => this.convertFlowToTrafficEntry(flow))
+            this.applyFilters()
           }
           break
           
         case 'clear_flows':
           if (data.success) {
             this.trafficData = []
+            this.filteredTraffic = []
             this.securityReport = { issues: [], summary: { total: 0, high: 0, medium: 0, low: 0 } }
             this.$emit('success', 'Traffic cleared')
           }
@@ -939,10 +1383,20 @@ export default {
           break
           
         case 'proxy_configured':
+          this.status.proxy_configured = data.success
           if (data.success) {
             this.$emit('success', 'Proxy configured on device')
           } else {
             this.$emit('error', 'Error configuring proxy')
+          }
+          break
+          
+        case 'proxy_disabled':
+          this.status.proxy_configured = !data.success
+          if (data.success) {
+            this.$emit('success', 'Proxy disabled on device')
+          } else {
+            this.$emit('error', 'Error disabling proxy')
           }
           break
           
@@ -953,6 +1407,7 @@ export default {
           if (data.backend_ip) {
             this.status.backend_ip = data.backend_ip
           }
+          this.status.proxy_configured = true
           this.$emit('success', `Proxy configured: ${data.proxy_setting}`)
           break
           
@@ -995,11 +1450,14 @@ export default {
         case 'flow_created': 
           if (data.flow && data.device_id === this.deviceId) {
             const flowSummary = this.convertFlowToTrafficEntry(data.flow)
-            this.trafficData.unshift(flowSummary) 
+            // Add new traffic to the end by default (unless sorted differently)
+            this.trafficData.push(flowSummary) 
             
             if (this.trafficData.length > 1000) {
               this.trafficData = this.trafficData.slice(0, 1000)
             }
+            
+            this.applyFilters()
           }
           break
           
@@ -1012,8 +1470,9 @@ export default {
               this.trafficData.splice(index, 1, updatedEntry)
             } else {
               const flowSummary = this.convertFlowToTrafficEntry(data.flow)
-              this.trafficData.unshift(flowSummary)
+              this.trafficData.push(flowSummary)
             }
+            this.applyFilters()
           }
           break
           
@@ -1025,6 +1484,8 @@ export default {
               this.trafficData.splice(index, 1)
               console.log(`Removed flow: ${data.flow.id}`)
             }
+            // Reapply filters after removal
+            this.applyFilters()
           }
           break
           
@@ -1314,7 +1775,8 @@ export default {
   padding: 15px;
   background: #fff;
   overflow-y: auto;
-  max-height: 400px;
+  min-height: 400px;
+  max-height: 600px;
 }
 
 .traffic-header {
@@ -1334,6 +1796,63 @@ export default {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.traffic-filters {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 15px;
+  margin-bottom: 15px;
+  border: 1px solid #e9ecef;
+}
+
+.filter-row {
+  display: flex;
+  gap: 15px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.filter-group label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #495057;
+  margin: 0;
+}
+
+.filter-input,
+.filter-select {
+  padding: 6px 10px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 13px;
+  background: white;
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.filter-input:focus,
+.filter-select:focus {
+  outline: 0;
+  border-color: #80bdff;
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+.clear-filters-btn {
+  background: #dc3545;
+  color: white;
+  border-color: #dc3545;
+  margin-left: auto;
+}
+
+.clear-filters-btn:hover:not(:disabled) {
+  background: #c82333;
+  border-color: #bd2130;
 }
 
 .control-btn {
@@ -1371,7 +1890,6 @@ export default {
   border-radius: 4px;
   box-shadow: 0 4px 8px rgba(0,0,0,0.15);
   z-index: 1000;
-  min-width: 120px;
 }
 
 .dropdown-item {
@@ -1413,9 +1931,22 @@ export default {
   color: #333;
 }
 
+.stat-note {
+  font-size: 11px;
+  color: #6c757d;
+  font-weight: normal;
+  margin-left: 5px;
+}
+
+.filter-active {
+  color: #dc3545 !important;
+  font-weight: 700;
+}
+
 .traffic-table-container {
   overflow-x: auto;
   margin-bottom: 20px;
+  min-height: 200px;
 }
 
 .traffic-table {
@@ -1437,6 +1968,128 @@ export default {
   color: #333;
   position: sticky;
   top: 0;
+}
+
+.sortable-header {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: background-color 0.2s ease;
+}
+
+.sortable-header:hover {
+  background: #e9ecef;
+}
+
+.filterable-header {
+  position: relative;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.host-filter-input {
+  padding: 8px 12px;
+}
+
+.host-filter-input .filter-input {
+  margin: 0;
+}
+
+.sort-indicator,
+.filter-indicator {
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+}
+
+.sort-indicator.sort-asc {
+  opacity: 1;
+  color: #007bff;
+}
+
+.sort-indicator.sort-desc {
+  opacity: 1;
+  color: #007bff;
+  transform: rotate(180deg);
+}
+
+.filter-indicator.active {
+  opacity: 1;
+  color: #dc3545;
+}
+
+.header-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+  z-index: 1000;
+  overflow-y: auto;
+  white-space: nowrap;
+}
+
+.dropdown-content {
+  padding: 8px 0;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.dropdown-item:hover {
+  background: #f8f9fa;
+}
+
+.dropdown-item input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.dropdown-item label {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+}
+
+.dropdown-actions {
+  border-top: 1px solid #dee2e6;
+  padding: 8px 12px;
+}
+
+.clear-btn {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.clear-btn:hover {
+  background: #c82333;
 }
 
 .traffic-row {
@@ -1531,6 +2184,36 @@ export default {
   opacity: 0.5;
 }
 
+td.no-traffic {
+  display: table-cell;
+  text-align: center;
+  vertical-align: middle;
+}
+
+td.no-traffic > * {
+  display: block;
+  margin: 8px auto;
+}
+
+td.no-traffic p {
+  margin: 8px 0 4px 0;
+}
+
+td.no-traffic small {
+  display: block;
+  text-align: center;
+}
+
+.clear-filters-link {
+  color: #007bff;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.clear-filters-link:hover {
+  color: #0056b3;
+}
+
 .pagination {
   display: flex;
   justify-content: center;
@@ -1541,6 +2224,12 @@ export default {
 .pagination-info {
   font-size: 14px;
   color: #6c757d;
+}
+
+.pagination-note {
+  font-size: 12px;
+  color: #999;
+  margin-left: 8px;
 }
 
 .security-section {
@@ -1740,11 +2429,11 @@ export default {
 
 @media (max-width: 1024px) {
   .traffic-monitor {
-    max-height: 500px;
+    max-height: 700px;
   }
   
   .traffic-monitor-content {
-    max-height: 350px;
+    max-height: 450px;
   }
 }
 
@@ -1778,6 +2467,25 @@ export default {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+  }
+  
+  .traffic-filters {
+    padding: 10px;
+  }
+  
+  .filter-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .filter-group {
+    min-width: auto;
+    width: 100%;
+  }
+  
+  .clear-filters-btn {
+    margin-left: 0;
+    width: 100%;
   }
   
   .security-stats {
