@@ -1,18 +1,19 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import select
-from fastapi import UploadFile
 import hashlib
-import os
-import aiofiles
-from datetime import datetime
-from typing import Optional, List, Dict, Any
-import zipfile
-from app.models.app import FileModel, ScanStatus, FileType, Base
 import logging
+import os
 import shutil
-from app.core.settings_db import AsyncSessionLocal
-from app.models.settings import Settings
+import zipfile
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import aiofiles
+from fastapi import UploadFile
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database_manager import db_manager
+from app.core.settings_service import settings_service
+from app.models.app import FileModel, FileType, ScanStatus
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -23,13 +24,7 @@ logger = logging.getLogger(__name__)
 class AsyncStorageService:
     def __init__(self, storage_dir: str = "/shared_data"):
         self.storage_dir = storage_dir
-        database_url = os.getenv(
-            "DATABASE_URL", "postgresql+asyncpg://postgres:password@db:5432/mobsec_db"
-        )
-        self.engine = create_async_engine(database_url)
-        self.async_session = sessionmaker(
-            self.engine, class_=AsyncSession, expire_on_commit=False
-        )
+        self.async_session = db_manager.session_factory
 
     async def init_db(self):
         from app.core.settings_db import init_db
@@ -73,34 +68,56 @@ class AsyncStorageService:
         """Generate a folder name based on the original filename and hash"""
         return "_".join(filename.split(".")[0].split()) + "-" + file_hash
 
-    def _get_file_path(self, original_name: str, file_hash: str, folder: str) -> str:
-        """Generate the full file path using original name, hash, and folder"""
+    def _get_file_path(self, original_name: str, folder: str) -> str:
+        """Generate the full file path using original name and folder"""
         return os.path.join(self.storage_dir, folder, original_name)
 
     async def get_auto_run_settings(self) -> Dict[str, Any]:
         """Get auto-run settings from database"""
-        async with AsyncSessionLocal() as db:
-            query = select(Settings)
-            result = await db.execute(query)
-            settings = result.scalar_one_or_none()
-
-            if not settings:
-                return {
-                    "zip_action": None,
-                    "zip_action_type": None,
-                    "apk_action": None,
-                    "apk_action_type": None,
-                    "ipa_action": None,
-                    "ipa_action_type": None,
-                }
-            return settings.to_dict()
+        return await settings_service.get_settings()
 
     async def handle_uploaded_file(self, content: UploadFile) -> str:
         """Handle file upload and process based on file type"""
         # Ensure base storage directory exists
         os.makedirs(self.storage_dir, exist_ok=True)
 
-        # Calculate multiple hashes while saving the file
+        (
+            file_hash, file_size, md5_hash, sha1_hash, sha256_hash
+        ) = await self._save_file_with_hashes(content)
+        folder = self._get_folder_structure(content.filename, file_hash)
+
+        folder_path = os.path.join(self.storage_dir, folder)
+        os.makedirs(folder_path, exist_ok=True)
+
+        final_path = self._get_file_path(content.filename, folder)
+        temp_path = os.path.join(self.storage_dir, f"temp_{content.filename}")
+        os.rename(temp_path, final_path)
+
+        file_type = self.determine_file_type(final_path)
+
+        if file_type == FileType.ZIP:
+            self._extract_zip_file(final_path, folder_path)
+
+        file_info = {
+            "file_hash": file_hash,
+            "filename": content.filename,
+            "file_size": file_size,
+            "folder": folder,
+            "file_type": file_type,
+            "hashes": {
+                "md5": md5_hash,
+                "sha1": sha1_hash,
+                "sha256": sha256_hash
+            }
+        }
+        await self._save_file_model(file_info)
+
+        await self._handle_auto_run(file_hash, file_type)
+
+        return file_hash
+
+    async def _save_file_with_hashes(self, content: UploadFile):
+        """Save file and calculate MD5, SHA1, SHA256 hashes"""
         md5 = hashlib.md5()
         sha1 = hashlib.sha1()
         sha256 = hashlib.sha256()
@@ -117,38 +134,41 @@ class AsyncStorageService:
                 await destination.write(chunk)
 
         file_hash = md5.hexdigest()
-        folder = self._get_folder_structure(content.filename, file_hash)
-        folder_path = os.path.join(self.storage_dir, folder)
-        os.makedirs(folder_path, exist_ok=True)
 
-        final_path = self._get_file_path(content.filename, file_hash, folder)
-        os.rename(temp_path, final_path)
+        return (
+            file_hash, file_size,
+            md5.hexdigest(),
+            sha1.hexdigest(),
+            sha256.hexdigest()
+        )
 
-        # Determine file type
-        file_type = self.determine_file_type(final_path)
+    def _extract_zip_file(self, zip_path: str, folder_path: str):
+        """Extract ZIP file to source_code folder"""
+        source_code_path = os.path.join(folder_path, "source_code")
+        os.makedirs(source_code_path, exist_ok=True)
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                zip_ref.extractall(source_code_path)
+            logger.info("Successfully extracted ZIP file to %s", source_code_path)
+        except Exception as e:
+            logger.error("Error extracting ZIP file: %s", str(e))
 
-        # If file is a ZIP, extract it to source_code folder
-        if file_type == FileType.ZIP:
-            source_code_path = os.path.join(folder_path, "source_code")
-            os.makedirs(source_code_path, exist_ok=True)
-            try:
-                with zipfile.ZipFile(final_path, "r") as zip_ref:
-                    zip_ref.extractall(source_code_path)
-                logger.info(f"Successfully extracted ZIP file to {source_code_path}")
-            except Exception as e:
-                logger.error(f"Error extracting ZIP file: {str(e)}")
+    async def _save_file_model(self, file_info: Dict[str, Any]):
+        """Save file model to database"""
+        file_hash = file_info["file_hash"]
+        hashes = file_info["hashes"]
 
         file_model = FileModel(
             file_hash=file_hash,
-            original_name=content.filename,
+            original_name=file_info["filename"],
             timestamp=datetime.now(),
-            size=file_size,
-            folder_path=folder,
-            file_type=file_type,
+            size=file_info["file_size"],
+            folder_path=file_info["folder"],
+            file_type=file_info["file_type"],
             scan_status=ScanStatus.EMPTY,
-            md5=md5.hexdigest(),
-            sha1=sha1.hexdigest(),
-            sha256=sha256.hexdigest(),
+            md5=hashes["md5"],
+            sha1=hashes["sha1"],
+            sha256=hashes["sha256"],
         )
 
         async with self.async_session() as session:
@@ -157,7 +177,8 @@ class AsyncStorageService:
                 session.add(file_model)
                 await session.commit()
 
-        # Check auto-run settings and start analysis if configured
+    async def _handle_auto_run(self, file_hash: str, file_type: FileType):
+        """Handle auto-run settings and start analysis if configured"""
         try:
             settings = await self.get_auto_run_settings()
 
@@ -180,24 +201,32 @@ class AsyncStorageService:
                 if action_type == "module":
                     from app.modules.module_manager import ModuleManager
 
+                    file_info = await self.get_scan_status(file_hash)
                     module_manager = ModuleManager(
                         redis_url=os.getenv("REDIS_URL"),
                         modules_path=os.getenv("MODULES_PATH"),
                     )
-                    await module_manager.run_module(action, file_hash)
+                    await module_manager.submit_task(
+                        module_name=action,
+                        data={
+                            "file_name": file_info.get("original_name", ""),
+                            "file_type": file_info.get("file_type", ""),
+                            "folder_path": file_info.get("folder_path", ""),
+                        },
+                        file_hash=file_hash
+                    )
                 elif action_type == "chain":
-                    from app.modules.chain_manager import ChainManager
+                    from app.modules.chain_manager import ChainManager  # pylint: disable=import-outside-toplevel
 
                     chain_manager = ChainManager()
                     await chain_manager.run_chain(action, file_hash)
 
                 logger.info(
-                    f"Auto-run {action_type} '{action}' started for file {file_hash}"
+                    "Auto-run %s '%s' started for file %s",
+                    action_type, action, file_hash
                 )
         except Exception as e:
-            logger.error(f"Error in auto-run processing: {str(e)}")
-
-        return file_hash
+            logger.error("Error in auto-run processing: %s", str(e))
 
     async def update_scan_status(
         self, file_hash: str, status: ScanStatus, results: dict = None
@@ -325,14 +354,15 @@ class AsyncStorageService:
                         shutil.rmtree(folder_path)
                     except Exception as e:
                         logger.error(
-                            f"Error removing directory {folder_path}: {str(e)}"
+                            "Error removing directory %s: %s",
+                            folder_path, str(e)
                         )
                         raise
 
                 return True
 
         except Exception as e:
-            print(f"Error deleting file {file_hash}: {e}")
+            logger.error("Error deleting file %s: %s", file_hash, e)
             return False
 
 

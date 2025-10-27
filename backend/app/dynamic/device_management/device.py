@@ -2,6 +2,9 @@ from typing import Dict, Optional, List
 import asyncio
 import logging
 
+from app.dynamic.utils.adb_utils import remove_all_port_forwarding
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -23,8 +26,8 @@ class Device:
     def __init__(self, serial: str, state: str):
         self.serial = serial
         self.state = state
-        self.TAG = f"[{serial}]"
-        self.connected = True if state == "device" else False
+        self.tag = f"[{serial}]"
+        self.connected = state == "device"
         self.properties: Optional[Dict[str, str]] = None
         self.port = 8886
         self.device_type = "unknown"
@@ -79,11 +82,13 @@ class Device:
                                     version = args[pkg_index + 1]
                                     if version == SERVER_VERSION:
                                         return [pid]
-                                    else:
-                                        logger.info(
-                                            f"Found old server version running (PID: {pid}, Version: {version})"
-                                        )
-                                        await self.kill_process(pid)
+
+                                    logger.info(
+                                        "Found old server version running (PID: %s, Version: %s)",
+                                        pid,
+                                        version,
+                                    )
+                                    await self.kill_process(pid)
                 except ValueError:
                     logger.error("Invalid PID in PID file")
 
@@ -125,7 +130,10 @@ class Device:
                                         pids.append(pid)
                                     else:
                                         logger.info(
-                                            f"Found old server version running (PID: {pid}, Version: {version})"
+                                            "Found old server version running "
+                                            "(PID: %s, Version: %s)",
+                                            pid,
+                                            version,
                                         )
                                         await self.kill_process(pid)
                     except ValueError:
@@ -134,7 +142,7 @@ class Device:
             return pids
 
         except Exception as e:
-            logger.error(f"Error getting server PID: {e}")
+            logger.error("Error getting server PID: %s", e)
             return []
 
     async def kill_process(self, pid: int) -> Optional[str]:
@@ -151,18 +159,21 @@ class Device:
             )
             stdout, stderr = await process.communicate()
             if stderr:
-                logger.error(f"Error killing process {pid}: {stderr.decode()}")
+                logger.error("Error killing process %s: %s", pid, stderr.decode())
             return stdout.decode().strip()
         except Exception as e:
-            logger.error(f"Error killing process: {e}")
+            logger.error("Error killing process: %s", e)
             return None
 
     async def kill_server(self):
         """Kill scrcpy server and clean up resources"""
         try:
-            logger.info(f"Killing all scrcpy processes for device: {self.serial}")
+            logger.info("Killing all scrcpy processes for device: %s", self.serial)
 
-            kill_cmd = "ps -ef | grep 'app_process.*scrcpy' | grep -v grep | awk '{print $2}' | xargs -r kill -9"
+            kill_cmd = (
+                "ps -ef | grep 'app_process.*scrcpy' | grep -v grep | "
+                "awk '{print $2}' | xargs -r kill -9"
+            )
             process = await asyncio.create_subprocess_exec(
                 "adb",
                 "-s",
@@ -174,25 +185,22 @@ class Device:
             )
             await process.communicate()
 
+            pid_cleanup_cmd = (
+                "test -f /data/local/tmp/ws_scrcpy.pid && "
+                "cat /data/local/tmp/ws_scrcpy.pid | xargs kill -9"
+            )
             process = await asyncio.create_subprocess_exec(
                 "adb",
                 "-s",
                 self.serial,
                 "shell",
-                "test -f /data/local/tmp/ws_scrcpy.pid && cat /data/local/tmp/ws_scrcpy.pid | xargs kill -9",
+                pid_cleanup_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             await process.communicate()
 
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "forward",
-                "--remove-all",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await process.communicate()
+            _, _, _ = await remove_all_port_forwarding(device_id=None)
 
             process = await asyncio.create_subprocess_exec(
                 "adb",
@@ -207,16 +215,17 @@ class Device:
 
             await asyncio.sleep(2)
             logger.info(
-                f"Killed all scrcpy processes and cleaned up for device: {self.serial}"
+                "Killed all scrcpy processes and cleaned up for device: %s",
+                self.serial,
             )
 
         except Exception as e:
-            logger.error(f"Error killing scrcpy processes: {e}")
+            logger.error("Error killing scrcpy processes: %s", e)
 
     async def start_server(self) -> Optional[Dict]:
         """Start scrcpy server on the device"""
         try:
-            logger.info(f"Starting scrcpy server for device: {self.serial}")
+            logger.info("Starting scrcpy server for device: %s", self.serial)
 
             await self.kill_server()
 
@@ -237,7 +246,7 @@ class Device:
             )
             stdout, stderr = await process.communicate()
             if process.returncode != 0:
-                logger.error(f"Failed to push server: {stderr.decode()}")
+                logger.error("Failed to push server: %s", stderr.decode())
                 return None
 
             logger.info("Setting up ADB forward...")
@@ -254,9 +263,9 @@ class Device:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await process.communicate()
+            await process.communicate()
             if process.returncode != 0:
-                logger.error(f"Failed to set up ADB forward: {stderr.decode()}")
+                logger.error("Failed to set up ADB forward")
                 return None
 
             args_string = (
@@ -269,7 +278,7 @@ class Device:
                 f"echo $! > {PID_FILE}"
             )
 
-            logger.info(f"Starting server with command: {server_cmd}")
+            logger.info("Starting server with command: %s", server_cmd)
 
             process = await asyncio.create_subprocess_exec(
                 "adb",
@@ -283,12 +292,15 @@ class Device:
             stdout, stderr = await process.communicate()
 
             if stderr:
-                logger.error(f"Error starting server: {stderr.decode()}")
+                logger.error("Error starting server: %s", stderr.decode())
                 return None
 
-            logger.info(f"Server start stdout: {stdout.decode() if stdout else 'None'}")
+            logger.info(
+                "Server start stdout: %s", stdout.decode() if stdout else "None"
+            )
 
-            for attempt in range(10):
+            result = None
+            for _ in range(10):
                 pids = await self.get_server_pid()
                 if pids:
                     pid = pids[0]
@@ -305,16 +317,17 @@ class Device:
 
                     if netstat_stdout:
                         logger.info(
-                            f"Scrcpy server started successfully with PID: {pid}"
+                            "Scrcpy server started successfully with PID: %s",
+                            pid,
                         )
-                        process_info = {
+                        result = {
                             "pid": pid,
                             "port": self.port,
                             "device_id": self.serial,
                         }
-                        return process_info
-                    else:
-                        logger.info("Server process running but not listening yet")
+                        break
+
+                    logger.info("Server process running but not listening yet")
 
                 log_process = await asyncio.create_subprocess_exec(
                     "adb",
@@ -329,14 +342,18 @@ class Device:
                 if log_stdout:
                     log_content = log_stdout.decode()
                     if "ERROR" in log_content or "Exception" in log_content:
-                        logger.error(f"Server error in log: {log_content}")
-                        return None
+                        logger.error("Server error in log: %s", log_content)
+                        result = None
+                        break
 
                 await asyncio.sleep(1)
+
+            if result:
+                return result
 
             logger.error("Failed to verify server is running")
             return None
 
         except Exception as e:
-            logger.error(f"Error starting scrcpy server: {e}")
+            logger.error("Error starting scrcpy server: %s", e)
             return None

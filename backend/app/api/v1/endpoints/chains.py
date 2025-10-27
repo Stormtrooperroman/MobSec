@@ -1,11 +1,13 @@
-import os
 import logging
-from typing import Dict, Any
-from fastapi import APIRouter, HTTPException, Body
-from fastapi.responses import Response
-from app.modules.module_manager import ModuleManager
-from app.modules.chain_manager import ChainManager
+import os
+from typing import Any, Dict
+
 import yaml
+from fastapi import APIRouter, Body, HTTPException
+from fastapi.responses import Response
+
+from app.modules.chain_manager import ChainManager
+from app.modules.module_manager import ModuleManager
 
 
 logging.basicConfig(
@@ -74,10 +76,10 @@ async def create_chain(chain_data: Dict[str, Any] = Body(...)):
         return new_chain
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        logger.error(f"Error creating chain: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error creating chain")
+        logger.error("Error creating chain: %s", str(e))
+        raise HTTPException(status_code=500, detail="Error creating chain") from e
 
 
 @router.get("/{chain_name}")
@@ -134,10 +136,10 @@ async def update_chain(chain_name: str, chain_data: Dict[str, Any] = Body(...)):
             raise HTTPException(status_code=404, detail="Chain not found")
         return updated_chain
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        logger.error(f"Error updating chain: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error updating chain")
+        logger.error("Error updating chain: %s", str(e))
+        raise HTTPException(status_code=500, detail="Error updating chain") from e
 
 
 @router.delete("/{chain_name}")
@@ -162,8 +164,8 @@ async def delete_chain(chain_name: str):
             raise HTTPException(status_code=404, detail="Chain not found")
         return {"message": "Chain deleted successfully"}
     except Exception as e:
-        logger.error(f"Error deleting chain: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error deleting chain")
+        logger.error("Error deleting chain: %s", str(e))
+        raise HTTPException(status_code=500, detail="Error deleting chain") from e
 
 
 @router.post("/{chain_name}/run")
@@ -189,10 +191,10 @@ async def run_chain(chain_name: str, file_hash: str = Body(..., embed=True)):
         result = await chain_manager.run_chain(chain_name, file_hash)
         return result
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        logger.error(f"Error running chain '{chain_name}': {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to run chain: {str(e)}")
+        logger.error("Error running chain '%s': %s", chain_name, str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to run chain: {str(e)}") from e
 
 
 @router.get("/{chain_name}/export")
@@ -247,5 +249,5 @@ async def export_chain(chain_name: str):
             },
         )
     except Exception as e:
-        logger.error(f"Error exporting chain: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error exporting chain")
+        logger.error("Error exporting chain: %s", str(e))
+        raise HTTPException(status_code=500, detail="Error exporting chain") from e

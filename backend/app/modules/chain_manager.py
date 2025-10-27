@@ -1,27 +1,26 @@
-import os
+import asyncio
 import json
-import uuid
 import logging
+import os
+import threading
+import uuid
+from datetime import datetime, timezone
+
+import httpx
+import yaml
 from redis import Redis
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.future import select
+from sqlalchemy.orm import sessionmaker
+
 from app.models.chain import (
     Chain,
-    Module,
-    Base,
-    chain_modules,
     ChainExecution,
-    ModuleExecution,
     ChainStatus,
+    Module,
+    ModuleExecution,
+    chain_modules,
 )
-from app.core.app_manager import storage
-from datetime import datetime, timezone
-import asyncio
-import yaml
-from app.modules.module_manager import ModuleManager
-import httpx
-from app.core.settings_db import init_db
 
 logger = logging.getLogger(__name__)
 
@@ -41,17 +40,53 @@ class ChainManager:
         self.chain_event_queue = asyncio.Queue()
 
         self.loop = asyncio.get_running_loop()
-
-        modules_path = os.getenv("MODULES_PATH", "/app/modules")
-        self.module_manager = ModuleManager(
-            redis_url=redis_url, modules_path=modules_path
-        )
+        
+        # Store config for lazy initialization
+        self.redis_url = redis_url
+        self.modules_path = os.getenv("MODULES_PATH", "/app/modules")
 
         self._setup_chain_event_monitor()
 
         asyncio.create_task(self._process_chain_event_queue())
 
         self.http_client = httpx.AsyncClient(timeout=120.0)
+
+    async def _handle_chain_event(self, chain_task_id, next_module_index, file_hash):
+        """Handle a single chain event"""
+        lock_key = f"lock:chain:{chain_task_id}:module:{next_module_index}"
+        lock_acquired = self.redis.setnx(lock_key, "locked")
+
+        if not lock_acquired:
+            logger.info(
+                "Duplicate event for chain %s, module %s - skipping",
+                chain_task_id,
+                next_module_index,
+            )
+            return
+
+        self.redis.expire(lock_key, 3600)
+        chain_data = json.loads(self.redis.get(f"chain:{chain_task_id}"))
+        modules = chain_data.get("modules", [])
+        self.redis.delete(f"chain:module:completed:{chain_task_id}")
+
+        if next_module_index >= len(modules):
+            await self._complete_chain(chain_task_id)
+            return
+
+        is_running = await self._is_module_already_running(
+            chain_task_id, next_module_index
+        )
+
+        if is_running:
+            logger.info(
+                "Module %s for chain %s is already running, skipping",
+                next_module_index,
+                chain_task_id,
+            )
+        else:
+            await self._start_module(
+                chain_task_id, next_module_index, file_hash
+            )
 
     async def _process_chain_event_queue(self):
         """Process chain events from the queue in the main event loop"""
@@ -61,44 +96,15 @@ class ChainManager:
                 chain_task_id = event.get("chain_task_id")
                 next_module_index = event.get("next_module_index")
                 file_hash = event.get("file_hash")
+
                 if chain_task_id and next_module_index is not None and file_hash:
-                    lock_key = f"lock:chain:{chain_task_id}:module:{next_module_index}"
-
-                    lock_acquired = self.redis.setnx(lock_key, "locked")
-
-                    if lock_acquired:
-                        self.redis.expire(lock_key, 3600)
-
-                        chain_data = json.loads(
-                            self.redis.get(f"chain:{chain_task_id}")
-                        )
-                        modules = chain_data.get("modules", [])
-
-                        self.redis.delete(f"chain:module:completed:{chain_task_id}")
-
-                        if next_module_index < len(modules):
-                            is_running = await self._is_module_already_running(
-                                chain_task_id, next_module_index
-                            )
-
-                            if not is_running:
-                                await self._start_module(
-                                    chain_task_id, next_module_index, file_hash
-                                )
-                            else:
-                                logger.info(
-                                    f"Module {next_module_index} for chain {chain_task_id} is already running, skipping"
-                                )
-                        else:
-                            await self._complete_chain(chain_task_id)
-                    else:
-                        logger.info(
-                            f"Duplicate event for chain {chain_task_id}, module {next_module_index} - skipping"
-                        )
+                    await self._handle_chain_event(
+                        chain_task_id, next_module_index, file_hash
+                    )
 
                 self.chain_event_queue.task_done()
             except Exception as e:
-                logger.error(f"Error processing chain event from queue: {str(e)}")
+                logger.error("Error processing chain event from queue: %s", str(e))
 
     async def _is_module_already_running(self, chain_task_id, module_index):
         """Check if a module is already running by checking database"""
@@ -117,8 +123,6 @@ class ChainManager:
 
     def _setup_chain_event_monitor(self):
         """Setup Redis subscription for chain events"""
-        import threading
-
         def monitor_chain_events():
             pubsub = self.redis.pubsub()
             pubsub.psubscribe("chain:module:completed:*")
@@ -133,12 +137,13 @@ class ChainManager:
                             self.chain_event_queue.put(data), self.loop
                         )
                     except Exception as e:
-                        logger.error(f"Error adding chain event to queue: {str(e)}")
+                        logger.error("Error adding chain event to queue: %s", str(e))
 
         monitor_thread = threading.Thread(target=monitor_chain_events, daemon=True)
         monitor_thread.start()
 
     async def init_db(self):
+        from app.core.settings_db import init_db
         await init_db()
 
     async def get_chain_by_name(self, chain_name: str):
@@ -332,6 +337,7 @@ class ChainManager:
         if not chain:
             raise ValueError(f"Chain '{chain_name}' not found")
 
+        from app.core.app_manager import storage
         file_info = await storage.get_scan_status(file_hash)
         if not file_info:
             raise ValueError(f"File with hash '{file_hash}' not found")
@@ -414,12 +420,15 @@ class ChainManager:
             module_name = chain_data["modules"][module_index]
 
             if module_name.startswith("external:"):
-                """
-                This part for future update and now it doesn't work
-                """
+                # This part is for future updates and doesn't work yet
                 pass
             else:
-                module_task_id = await self.module_manager.submit_task(
+                # Import here to avoid circular imports
+                from app.modules.module_manager import ModuleManager
+                module_manager = ModuleManager(
+                    redis_url=self.redis_url, modules_path=self.modules_path
+                )
+                module_task_id = await module_manager.submit_task(
                     module_name=module_name,
                     data=data,
                     file_hash=file_hash,
@@ -443,10 +452,12 @@ class ChainManager:
                         module_execution.task_id = module_task_id
                         await session.commit()
 
-                logger.info(f"Started module {module_name} for chain {chain_task_id}")
+                logger.info(
+                    "Started module %s for chain %s", module_name, chain_task_id
+                )
 
         except Exception as e:
-            logger.error(f"Error starting module: {str(e)}")
+            logger.error("Error starting module: %s", str(e))
             await self._fail_module(chain_task_id, module_index, str(e))
 
             if module_task_id:
@@ -481,15 +492,15 @@ class ChainManager:
                                 and task_data.get("module_name") == module_name
                             ):
                                 self.redis.delete(task_key)
-                        except:
+                        except (json.JSONDecodeError, TypeError):
                             continue
 
             for key in self.redis.scan_iter(f"*{chain_task_id}*"):
                 self.redis.delete(key)
 
-            logger.info(f"Chain {chain_task_id} completed successfully")
+            logger.info("Chain %s completed successfully", chain_task_id)
         except Exception as e:
-            logger.error(f"Error completing chain {chain_task_id}: {str(e)}")
+            logger.error("Error completing chain %s: %s", chain_task_id, str(e))
 
     async def _fail_chain(self, chain_task_id, error_message):
         """Mark chain as failed"""
@@ -521,15 +532,15 @@ class ChainManager:
                                 and task_data.get("module_name") == module_name
                             ):
                                 self.redis.delete(task_key)
-                        except:
+                        except (json.JSONDecodeError, TypeError):
                             continue
 
             for key in self.redis.scan_iter(f"*{chain_task_id}*"):
                 self.redis.delete(key)
 
-            logger.error(f"Chain {chain_task_id} failed: {error_message}")
+            logger.error("Chain %s failed: %s", chain_task_id, error_message)
         except Exception as e:
-            logger.error(f"Error failing chain {chain_task_id}: {str(e)}")
+            logger.error("Error failing chain %s: %s", chain_task_id, str(e))
 
     async def _fail_module(self, chain_task_id, module_index, error_message):
         """Mark module as failed"""
@@ -560,7 +571,7 @@ class ChainManager:
                 available_modules = {m.name: m for m in modules_result.scalars().all()}
 
                 chain_data = await self.get_chain_by_name(chain.name)
-                logger.info(f"Relinking chain {chain.name} with modules")
+                logger.info("Relinking chain %s with modules", chain.name)
 
                 if chain_data and chain_data.get("modules"):
                     for module_config in chain_data["modules"]:
@@ -576,15 +587,18 @@ class ChainManager:
                                 )
                                 await session.execute(stmt)
                                 logger.info(
-                                    f"Relinked module {module_name} to chain {chain.name}"
+                                    "Relinked module %s to chain %s", module_name, chain.name
                                 )
                             except Exception as e:
                                 logger.error(
-                                    f"Failed to relink module {module_name} to chain {chain.name}: {str(e)}"
+                                    "Failed to relink module %s to chain %s: %s",
+                                    module_name,
+                                    chain.name,
+                                    str(e),
                                 )
                         else:
                             logger.warning(
-                                f"Module {module_name} not found for chain {chain.name}"
+                                "Module %s not found for chain %s", module_name, chain.name
                             )
 
             await session.commit()
@@ -593,26 +607,26 @@ class ChainManager:
     async def create_default_chains(self):
         """Create default chains from YAML files in root modules folder"""
         modules_path = os.getenv("MODULES_PATH", "./app/modules")
-        logger.info(f"Looking for chain definitions in: {modules_path}")
+        logger.info("Looking for chain definitions in: %s", modules_path)
 
         try:
             files = os.listdir(modules_path)
-            logger.info(f"Found files in directory: {files}")
+            logger.info("Found files in directory: %s", files)
 
             for file_name in files:
                 if file_name.endswith(".yaml") and not file_name == "config.yaml":
                     yaml_path = os.path.join(modules_path, file_name)
-                    logger.info(f"Processing chain file: {yaml_path}")
+                    logger.info("Processing chain file: %s", yaml_path)
                     await self._process_chain_yaml(yaml_path)
 
         except Exception as e:
-            logger.error(f"Error processing chain definitions: {str(e)}")
+            logger.error("Error processing chain definitions: %s", str(e))
 
     async def _process_chain_yaml(self, yaml_path: str):
         """Process a YAML file containing chain definitions"""
         try:
-            logger.info(f"Processing chain definitions from: {yaml_path}")
-            with open(yaml_path, "r") as f:
+            logger.info("Processing chain definitions from: %s", yaml_path)
+            with open(yaml_path, "r", encoding="utf-8") as f:
                 chain_definitions = yaml.safe_load(f)
 
             if not isinstance(chain_definitions, list):
@@ -623,18 +637,21 @@ class ChainManager:
                     existing_chain = await self.get_chain_by_name(chain_def["name"])
                     if not existing_chain:
                         await self.create_chain(chain_def)
-                        logger.info(f"Created default chain: {chain_def['name']}")
+                        logger.info("Created default chain: %s", chain_def["name"])
                     else:
                         logger.info(
-                            f"Chain {chain_def['name']} already exists, skipping"
+                            "Chain %s already exists, skipping", chain_def["name"]
                         )
                 except Exception as e:
+                    chain_name = chain_def.get("name", "unknown")
                     logger.error(
-                        f"Failed to create chain {chain_def.get('name', 'unknown')}: {str(e)}"
+                        "Failed to create chain %s: %s", chain_name, str(e)
                     )
 
         except Exception as e:
-            logger.error(f"Failed to load chain definitions from {yaml_path}: {str(e)}")
+            logger.error(
+                "Failed to load chain definitions from %s: %s", yaml_path, str(e)
+            )
 
     async def start(self):
         """Initialize chain storage and create default chains"""

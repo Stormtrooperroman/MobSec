@@ -1,19 +1,15 @@
-from fastapi import APIRouter, HTTPException, status, Body
-from typing import Dict, List, Any
 import logging
-from app.modules.module_manager import ModuleManager
 import os
-import docker
-from app.core.app_manager import storage
-import httpx
-from app.modules.external_module_registry import module_registry
-from app.models.external_module import ModuleStatus
-import json
+from typing import Any, Dict, List
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
+import docker
+import httpx
+from fastapi import APIRouter, Body, HTTPException, status
+
+from app.core.app_manager import storage
+from app.models.external_module import ModuleStatus
+from app.modules.external_module_registry import module_registry
+from app.modules.module_manager import ModuleManager
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +69,7 @@ async def list_modules() -> List[Dict]:
                 pass
             except Exception as e:
                 logger.error(
-                    f"Error checking container status for {module_name}: {str(e)}"
+                    "Error checking container status for %s: %s", module_name, str(e)
                 )
 
             modules_info.append(module_info)
@@ -81,11 +77,11 @@ async def list_modules() -> List[Dict]:
         return modules_info
 
     except Exception as e:
-        logger.error(f"Error listing modules: {str(e)}")
+        logger.error("Error listing modules: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error listing modules: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/all")
@@ -119,11 +115,11 @@ async def list_all_modules() -> List[Dict]:
         return internal_modules + external_modules_formatted
 
     except Exception as e:
-        logger.error(f"Error listing all modules: {str(e)}")
+        logger.error("Error listing all modules: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error listing all modules: {str(e)}",
-        )
+        ) from e
 
 
 @router.post("/{module_id}/toggle")
@@ -175,7 +171,7 @@ async def toggle_module(module_id: str) -> Dict:
                     "active": True,
                 }
         except docker.errors.NotFound:
-            logger.info(f"No existing container found with name: {container_name}")
+            logger.info("No existing container found with name: %s", container_name)
             await module_manager.start_module(module_name)
             return {
                 "status": "success",
@@ -186,11 +182,11 @@ async def toggle_module(module_id: str) -> Dict:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error toggling module: {str(e)}")
+        logger.error("Error toggling module: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error toggling module: {str(e)}",
-        )
+        ) from e
 
 
 @router.post("/{module_id}/rebuild")
@@ -237,11 +233,11 @@ async def rebuild_module(module_id: str) -> Dict:
         }
 
     except Exception as e:
-        logger.error(f"Error rebuilding module: {str(e)}")
+        logger.error("Error rebuilding module: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error rebuilding module: {str(e)}",
-        )
+        ) from e
 
 
 @router.post("/{module_name}/run")
@@ -303,8 +299,8 @@ async def run_module(module_name: str, request: Dict[str, Any] = Body(...)):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error submitting {module_name} task: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to submit task: {str(e)}")
+        logger.error("Error submitting %s task: %s", module_name, str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to submit task: {str(e)}") from e
 
 
 def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
@@ -317,10 +313,10 @@ def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
     module_ui_info = {}
     modules_base_path = module_manager.modules_path
 
-    logger.info(f"Discovering module UI components in path: {modules_base_path}")
+    logger.info("Discovering module UI components in path: %s", modules_base_path)
 
     if not os.path.exists(modules_base_path):
-        logger.error(f"Modules path does not exist: {modules_base_path}")
+        logger.error("Modules path does not exist: %s", modules_base_path)
         return module_ui_info
 
     try:
@@ -348,18 +344,19 @@ def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
                         ),
                     }
 
+                    module_ui = vue_reports[0] if vue_reports else "None"
                     logger.debug(
-                        f"Found UI component for module {module_name}: {vue_reports[0] if vue_reports else 'None'}"
+                        "Found UI component for module %s: %s", module_name, module_ui
                     )
                 except Exception as e:
-                    logger.error(f"Error processing module {module_name}: {str(e)}")
+                    logger.error("Error processing module %s: %s", module_name, str(e))
                     continue
 
-        logger.info(f"Discovered UI components for {len(module_ui_info)} modules")
+        logger.info("Discovered UI components for %s modules", len(module_ui_info))
         return module_ui_info
 
     except Exception as e:
-        logger.error(f"Error discovering module UI components: {str(e)}")
+        logger.error("Error discovering module UI components: %s", str(e))
         return module_ui_info
 
 
@@ -394,10 +391,10 @@ async def get_module_ui_info():
 
         return module_ui_info
     except Exception as e:
-        logger.error(f"Error getting module UI info: {e}")
+        logger.error("Error getting module UI info: %s", e)
         raise HTTPException(
             status_code=500, detail="Failed to get module UI information"
-        )
+        ) from e
 
 
 @router.get("/module-ui-component/{module_name}")
@@ -468,7 +465,7 @@ async def get_module_ui_component(module_name: str):
                     detail=f"File not found: {module_info['vue_file_path']}",
                 )
 
-            with open(module_info["vue_file_path"], "r") as f:
+            with open(module_info["vue_file_path"], "r", encoding="utf-8") as f:
                 vue_component_content = f.read()
 
             return {
@@ -482,8 +479,8 @@ async def get_module_ui_component(module_name: str):
         raise
     except Exception as e:
         logger.error(
-            f"Error retrieving UI component for module {module_name}: {str(e)}"
+            "Error retrieving UI component for module %s: %s", module_name, str(e)
         )
         raise HTTPException(
             status_code=500, detail=f"Error retrieving module UI component: {str(e)}"
-        )
+        ) from e

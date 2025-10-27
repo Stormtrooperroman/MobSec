@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import os
-from typing import Tuple, Optional
+from typing import Tuple
+
 from app.dynamic.utils.adb_utils import get_adb_env
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ class AppInstaller:
             if not os.path.exists(apk_path):
                 return False, f"APK file not found: {apk_path}"
 
-            logger.info(f"Installing APK {apk_path} on device {device_id}")
+            logger.info("Installing APK %s on device %s", apk_path, device_id)
 
             env = get_adb_env()
             cmd = ["adb", "-s", device_id, "install"]
@@ -51,15 +52,15 @@ class AppInstaller:
                 success_msg = f"Successfully installed {os.path.basename(apk_path)}"
                 logger.info(success_msg)
                 return True, success_msg
-            else:
-                error_output = (
-                    stderr.decode().strip() if stderr else stdout.decode().strip()
-                )
-                error_msg = (
-                    f"Failed to install {os.path.basename(apk_path)}: {error_output}"
-                )
-                logger.error(error_msg)
-                return False, error_msg
+
+            error_output = (
+                stderr.decode().strip() if stderr else stdout.decode().strip()
+            )
+            error_msg = (
+                f"Failed to install {os.path.basename(apk_path)}: {error_output}"
+            )
+            logger.error(error_msg)
+            return False, error_msg
 
         except Exception as e:
             error_msg = f"Error installing APK: {str(e)}"
@@ -79,7 +80,7 @@ class AppInstaller:
             Tuple[success, message]
         """
         try:
-            logger.info(f"Uninstalling {package_name} from device {device_id}")
+            logger.info("Uninstalling %s from device %s", package_name, device_id)
 
             env = get_adb_env()
             cmd = ["adb", "-s", device_id, "uninstall", package_name]
@@ -96,13 +97,13 @@ class AppInstaller:
                 success_msg = f"Successfully uninstalled {package_name}"
                 logger.info(success_msg)
                 return True, success_msg
-            else:
-                error_output = (
-                    stderr.decode().strip() if stderr else stdout.decode().strip()
-                )
-                error_msg = f"Failed to uninstall {package_name}: {error_output}"
-                logger.error(error_msg)
-                return False, error_msg
+
+            error_output = (
+                stderr.decode().strip() if stderr else stdout.decode().strip()
+            )
+            error_msg = f"Failed to uninstall {package_name}: {error_output}"
+            logger.error(error_msg)
+            return False, error_msg
 
         except Exception as e:
             error_msg = f"Error uninstalling APK: {str(e)}"

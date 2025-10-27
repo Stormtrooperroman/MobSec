@@ -1,13 +1,11 @@
 import os
+import re
 import logging
-import json
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select
+from app.core.database_manager import db_manager
 from app.models.frida_script import FridaScript
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -22,25 +20,18 @@ class FridaScriptService:
         """Creates scripts directory if it doesn't exist"""
         try:
             os.makedirs(self.scripts_dir, exist_ok=True)
-            logger.info(f"Scripts directory ensured: {self.scripts_dir}")
+            logger.info("Scripts directory ensured: %s", self.scripts_dir)
         except Exception as e:
-            logger.error(f"Error creating scripts directory: {str(e)}")
+            logger.error("Error creating scripts directory: %s", str(e))
             raise
 
     def _setup_database(self):
         """Setup database connection"""
         try:
-            database_url = os.getenv(
-                "DATABASE_URL",
-                "postgresql+asyncpg://postgres:password@db:5432/mobsec_db",
-            )
-            self.engine = create_async_engine(database_url)
-            self.async_session = sessionmaker(
-                self.engine, class_=AsyncSession, expire_on_commit=False
-            )
+            self.async_session = db_manager.session_factory
             logger.info("Database connection established for FridaScriptService")
         except Exception as e:
-            logger.error(f"Error setting up database: {str(e)}")
+            logger.error("Error setting up database: %s", str(e))
             raise
 
     async def create_script(self, name: str, content: str) -> Dict[str, Any]:
@@ -64,7 +55,7 @@ class FridaScriptService:
                 await session.commit()
                 await session.refresh(script)
 
-            logger.info(f"Script '{name}' created successfully")
+            logger.info("Script '%s' created successfully", name)
             return {
                 "id": script.id,
                 "name": script.name,
@@ -74,11 +65,11 @@ class FridaScriptService:
             }
 
         except Exception as e:
-            logger.error(f"Error creating script '{name}': {str(e)}")
+            logger.error("Error creating script '%s': %s", name, str(e))
             if "file_path" in locals() and os.path.exists(file_path):
                 try:
                     os.remove(file_path)
-                except:
+                except Exception:
                     pass
             raise
 
@@ -100,7 +91,7 @@ class FridaScriptService:
                     }
                 return None
         except Exception as e:
-            logger.error(f"Error getting script '{name}': {str(e)}")
+            logger.error("Error getting script '%s': %s", name, str(e))
             return None
 
     async def get_script_content(self, name: str) -> Optional[str]:
@@ -112,14 +103,14 @@ class FridaScriptService:
 
             file_path = script_info["file_path"]
             if not os.path.exists(file_path):
-                logger.error(f"Script file not found: {file_path}")
+                logger.error("Script file not found: %s", file_path)
                 return None
 
             with open(file_path, "r", encoding="utf-8") as f:
                 return f.read()
 
         except Exception as e:
-            logger.error(f"Error getting script content for '{name}': {str(e)}")
+            logger.error("Error getting script content for '%s': %s", name, str(e))
             return None
 
     async def update_script(
@@ -143,11 +134,11 @@ class FridaScriptService:
                 await session.commit()
                 await session.refresh(script)
 
-            logger.info(f"Script '{name}' updated successfully")
+            logger.info("Script '%s' updated successfully", name)
             return await self.get_script_by_name(name)
 
         except Exception as e:
-            logger.error(f"Error updating script '{name}': {str(e)}")
+            logger.error("Error updating script '%s': %s", name, str(e))
             raise
 
     async def delete_script(self, name: str) -> bool:
@@ -167,11 +158,11 @@ class FridaScriptService:
                 await session.delete(script)
                 await session.commit()
 
-            logger.info(f"Script '{name}' deleted successfully")
+            logger.info("Script '%s' deleted successfully", name)
             return True
 
         except Exception as e:
-            logger.error(f"Error deleting script '{name}': {str(e)}")
+            logger.error("Error deleting script '%s': %s", name, str(e))
             raise
 
     async def list_scripts(self) -> List[Dict[str, Any]]:
@@ -193,13 +184,11 @@ class FridaScriptService:
                     for script in scripts
                 ]
         except Exception as e:
-            logger.error(f"Error listing scripts: {str(e)}")
+            logger.error("Error listing scripts: %s", str(e))
             return []
 
     def _create_safe_filename(self, name: str) -> str:
         """Creates safe filename from script name"""
-        import re
-
         safe_name = re.sub(r"[^\w\-_.]", "_", name)
         return f"{safe_name}.js"
 
@@ -230,7 +219,7 @@ class FridaScriptService:
                     "scripts_directory": self.scripts_dir,
                 }
         except Exception as e:
-            logger.error(f"Error getting script stats: {str(e)}")
+            logger.error("Error getting script stats: %s", str(e))
             return {
                 "total_scripts": 0,
                 "scripts_today": 0,

@@ -1,18 +1,19 @@
-import os
-import json
-import yaml
-import docker
 import asyncio
+import json
 import logging
+import os
 import uuid
-from typing import Dict, Any, Optional
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.future import select
-from app.models.chain import Module
+from typing import Any, Dict, Optional
+
+import docker
+import yaml
 from redis import Redis
-from app.core.app_manager import storage
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
+from app.core.database_manager import db_manager
 from app.models.app import ScanStatus
+from app.models.chain import Module
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -27,14 +28,7 @@ class ModuleManager:
         self.redis = Redis.from_url(redis_url, decode_responses=True)
         self.docker_client = docker.from_env()
         self.modules_config = self._load_modules_config()
-
-        database_url = os.getenv(
-            "DATABASE_URL", "postgresql+asyncpg://postgres:password@db:5432/mobsec_db"
-        )
-        self.engine = create_async_engine(database_url)
-        self.async_session = sessionmaker(
-            self.engine, class_=AsyncSession, expire_on_commit=False
-        )
+        self.async_session = db_manager.session_factory
 
     def _load_modules_config(self) -> Dict[str, Any]:
         """Load configuration for all modules"""
@@ -45,11 +39,11 @@ class ModuleManager:
                     self.modules_path, module_name, "config.yaml"
                 )
                 if os.path.exists(config_path):
-                    with open(config_path) as f:
+                    with open(config_path, encoding="utf-8") as f:
                         config = yaml.safe_load(f)
                         configs[module_name] = config
         except Exception as e:
-            logger.error(f"Error loading module configs: {str(e)}")
+            logger.error("Error loading module configs: %s", str(e))
         return configs
 
     async def _register_module(self, module_name: str, config: dict):
@@ -107,7 +101,7 @@ class ModuleManager:
         if not os.path.exists(dockerfile_path):
             raise FileNotFoundError(f"No Dockerfile found in {module_path}")
 
-        logger.info(f"Building Docker image {image_name} from {dockerfile_path}...")
+        logger.info("Building Docker image %s from %s...", image_name, dockerfile_path)
         try:
             # Run docker build in a thread pool to not block
             loop = asyncio.get_event_loop()
@@ -117,14 +111,14 @@ class ModuleManager:
                     path=module_path, tag=image_name
                 ),
             )
-            logger.info(f"Successfully built image {image_name}")
+            logger.info("Successfully built image %s", image_name)
         except Exception as e:
-            logger.error(f"Failed to build image {image_name}: {str(e)}")
+            logger.error("Failed to build image %s: %s", image_name, str(e))
             raise
 
     async def _start_container_async(self, module_name: str, image_name: str) -> None:
         """Start Docker container asynchronously"""
-        logger.info(f"Starting module: {module_name}")
+        logger.info("Starting module: %s", module_name)
         try:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
@@ -143,9 +137,9 @@ class ModuleManager:
                     name=image_name,
                 ),
             )
-            logger.info(f"Successfully started container {image_name}")
+            logger.info("Successfully started container %s", image_name)
         except Exception as e:
-            logger.error(f"Failed to start container {image_name}: {str(e)}")
+            logger.error("Failed to start container %s: %s", image_name, str(e))
             raise
 
     async def start_module(self, module_name: str) -> None:
@@ -159,7 +153,7 @@ class ModuleManager:
                 await asyncio.get_event_loop().run_in_executor(
                     None, lambda: existing_container.remove(force=True)
                 )
-                logger.info(f"Removed existing container: {image_name}")
+                logger.info("Removed existing container: %s", image_name)
             except docker.errors.NotFound:
                 pass
 
@@ -168,7 +162,7 @@ class ModuleManager:
             await self._register_module(module_name, self.modules_config[module_name])
 
         except Exception as e:
-            logger.error(f"Failed to start module {module_name}: {str(e)}")
+            logger.error("Failed to start module %s: %s", module_name, str(e))
             raise
 
     async def start_modules(self) -> None:
@@ -187,7 +181,7 @@ class ModuleManager:
                 if is_active:
                     module_dirs.append(d)
                 else:
-                    logger.info(f"Skipping inactive module: {d}")
+                    logger.info("Skipping inactive module: %s", d)
 
         # Start all active modules concurrently
         tasks = [self.start_module(module_name) for module_name in module_dirs]
@@ -198,11 +192,10 @@ class ModuleManager:
         # Log any failures
         for module_name, result in zip(module_dirs, results):
             if isinstance(result, Exception):
-                logger.error(f"Module {module_name} failed to start: {str(result)}")
+                logger.error("Module %s failed to start: %s", module_name, str(result))
 
         # Relink chain modules after all modules are started
         from app.modules.chain_manager import ChainManager
-
         chain_manager = ChainManager()
         await chain_manager.relink_chain_modules()
 
@@ -245,8 +238,10 @@ class ModuleManager:
 
             # Add task to module's queue
             self.redis.rpush(f"module:{module_name}:queue", task_id)
-            logger.info(f"Submitted task {task_id} to module {module_name}")
+            logger.info("Submitted task %s to module %s", task_id, module_name)
 
+            # Import here to avoid circular imports
+            from app.core.app_manager import storage
             await storage.update_scan_status(
                 file_hash=file_hash, status=ScanStatus.SCANNING
             )
@@ -254,7 +249,7 @@ class ModuleManager:
             return task_id
 
         except Exception as e:
-            logger.error(f"Error submitting task to module {module_name}: {str(e)}")
+            logger.error("Error submitting task to module %s: %s", module_name, str(e))
             return None
 
     async def cleanup(self):
@@ -291,7 +286,7 @@ class ModuleManager:
 
             # Get all images
             images = await loop.run_in_executor(
-                None, lambda: self.docker_client.images.list()
+                None, self.docker_client.images.list
             )
 
             # Remove images concurrently

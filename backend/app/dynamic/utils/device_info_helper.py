@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import Optional
 from app.dynamic.utils.adb_utils import get_adb_env
+from app.dynamic.utils.adb_utils import execute_adb_shell
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class DeviceInfoHelper:
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
             )
-            stdout, stderr = await process.communicate()
+            stdout, _ = await process.communicate()
 
             if process.returncode == 0:
                 output = stdout.decode().strip()
@@ -40,7 +41,7 @@ class DeviceInfoHelper:
                     src_index = parts.index("src")
                     if src_index + 1 < len(parts):
                         device_ip = parts[src_index + 1]
-                        logger.info(f"Device IP: {device_ip}")
+                        logger.info("Device IP: %s", device_ip)
                         return device_ip
 
             # Method 2: Get IP via ifconfig
@@ -48,33 +49,32 @@ class DeviceInfoHelper:
 
             for interface in interfaces:
                 try:
-                    process = await asyncio.create_subprocess_exec(
-                        "adb",
-                        "-s",
-                        device_id,
-                        "shell",
-                        f"ip addr show {interface} | grep 'inet ' | head -1 | awk '{{print $2}}' | cut -d'/' -f1",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        env=env,
+                    
+                    cmd = (
+                        f"ip addr show {interface} | grep 'inet ' "
+                        f"| head -1 | awk '{{print $2}}' | cut -d'/' -f1"
                     )
-                    stdout, stderr = await process.communicate()
+                    stdout, _, return_code = await execute_adb_shell(
+                        device_id=device_id,
+                        shell_command=cmd,
+                        env=env
+                    )
 
-                    if process.returncode == 0:
-                        ip = stdout.decode().strip()
+                    if return_code == 0:
+                        ip = stdout.strip()
                         if ip and ip != "127.0.0.1" and not ip.startswith("169.254"):
-                            logger.info(f"Device IP from {interface}: {ip}")
+                            logger.info("Device IP from %s: %s", interface, ip)
                             return ip
 
                 except Exception as e:
-                    logger.debug(f"Failed to get IP from {interface}: {str(e)}")
+                    logger.debug("Failed to get IP from %s: %s", interface, str(e))
                     continue
 
             logger.warning("Could not determine device IP")
             return None
 
         except Exception as e:
-            logger.error(f"Error getting device IP: {str(e)}")
+            logger.error("Error getting device IP: %s", str(e))
             return None
 
     @staticmethod
@@ -96,5 +96,5 @@ class DeviceInfoHelper:
                 if not 0 <= int(part) <= 255:
                     return False
             return True
-        except:
+        except (ValueError, AttributeError):
             return False

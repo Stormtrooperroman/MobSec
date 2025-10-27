@@ -1,11 +1,11 @@
-import os
-import logging
 import asyncio
-import subprocess
+import ipaddress
+import logging
 import re
-from typing import Dict, List, Optional, Tuple
-from app.dynamic.device_management.device import Device
+from typing import Dict, List, Optional
+
 from app.dynamic.utils.adb_utils import get_adb_env
+from app.dynamic.utils.adb_utils import execute_adb_devices, execute_adb_shell, parse_devices_from_adb_output
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ class PhysicalDeviceManager:
         self.logger = logging.getLogger(__name__)
         self.connected_devices: Dict[str, Dict] = {}
         self.adb_env = get_adb_env()
+        self._adb_server_started = False
 
     async def ensure_adb_server(self) -> bool:
         """Ensure ADB server is running"""
@@ -28,17 +29,17 @@ class PhysicalDeviceManager:
                 stderr=asyncio.subprocess.PIPE,
                 env=self.adb_env,
             )
-            stdout, stderr = await process.communicate()
+            _, stderr = await process.communicate()
 
             if process.returncode == 0:
                 self.logger.info("ADB server started successfully")
                 return True
-            else:
-                self.logger.error(f"Failed to start ADB server: {stderr.decode()}")
-                return False
+
+            self.logger.error("Failed to start ADB server: %s", stderr.decode())
+            return False
 
         except Exception as e:
-            self.logger.error(f"Error starting ADB server: {str(e)}")
+            self.logger.error("Error starting ADB server: %s", str(e))
             return False
 
     async def get_physical_devices(self) -> List[Dict[str, str]]:
@@ -49,33 +50,22 @@ class PhysicalDeviceManager:
                 await self.ensure_adb_server()
                 self._adb_server_started = True
 
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "devices",
-                "-l",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=self.adb_env,
-            )
-            stdout, stderr = await process.communicate()
+            
+            stdout, _, return_code = await execute_adb_devices(env=self.adb_env)
 
-            if process.returncode != 0:
-                self.logger.error(f"Failed to get devices: {stderr.decode()}")
+            if return_code != 0:
+                self.logger.error("Failed to get devices")
                 return []
 
-            devices = []
-            lines = stdout.decode().split("\n")[1:]
-
-            for line in lines:
-                if line.strip():
-                    device_info = self._parse_device_line(line)
-                    if device_info:
-                        devices.append(device_info)
+            devices = parse_devices_from_adb_output(
+                stdout=stdout,
+                parse_line_func=self._parse_device_line
+            )
 
             return devices
 
         except Exception as e:
-            self.logger.error(f"Error getting physical devices: {str(e)}")
+            self.logger.error("Error getting physical devices: %s", str(e))
             return []
 
     def _parse_device_line(self, line: str) -> Optional[Dict[str, str]]:
@@ -139,15 +129,13 @@ class PhysicalDeviceManager:
             return device_info
 
         except Exception as e:
-            self.logger.error(f"Error parsing device line '{line}': {str(e)}")
+            self.logger.error("Error parsing device line '%s': %s", line, str(e))
             return None
 
     def _is_docker_emulator(self, udid: str, line: str) -> bool:
         """Check if device is a Docker emulator"""
         try:
             # Check for Docker network IP ranges (172.16.0.0/12, 192.168.0.0/16, 10.0.0.0/8)
-            import ipaddress
-
             # Extract IP from UDID if it contains IP:port format
             if ":" in udid and "." in udid:
                 ip_part = udid.split(":")[0]
@@ -183,13 +171,15 @@ class PhysicalDeviceManager:
             return False
 
         except Exception as e:
-            self.logger.error(f"Error checking if device is Docker emulator: {str(e)}")
+            self.logger.error("Error checking if device is Docker emulator: %s", str(e))
             return False
 
     async def connect_wifi_device(self, ip_address: str, port: int = 5555) -> bool:
         """Connect to a device via WiFi"""
         try:
-            self.logger.info(f"Attempting to connect to device at {ip_address}:{port}")
+            self.logger.info(
+                "Attempting to connect to device at %s:%s", ip_address, port
+            )
 
             connect_cmd = ["adb", "connect", f"{ip_address}:{port}"]
             process = await asyncio.create_subprocess_exec(
@@ -198,11 +188,14 @@ class PhysicalDeviceManager:
                 stderr=asyncio.subprocess.PIPE,
                 env=self.adb_env,
             )
-            stdout, stderr = await process.communicate()
+            _, stderr = await process.communicate()
 
             if process.returncode != 0:
                 self.logger.error(
-                    f"Failed to connect to {ip_address}:{port}: {stderr.decode()}"
+                    "Failed to connect to %s:%s: %s",
+                    ip_address,
+                    port,
+                    stderr.decode(),
                 )
                 return False
 
@@ -212,25 +205,32 @@ class PhysicalDeviceManager:
             for device in devices:
                 if device["udid"] == f"{ip_address}:{port}":
                     self.logger.info(
-                        f"Successfully connected to WiFi device {ip_address}:{port}"
+                        "Successfully connected to WiFi device %s:%s",
+                        ip_address,
+                        port,
                     )
                     return True
 
             self.logger.warning(
-                f"Device {ip_address}:{port} not found after connection attempt"
+                "Device %s:%s not found after connection attempt",
+                ip_address,
+                port,
             )
             return False
 
         except Exception as e:
             self.logger.error(
-                f"Error connecting to WiFi device {ip_address}:{port}: {str(e)}"
+                "Error connecting to WiFi device %s:%s: %s",
+                ip_address,
+                port,
+                str(e),
             )
             return False
 
     async def disconnect_wifi_device(self, ip_address: str, port: int = 5555) -> bool:
         """Disconnect from a WiFi device"""
         try:
-            self.logger.info(f"Disconnecting from device at {ip_address}:{port}")
+            self.logger.info("Disconnecting from device at %s:%s", ip_address, port)
 
             disconnect_cmd = ["adb", "disconnect", f"{ip_address}:{port}"]
             process = await asyncio.create_subprocess_exec(
@@ -239,18 +239,23 @@ class PhysicalDeviceManager:
                 stderr=asyncio.subprocess.PIPE,
                 env=self.adb_env,
             )
-            stdout, stderr = await process.communicate()
+            _, stderr = await process.communicate()
 
             if process.returncode == 0:
-                self.logger.info(f"Successfully disconnected from {ip_address}:{port}")
+                self.logger.info(
+                    "Successfully disconnected from %s:%s", ip_address, port
+                )
                 return True
-            else:
-                self.logger.warning(f"Disconnect command failed: {stderr.decode()}")
-                return False
+
+            self.logger.warning("Disconnect command failed: %s", stderr.decode())
+            return False
 
         except Exception as e:
             self.logger.error(
-                f"Error disconnecting from WiFi device {ip_address}:{port}: {str(e)}"
+                "Error disconnecting from WiFi device %s:%s: %s",
+                ip_address,
+                port,
+                str(e),
             )
             return False
 
@@ -266,7 +271,7 @@ class PhysicalDeviceManager:
                 stderr=asyncio.subprocess.PIPE,
                 env=self.adb_env,
             )
-            stdout, stderr = await process.communicate()
+            stdout, _ = await process.communicate()
 
             if process.returncode == 0:
                 output = stdout.decode()
@@ -286,65 +291,56 @@ class PhysicalDeviceManager:
                     stderr=asyncio.subprocess.PIPE,
                     env=self.adb_env,
                 )
-                stdout, stderr = await process.communicate()
+                stdout, _ = await process.communicate()
                 if process.returncode == 0:
                     cpu_info = stdout.decode()
                     if "ARM" in cpu_info:
                         properties["architecture"] = "ARM"
                     elif "x86" in cpu_info:
                         properties["architecture"] = "x86"
-            except:
+            except Exception:
                 pass
 
             return properties
 
         except Exception as e:
             self.logger.error(
-                f"Error getting device properties for {device_id}: {str(e)}"
+                "Error getting device properties for %s: %s",
+                device_id,
+                str(e),
             )
             return {}
 
     async def check_device_connectivity(self, device_id: str) -> bool:
         """Check if a device is still connected and responsive"""
         try:
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                device_id,
-                "shell",
-                "echo",
-                "test",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=self.adb_env,
+            
+            _, _, return_code = await execute_adb_shell(
+                device_id=device_id,
+                shell_command="echo test",
+                env=self.adb_env
             )
-            stdout, stderr = await process.communicate()
 
-            return process.returncode == 0
+            return return_code == 0
 
         except Exception as e:
             self.logger.error(
-                f"Error checking device connectivity for {device_id}: {str(e)}"
+                "Error checking device connectivity for %s: %s",
+                device_id,
+                str(e),
             )
             return False
 
     async def get_device_screen_info(self, device_id: str) -> Optional[Dict[str, int]]:
         """Get device screen dimensions"""
         try:
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                device_id,
-                "shell",
-                "wm",
-                "size",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=self.adb_env,
+            stdout, _, return_code = await execute_adb_shell(
+                device_id=device_id,
+                shell_command="wm size",
+                env=self.adb_env
             )
-            stdout, stderr = await process.communicate()
 
-            if process.returncode == 0:
+            if return_code == 0:
                 output = stdout.decode().strip()
                 if "x" in output:
                     width, height = map(int, output.split("x"))
@@ -353,13 +349,13 @@ class PhysicalDeviceManager:
             return None
 
         except Exception as e:
-            self.logger.error(f"Error getting screen info for {device_id}: {str(e)}")
+            self.logger.error("Error getting screen info for %s: %s", device_id, str(e))
             return None
 
     async def enable_wireless_debugging(self, device_id: str) -> bool:
         """Enable wireless debugging on a USB-connected device"""
         try:
-            self.logger.info(f"Enabling wireless debugging on {device_id}")
+            self.logger.info("Enabling wireless debugging on %s", device_id)
 
             ip_cmd = ["adb", "-s", device_id, "shell", "ip", "route", "get", "1.1.1.1"]
             process = await asyncio.create_subprocess_exec(
@@ -371,7 +367,7 @@ class PhysicalDeviceManager:
             stdout, stderr = await process.communicate()
 
             if process.returncode != 0:
-                self.logger.error(f"Failed to get device IP: {stderr.decode()}")
+                self.logger.error("Failed to get device IP: %s", stderr.decode())
                 return False
 
             output = stdout.decode().strip()
@@ -386,7 +382,7 @@ class PhysicalDeviceManager:
                 return False
 
             device_ip = parts[src_index + 1]
-            self.logger.info(f"Device IP address: {device_ip}")
+            self.logger.info("Device IP address: %s", device_ip)
 
             enable_cmd = ["adb", "-s", device_id, "tcpip", "5555"]
             process = await asyncio.create_subprocess_exec(
@@ -399,7 +395,8 @@ class PhysicalDeviceManager:
 
             if process.returncode != 0:
                 self.logger.error(
-                    f"Failed to enable wireless debugging: {stderr.decode()}"
+                    "Failed to enable wireless debugging: %s",
+                    stderr.decode(),
                 )
                 return False
 
@@ -407,17 +404,20 @@ class PhysicalDeviceManager:
 
             if await self.connect_wifi_device(device_ip, 5555):
                 self.logger.info(
-                    f"Successfully enabled wireless debugging on {device_id}"
+                    "Successfully enabled wireless debugging on %s",
+                    device_id,
                 )
                 return True
-            else:
-                self.logger.error(
-                    f"Failed to connect via WiFi after enabling wireless debugging"
-                )
-                return False
+
+            self.logger.error(
+                "Failed to connect via WiFi after enabling wireless debugging"
+            )
+            return False
 
         except Exception as e:
             self.logger.error(
-                f"Error enabling wireless debugging on {device_id}: {str(e)}"
+                "Error enabling wireless debugging on %s: %s",
+                device_id,
+                str(e),
             )
             return False

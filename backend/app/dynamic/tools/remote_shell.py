@@ -6,8 +6,8 @@ import pty
 import struct
 import termios
 import fcntl
+from typing import Optional
 from fastapi import WebSocket
-from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class RemoteShell:
             env["LANG"] = "en_US.UTF-8"
             env["LC_ALL"] = "en_US.UTF-8"
 
-            logger.info(f"Starting shell for device {self.device_id}")
+            logger.info("Starting shell for device %s", self.device_id)
 
             self.process = await asyncio.create_subprocess_exec(
                 "adb",
@@ -74,7 +74,7 @@ class RemoteShell:
             return True
 
         except Exception as e:
-            logger.error(f"Error starting shell: {str(e)}")
+            logger.error("Error starting shell: %s", str(e))
             await self.stop()
             return False
 
@@ -95,7 +95,7 @@ class RemoteShell:
 
                     if self.websocket.client_state.CONNECTED:
                         await self.websocket.send_bytes(data)
-                        logger.info(f"Sent {len(data)} bytes to WebSocket")
+                        logger.info("Sent %s bytes to WebSocket", len(data))
                     else:
                         logger.warning("WebSocket not connected, cannot send data")
 
@@ -103,14 +103,13 @@ class RemoteShell:
                     if e.errno == 5:
                         logger.info("PTY closed (errno 5)")
                         break
-                    logger.error(f"Error reading from PTY: {e}")
+                    logger.error("Error reading from PTY: %s", e)
                     raise
 
         except asyncio.CancelledError:
             logger.info("Output reader cancelled")
-            pass
         except Exception as e:
-            logger.error(f"Error in output reader: {str(e)}")
+            logger.error("Error in output reader: %s", str(e))
         finally:
             logger.info("Output reader finished")
             if self.is_running:
@@ -127,7 +126,7 @@ class RemoteShell:
                         self.rows = shell_data.get("rows", 30)
                         self.cols = shell_data.get("cols", 100)
                         logger.info(
-                            f"Starting shell with size: {self.rows}x{self.cols}"
+                            "Starting shell with size: %sx%s", self.rows, self.cols
                         )
                         if self.master_fd is not None:
                             fcntl.ioctl(
@@ -138,7 +137,7 @@ class RemoteShell:
                     elif shell_data.get("type") == "resize":
                         self.rows = shell_data.get("rows", 30)
                         self.cols = shell_data.get("cols", 100)
-                        logger.info(f"Resizing shell to: {self.rows}x{self.cols}")
+                        logger.info("Resizing shell to: %sx%s", self.rows, self.cols)
                         if self.master_fd is not None:
                             fcntl.ioctl(
                                 self.master_fd,
@@ -154,11 +153,12 @@ class RemoteShell:
                             )
                         else:
                             logger.error(
-                                f"Cannot write input: running={self.is_running}, master_fd={self.master_fd}"
+                                "Cannot write input: running=%s, master_fd=%s",
+                                self.is_running, self.master_fd
                             )
                     else:
                         logger.info(
-                            f"Unknown shell data type: {shell_data.get('type')}"
+                            "Unknown shell data type: %s", shell_data.get('type')
                         )
                         if self.is_running and self.master_fd is not None:
                             loop = asyncio.get_event_loop()
@@ -166,10 +166,11 @@ class RemoteShell:
                                 None, os.write, self.master_fd, data.encode()
                             )
                     return
-                else:
-                    logger.info(
-                        f"JSON parsed but not a shell command: {message}, treating as raw data"
-                    )
+                
+                logger.info(
+                    "JSON parsed but not a shell command: %s, treating as raw data",
+                    message
+                )
             except json.JSONDecodeError:
                 pass
 
@@ -180,16 +181,18 @@ class RemoteShell:
                     bytes_written = await loop.run_in_executor(
                         None, os.write, self.master_fd, encoded_data
                     )
-                    logger.info(f"Wrote {bytes_written} bytes to PTY")
+                    logger.info("Wrote %s bytes to PTY", bytes_written)
                 except Exception as e:
-                    logger.error(f"Error writing to PTY: {e}")
-            else:
-                logger.error(
-                    f"Cannot write data: running={self.is_running}, master_fd={self.master_fd}"
-                )
+                    logger.error("Error writing to PTY: %s", e)
+                return
+            
+            logger.error(
+                "Cannot write data: running=%s, master_fd=%s",
+                self.is_running, self.master_fd
+            )
 
         except Exception as e:
-            logger.error(f"Error handling input: {str(e)}")
+            logger.error("Error handling input: %s", str(e))
             await self.stop()
 
     async def stop(self):
@@ -209,14 +212,14 @@ class RemoteShell:
         if self.master_fd is not None:
             try:
                 os.close(self.master_fd)
-            except:
+            except Exception:
                 pass
             self.master_fd = None
 
         if self.slave_fd is not None:
             try:
                 os.close(self.slave_fd)
-            except:
+            except Exception:
                 pass
             self.slave_fd = None
 
@@ -224,7 +227,7 @@ class RemoteShell:
             try:
                 self.process.kill()
                 await self.process.wait()
-            except:
+            except Exception:
                 pass
 
         self.process = None

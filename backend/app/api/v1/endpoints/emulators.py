@@ -1,8 +1,10 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
-from typing import Any, Dict
-from app.dynamic.device_management.emulator_manager import EmulatorManager
 import os
+from typing import Any, Dict
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.dynamic.device_management.emulator_manager import EmulatorManager
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +38,14 @@ async def start_emulator(
             "data": result,
         }
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except Exception as e:
         emulator_name = request.get("name", "unknown")
-        logger.error(f"Failed to start emulator {emulator_name}: {str(e)}")
+        logger.error("Failed to start emulator %s: %s", emulator_name, str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to start emulator: {str(e)}",
-        )
+        ) from e
 
 
 @router.post("/stop")
@@ -66,18 +68,18 @@ async def stop_emulator(
                 "success": True,
                 "message": f"Emulator {emulator_name} stopped successfully",
             }
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to stop emulator {emulator_name}",
-            )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to stop emulator {emulator_name}",
+        )
     except Exception as e:
         emulator_name = request.get("name", "unknown")
-        logger.error(f"Failed to stop emulator {emulator_name}: {str(e)}")
+        logger.error("Failed to stop emulator %s: %s", emulator_name, str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to stop emulator: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/status/{emulator_name}")
@@ -96,11 +98,11 @@ async def get_emulator_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get emulator status for {emulator_name}: {str(e)}")
+        logger.error("Failed to get emulator status for %s: %s", emulator_name, str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get emulator status: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/list")
@@ -112,11 +114,11 @@ async def list_emulators(
         emulators = await emulator_manager.list_emulators()
         return {"emulators": emulators}
     except Exception as e:
-        logger.error(f"Failed to list emulators: {str(e)}")
+        logger.error("Failed to list emulators: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list emulators: {str(e)}",
-        )
+        ) from e
 
 
 @router.post("/cleanup")
@@ -128,11 +130,11 @@ async def cleanup_emulators(
         await emulator_manager.cleanup()
         return {"success": True, "message": "All emulators cleaned up successfully"}
     except Exception as e:
-        logger.error(f"Failed to cleanup emulators: {str(e)}")
+        logger.error("Failed to cleanup emulators: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cleanup emulators: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/logs/{emulator_name}")
@@ -170,13 +172,13 @@ async def get_emulator_logs(
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to get container logs: {str(e)}",
-            )
+            ) from e
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get logs for emulator {emulator_name}: {str(e)}")
+        logger.error("Failed to get logs for emulator %s: %s", emulator_name, str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get emulator logs: {str(e)}",
-        )
+        ) from e

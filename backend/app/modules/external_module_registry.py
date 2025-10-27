@@ -1,11 +1,10 @@
 import logging
 import asyncio
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any
+from typing import List, Optional
 from redis import Redis
 from fastapi import HTTPException
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
 from app.core.config import settings
@@ -26,7 +25,7 @@ class ExternalModuleRegistry:
         return cls._instance
 
     def __init__(self):
-        if self._initialized:
+        if hasattr(self, '_initialized') and self._initialized:
             return
 
         self.redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
@@ -59,11 +58,15 @@ class ExternalModuleRegistry:
                 break
             if attempt < max_retries - 1:
                 logger.info(
-                    f"Health check failed for {module_id}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds..."
+                    "Health check failed for %s, attempt %s/%s. Retrying in %s seconds...",
+                    module_id,
+                    attempt + 1,
+                    max_retries,
+                    retry_delay,
                 )
                 await asyncio.sleep(retry_delay)
 
-        logger.info(f"Health: {is_healthy}")
+        logger.info("Health: %s", is_healthy)
 
         module_dict = {
             "module_id": module_id,
@@ -91,9 +94,10 @@ class ExternalModuleRegistry:
 
             await session.commit()
 
-        logger.info(
-            f"Module {module_id} {'registered successfully' if is_healthy else 'registered with errors'}"
+        status_msg = (
+            "registered successfully" if is_healthy else "registered with errors"
         )
+        logger.info("Module %s %s", module_id, status_msg)
         return module_dict
 
     async def get_module(self, module_id: str) -> Optional[dict]:
@@ -119,7 +123,7 @@ class ExternalModuleRegistry:
 
     async def _check_module_health(self, health_url: str) -> bool:
         """Check module health via HTTP request using httpx"""
-        logger.debug(f"Checking module health at URL: {health_url}")
+        logger.debug("Checking module health at URL: %s", health_url)
         try:
             health_url_str = str(health_url)
 
@@ -129,27 +133,40 @@ class ExternalModuleRegistry:
 
                     if response.status_code == 200:
                         logger.info(
-                            f"Module {health_url} is healthy. Status: {response.status_code}"
+                            "Module %s is healthy. Status: %s",
+                            health_url,
+                            response.status_code,
                         )
                         return True
                     else:
                         logger.warning(
-                            f"Module health check failed {health_url}. Status: {response.status_code}, Response: {response.text}"
+                            "Module health check failed %s. Status: %s, Response: %s",
+                            health_url,
+                            response.status_code,
+                            response.text,
                         )
                         return False
                 except httpx.ConnectError as e:
                     logger.warning(
-                        f"Connection error to module {health_url}: {e.__class__.__name__} - {str(e)}"
+                        "Connection error to module %s: %s - %s",
+                        health_url,
+                        e.__class__.__name__,
+                        str(e),
                     )
                     return False
                 except httpx.TimeoutException as e:
                     logger.warning(
-                        f"Timeout connecting to module {health_url}: {e.__class__.__name__} - {str(e)}"
+                        "Timeout connecting to module %s: %s - %s",
+                        health_url,
+                        e.__class__.__name__,
+                        str(e),
                     )
                     return False
 
         except Exception as e:
-            logger.error(f"Unexpected error checking module health {health_url}: {e}")
+            logger.error(
+                "Unexpected error checking module health %s: %s", health_url, e
+            )
             return False
 
     async def update_module_heartbeat(self, module_id: str) -> bool:
@@ -212,15 +229,21 @@ class ExternalModuleRegistry:
 
                                 if old_status != module.status:
                                     logger.info(
-                                        f"Module {db_module.module_id} status changed from {old_status} to {module.status}"
+                                        "Module %s status changed from %s to %s",
+                                        db_module.module_id,
+                                        old_status,
+                                        module.status,
                                     )
 
+                        health_status = "healthy" if is_healthy else "unhealthy"
                         logger.debug(
-                            f"Health check for module {db_module.module_id}: {'healthy' if is_healthy else 'unhealthy'}"
+                            "Health check for module %s: %s",
+                            db_module.module_id,
+                            health_status,
                         )
 
             except Exception as e:
-                logger.error(f"Error in health check loop: {e}")
+                logger.error("Error in health check loop: %s", e)
 
             await asyncio.sleep(self.health_check_interval)
 
@@ -250,7 +273,7 @@ class ExternalModuleRegistry:
             await session.delete(db_module)
             await session.commit()
 
-        logger.info(f"Module {module_id} removed from registry")
+        logger.info("Module %s removed from registry", module_id)
         return True
 
     def shutdown(self):

@@ -1,7 +1,8 @@
-from typing import Dict, Set
-from fastapi import WebSocket
 import json
 import logging
+
+from fastapi import WebSocket
+
 from .websocket_proxy import WebSocketProxy
 
 
@@ -14,6 +15,9 @@ class WebSocketManager:
     """
 
     _instance = None
+    logger: logging.Logger
+    active_connections: dict
+    proxies: dict
 
     def __new__(cls):
         if cls._instance is None:
@@ -43,7 +47,8 @@ class WebSocketManager:
 
             if self.proxies[device_id]:
                 self.logger.info(
-                    f"Closing existing proxies for device '{device_id}' (count: {len(self.proxies[device_id])})"
+                    f"Closing existing proxies for device '{device_id}' "
+                    f"(count: {len(self.proxies[device_id])})"
                 )
                 for existing_ws, existing_proxy in list(
                     self.proxies[device_id].items()
@@ -64,7 +69,8 @@ class WebSocketManager:
                 proxy = await WebSocketProxy.create_proxy(websocket, device_id, 8886)
                 self.proxies[device_id][websocket] = proxy
                 self.logger.info(
-                    f"WebSocket proxy initialized for device '{device_id}' (local:{proxy.local_port} -> remote:{proxy.remote_port})"
+                    f"WebSocket proxy initialized for device '{device_id}' "
+                    f"(local:{proxy.local_port} -> remote:{proxy.remote_port})"
                 )
             except Exception as e:
                 self.logger.error(
@@ -74,7 +80,7 @@ class WebSocketManager:
                 raise
 
         except Exception as e:
-            self.logger.error(f"Error in WebSocket connection: {str(e)}")
+            self.logger.error("Error in WebSocket connection: %s", str(e))
             try:
                 await websocket.close(code=4000, reason=str(e))
             except Exception:
@@ -97,7 +103,7 @@ class WebSocketManager:
                 if device_id in self.proxies:
                     del self.proxies[device_id]
 
-        self.logger.info(f"WebSocket connection closed for device {device_id}")
+        self.logger.info("WebSocket connection closed for device %s", device_id)
 
     async def broadcast_to_device(self, device_id: str, message: str):
         """Sends a message to all connected clients of the device"""
@@ -108,7 +114,7 @@ class WebSocketManager:
             try:
                 await connection.send_text(message)
             except Exception as e:
-                self.logger.error(f"Error sending message to websocket: {e}")
+                self.logger.error("Error sending message to websocket: %s", e)
                 await self.disconnect(connection, device_id)
 
     async def handle_websocket_message(
@@ -118,7 +124,8 @@ class WebSocketManager:
         Handles messages from the WebSocket client
         """
         self.logger.debug(
-            f"Handling message for device '{device_id}', available devices: {list(self.proxies.keys())}"
+            f"Handling message for device '{device_id}', "
+            f"available devices: {list(self.proxies.keys())}"
         )
         if device_id in self.proxies and websocket in self.proxies[device_id]:
             proxy = self.proxies[device_id][websocket]
@@ -135,7 +142,8 @@ class WebSocketManager:
         Handles binary messages from the WebSocket client
         """
         self.logger.debug(
-            f"Handling binary message for device '{device_id}', available devices: {list(self.proxies.keys())}"
+            f"Handling binary message for device '{device_id}', "
+            f"available devices: {list(self.proxies.keys())}"
         )
         if device_id in self.proxies and websocket in self.proxies[device_id]:
             proxy = self.proxies[device_id][websocket]
@@ -160,7 +168,8 @@ class WebSocketManager:
                 proxy = await WebSocketProxy.create_proxy(websocket, device_id, 8886)
                 self.proxies[device_id][websocket] = proxy
                 self.logger.info(
-                    f"WebSocket proxy initialized for multiplex connection (device: {device_id}, local:{proxy.local_port} -> remote:8886)"
+                    f"WebSocket proxy initialized for multiplex connection "
+                    f"(device: {device_id}, local:{proxy.local_port} -> remote:8886)"
                 )
             except Exception as e:
                 self.logger.error(
@@ -188,11 +197,11 @@ class WebSocketManager:
                             except json.JSONDecodeError:
                                 self.logger.error("Invalid JSON in text message")
                 except Exception as e:
-                    self.logger.error(f"Error handling multiplex message: {str(e)}")
+                    self.logger.error("Error handling multiplex message: %s", str(e))
                     break
 
         except Exception as e:
-            self.logger.error(f"Error in multiplex handler: {str(e)}")
+            self.logger.error("Error in multiplex handler: %s", str(e))
             try:
                 await websocket.close(code=4000, reason=str(e))
             except Exception:
@@ -217,7 +226,7 @@ class WebSocketManager:
                         if "text" in message:
                             try:
                                 data = json.loads(message["text"])
-                                self.logger.info(f"Received multiplex message: {data}")
+                                self.logger.info("Received multiplex message: %s", data)
                                 if data.get("type") == "ping":
                                     await websocket.send_text(
                                         json.dumps(
@@ -233,15 +242,15 @@ class WebSocketManager:
                             self.logger.info(
                                 f"Received binary message: {len(message['bytes'])} bytes"
                             )
-                except Exception as e:
+                except (RuntimeError, ConnectionError) as e:
                     self.logger.error(
                         f"Error handling simple multiplex message: {str(e)}"
                     )
                     break
 
-        except Exception as e:
-            self.logger.error(f"Error in simple multiplex handler: {str(e)}")
+        except (RuntimeError, ConnectionError) as e:
+            self.logger.error("Error in simple multiplex handler: %s", str(e))
             try:
                 await websocket.close(code=4000, reason=str(e))
-            except Exception:
+            except (RuntimeError, ConnectionError):
                 pass

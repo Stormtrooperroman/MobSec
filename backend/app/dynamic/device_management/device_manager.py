@@ -1,10 +1,11 @@
 from typing import Dict, Optional, List
 import asyncio
 import logging
-import os
+
 from app.dynamic.device_management.device import Device
 from app.dynamic.device_management.physical_device_manager import PhysicalDeviceManager
 from app.dynamic.utils.adb_utils import get_adb_env
+from app.dynamic.utils.adb_utils import execute_adb_devices, parse_devices_from_adb_output
 
 
 class DeviceManager:
@@ -17,7 +18,7 @@ class DeviceManager:
         return cls._instance
 
     def __init__(self):
-        if self._initialized:
+        if hasattr(self, "_initialized") and self._initialized:
             return
 
         self._initialized = True
@@ -40,41 +41,29 @@ class DeviceManager:
                 await asyncio.sleep(5)
 
             except Exception as e:
-                self.logger.error(f"Error monitoring devices: {e}")
+                self.logger.error("Error monitoring devices: %s", e)
                 await asyncio.sleep(5)
 
     async def _get_all_devices(self) -> List[Dict[str, str]]:
         """Get all devices from ADB with proper type classification"""
         try:
             env = get_adb_env()
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "devices",
-                "-l",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-            stdout, stderr = await process.communicate()
+            
+            stdout, stderr, return_code = await execute_adb_devices(env=env)
 
-            if process.returncode != 0:
-                self.logger.error(f"Failed to get devices: {stderr.decode()}")
+            if return_code != 0:
+                self.logger.error("Failed to get devices: %s", stderr)
                 return []
 
-            devices = []
-            lines = stdout.decode().split("\n")[1:]
-
-            for line in lines:
-                if line.strip():
-                    # Use PhysicalDeviceManager's parsing logic
-                    device_info = self.physical_device_manager._parse_device_line(line)
-                    if device_info:
-                        devices.append(device_info)
+            devices = parse_devices_from_adb_output(
+                stdout=stdout,
+                parse_line_func=self.physical_device_manager._parse_device_line
+            )
 
             return devices
 
         except Exception as e:
-            self.logger.error(f"Error getting all devices: {str(e)}")
+            self.logger.error("Error getting all devices: %s", str(e))
             return []
 
     async def _update_device_list(self, current_devices: List[Dict[str, str]]):
@@ -109,16 +98,16 @@ class DeviceManager:
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
             )
-            stdout, stderr = await start_process.communicate()
+            _, stderr = await start_process.communicate()
 
             if start_process.returncode != 0:
-                self.logger.error(f"Failed to start ADB server: {stderr.decode()}")
+                self.logger.error("Failed to start ADB server: %s", stderr.decode())
                 return False
 
             return True
 
         except Exception as e:
-            self.logger.error(f"Error initializing ADB: {str(e)}")
+            self.logger.error("Error initializing ADB: %s", str(e))
             return False
 
     async def get_devices(self) -> List[Dict[str, str]]:
@@ -129,7 +118,7 @@ class DeviceManager:
             return await self._get_all_devices()
 
         except Exception as e:
-            self.logger.error(f"Error getting devices: {str(e)}")
+            self.logger.error("Error getting devices: %s", str(e))
             return []
 
     async def get_device(self, device_id: str) -> Optional[Device]:
@@ -152,7 +141,7 @@ class DeviceManager:
                 self.devices[device_id] = device
                 return device
 
-        self.logger.warning(f"Device '{device_id}' not found")
+        self.logger.warning("Device '%s' not found", device_id)
         return None
 
     async def remove_device(self, serial: str):
@@ -187,7 +176,7 @@ class DeviceManager:
             }
 
         except Exception as e:
-            self.logger.error(f"Error starting server: {str(e)}")
+            self.logger.error("Error starting server: %s", str(e))
             return None
 
     async def stop_device_server(self, device_id: str) -> bool:
@@ -204,7 +193,7 @@ class DeviceManager:
 
             return True
         except Exception as e:
-            self.logger.error(f"Error stopping server: {str(e)}")
+            self.logger.error("Error stopping server: %s", str(e))
             return False
 
     async def connect_wifi_device(self, ip_address: str, port: int = 5555) -> bool:

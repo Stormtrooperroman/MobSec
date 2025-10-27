@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional, Any
-from sqlalchemy import Column, String, DateTime, JSON, Enum as SQLEnum
+
+from sqlalchemy import Column, DateTime, Enum as SQLEnum, JSON, String
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()

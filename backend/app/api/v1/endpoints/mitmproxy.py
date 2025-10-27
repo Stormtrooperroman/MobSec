@@ -1,21 +1,17 @@
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Request, Query
-from fastapi.responses import Response, FileResponse, JSONResponse
-from typing import List, Optional, Dict, Any
-import json
 import logging
-from io import BytesIO
-import hashlib
-import re
-import tempfile
 import os
-import base64
+import tempfile
+import time
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, Response
+
 from app.dynamic.tools.mitmproxy_manager import (
     MitmproxyManager,
-    get_mitmproxy_manager,
-    cert_to_json,
     flow_to_json,
+    get_mitmproxy_manager,
 )
-import time
 
 router = APIRouter()
 
@@ -29,10 +25,10 @@ async def get_mitmproxy_manager_dependency(
     try:
         return await get_mitmproxy_manager(device_id)
     except Exception as e:
-        logger.error(f"Error getting mitmproxy manager: {e}")
+        logger.error("Error getting mitmproxy manager: %s", e)
         raise HTTPException(
             status_code=500, detail=f"Failed to get mitmproxy manager: {str(e)}"
-        )
+        ) from e
 
 
 # API Routes
@@ -47,8 +43,8 @@ async def get_flows(
         flows = manager.get_flows()
         return [flow_to_json(f) for f in flows]
     except Exception as e:
-        logger.error(f"Error getting flows: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error getting flows: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/flows/dump")
@@ -99,7 +95,7 @@ async def dump_flows(
             def cleanup():
                 try:
                     os.unlink(tmp_file_path)
-                except:
+                except Exception:
                     pass
 
             return FileResponse(
@@ -109,8 +105,8 @@ async def dump_flows(
                 background=cleanup,
             )
     except Exception as e:
-        logger.error(f"Error dumping flows: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error dumping flows: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/flows/dump")
@@ -134,8 +130,8 @@ async def load_flows(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error loading flows: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error loading flows: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/flows/clear")
@@ -150,8 +146,8 @@ async def clear_flows(
         else:
             raise HTTPException(status_code=500, detail="Failed to clear flows")
     except Exception as e:
-        logger.error(f"Error clearing flows: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error clearing flows: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/flows/resume")
@@ -163,8 +159,8 @@ async def resume_flows(
         resumed_count = manager.resume_all_flows()
         return {"message": f"Resumed {resumed_count} flows"}
     except Exception as e:
-        logger.error(f"Error resuming flows: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error resuming flows: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/flows/kill")
@@ -176,8 +172,8 @@ async def kill_flows(
         killed_count = manager.kill_all_flows()
         return {"message": f"Killed {killed_count} flows"}
     except Exception as e:
-        logger.error(f"Error killing flows: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error killing flows: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/flows/{flow_id}", response_model=Dict[str, Any])
@@ -193,8 +189,8 @@ async def get_flow(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting flow {flow_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error getting flow %s: %s", flow_id, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.put("/flows/{flow_id}", response_model=Dict[str, Any])
@@ -217,45 +213,7 @@ async def update_flow(
         flow.backup()
 
         try:
-            # Update flow based on provided data
-            for key, value in data.items():
-                if key == "request" and hasattr(flow, "request"):
-                    for req_key, req_value in value.items():
-                        if req_key in [
-                            "method",
-                            "scheme",
-                            "host",
-                            "path",
-                            "http_version",
-                        ]:
-                            setattr(flow.request, req_key, str(req_value))
-                        elif req_key == "port":
-                            flow.request.port = int(req_value)
-                        elif req_key == "headers":
-                            flow.request.headers.clear()
-                            for header in req_value:
-                                flow.request.headers.add(*header)
-                        elif req_key == "content":
-                            flow.request.text = req_value
-
-                elif key == "response" and hasattr(flow, "response") and flow.response:
-                    for resp_key, resp_value in value.items():
-                        if resp_key in ["http_version"]:
-                            setattr(flow.response, resp_key, str(resp_value))
-                        elif resp_key == "status_code":
-                            flow.response.status_code = int(resp_value)
-                        elif resp_key == "headers":
-                            flow.response.headers.clear()
-                            for header in resp_value:
-                                flow.response.headers.add(*header)
-                        elif resp_key == "content":
-                            flow.response.text = resp_value
-
-                elif key == "marked":
-                    flow.marked = value
-                elif key == "comment":
-                    flow.comment = value
-
+            _update_flow_data(flow, data)
             manager.update_flow(flow)
             return flow_to_json(flow)
 
@@ -266,8 +224,51 @@ async def update_flow(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating flow {flow_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error updating flow %s: %s", flow_id, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _update_flow_data(flow, data: dict):
+    """Update flow data based on provided dictionary"""
+    for key, value in data.items():
+        if key == "request" and hasattr(flow, "request"):
+            _update_request_data(flow.request, value)
+        elif key == "response" and hasattr(flow, "response") and flow.response:
+            _update_response_data(flow.response, value)
+        elif key == "marked":
+            flow.marked = value
+        elif key == "comment":
+            flow.comment = value
+
+
+def _update_request_data(request_obj, data: dict):
+    """Update request data"""
+    for req_key, req_value in data.items():
+        if req_key in ["method", "scheme", "host", "path", "http_version"]:
+            setattr(request_obj, req_key, str(req_value))
+        elif req_key == "port":
+            request_obj.port = int(req_value)
+        elif req_key == "headers":
+            request_obj.headers.clear()
+            for header in req_value:
+                request_obj.headers.add(*header)
+        elif req_key == "content":
+            request_obj.text = req_value
+
+
+def _update_response_data(response_obj, data: dict):
+    """Update response data"""
+    for resp_key, resp_value in data.items():
+        if resp_key in ["http_version"]:
+            setattr(response_obj, resp_key, str(resp_value))
+        elif resp_key == "status_code":
+            response_obj.status_code = int(resp_value)
+        elif resp_key == "headers":
+            response_obj.headers.clear()
+            for header in resp_value:
+                response_obj.headers.add(*header)
+        elif resp_key == "content":
+            response_obj.text = resp_value
 
 
 @router.delete("/flows/{flow_id}")
@@ -291,8 +292,8 @@ async def delete_flow(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting flow {flow_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error deleting flow %s: %s", flow_id, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/flows/{flow_id}/resume")
@@ -311,8 +312,8 @@ async def resume_flow(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error resuming flow {flow_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error resuming flow %s: %s", flow_id, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/flows/{flow_id}/kill")
@@ -334,8 +335,8 @@ async def kill_flow(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error killing flow {flow_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error killing flow %s: %s", flow_id, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/flows/{flow_id}/duplicate")
@@ -357,8 +358,8 @@ async def duplicate_flow(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error duplicating flow {flow_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error duplicating flow %s: %s", flow_id, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/flows/{flow_id}/replay")
@@ -379,8 +380,8 @@ async def replay_flow(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error replaying flow {flow_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error replaying flow %s: %s", flow_id, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/flows/{flow_id}/revert")
@@ -402,8 +403,40 @@ async def revert_flow(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error reverting flow {flow_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error reverting flow %s: %s", flow_id, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _get_content_by_view(msg_obj, content_view: str):
+    """Get content from message object based on view type"""
+    if content_view == "auto":
+        # Try to get text content first, fallback to hex
+        try:
+            content = msg_obj.get_text(strict=False)
+            if content is None:
+                content = msg_obj.get_content(strict=False)
+                if content:
+                    content = content.hex()
+        except Exception:
+            content = msg_obj.get_content(strict=False)
+            if content:
+                content = content.hex()
+        return content
+    elif content_view == "text":
+        content = msg_obj.get_text(strict=False)
+        return content if content is not None else "Content is not text"
+    elif content_view == "hex":
+        content = msg_obj.get_content(strict=False)
+        return content.hex() if content else ""
+    else:  # raw
+        return msg_obj.get_content(strict=False)
+
+
+def _get_media_type(content_view: str) -> str:
+    """Determine media type based on content view"""
+    if content_view in ["hex", "text"]:
+        return "text/plain"
+    return "application/octet-stream"
 
 
 @router.get("/flows/{flow_id}/{message}/content/{content_view}")
@@ -411,7 +444,7 @@ async def get_flow_content(
     flow_id: str,
     message: str,
     content_view: str,
-    request: Request,
+    _request: Request,
     manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency),
 ):
     """Get flow content (request/response) with specified view"""
@@ -431,39 +464,8 @@ async def get_flow_content(
             raise HTTPException(status_code=404, detail=f"Flow has no {message}")
 
         # Get content based on view type
-        if content_view == "auto":
-            # Try to get text content first, fallback to hex
-            try:
-                content = msg_obj.get_text(strict=False)
-                if content is None:
-                    content = msg_obj.get_content(strict=False)
-                    if content:
-                        # Convert to hex if binary
-                        content = content.hex()
-            except:
-                content = msg_obj.get_content(strict=False)
-                if content:
-                    content = content.hex()
-        elif content_view == "text":
-            content = msg_obj.get_text(strict=False)
-            if content is None:
-                content = "Content is not text"
-        elif content_view == "hex":
-            content = msg_obj.get_content(strict=False)
-            if content:
-                content = content.hex()
-            else:
-                content = ""
-        else:  # raw
-            content = msg_obj.get_content(strict=False)
-
-        # Determine content type
-        if content_view == "hex":
-            media_type = "text/plain"
-        elif content_view == "text":
-            media_type = "text/plain"
-        else:
-            media_type = "application/octet-stream"
+        content = _get_content_by_view(msg_obj, content_view)
+        media_type = _get_media_type(content_view)
 
         return Response(
             content=content,
@@ -476,9 +478,9 @@ async def get_flow_content(
         raise
     except Exception as e:
         logger.error(
-            f"Error getting flow content {flow_id}/{message}/{content_view}: {e}"
+            "Error getting flow content %s/%s/%s: %s", flow_id, message, content_view, e
         )
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/flows/{flow_id}/{message}/content")
@@ -510,8 +512,8 @@ async def get_flow_content_legacy(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting flow content {flow_id}/{message}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error getting flow content %s/%s: %s", flow_id, message, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/flows/{flow_id}/{message}/content")
@@ -554,8 +556,8 @@ async def set_flow_content(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error setting flow content {flow_id}/{message}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error setting flow content %s/%s: %s", flow_id, message, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/options", response_model=Dict[str, Any])
@@ -567,8 +569,8 @@ async def get_options(
         options = manager.get_options()
         return options
     except Exception as e:
-        logger.error(f"Error getting options: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error getting options: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.put("/options")
@@ -590,8 +592,8 @@ async def update_options(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating options: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error updating options: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/state", response_model=Dict[str, Any])
@@ -603,8 +605,8 @@ async def get_state(
         state = manager.get_state()
         return state
     except Exception as e:
-        logger.error(f"Error getting state: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error getting state: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/commands", response_model=Dict[str, Any])
@@ -616,8 +618,8 @@ async def get_commands(
         commands = manager.get_commands()
         return commands
     except Exception as e:
-        logger.error(f"Error getting commands: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error getting commands: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/commands/{cmd}")
@@ -630,7 +632,7 @@ async def execute_command(
     try:
         try:
             data = await request.json()
-        except:
+        except Exception:
             data = {}
 
         args = data.get("arguments", [])
@@ -638,5 +640,5 @@ async def execute_command(
         result = manager.execute_command(cmd, args)
         return {"value": result}
     except Exception as e:
-        logger.error(f"Error executing command {cmd}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error executing command %s: %s", cmd, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e

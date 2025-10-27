@@ -1,25 +1,31 @@
+import io
+import json
+import logging
+import os
+import socket
+import tempfile
+import time
+from typing import Dict, List, Optional
+
 from fastapi import (
     APIRouter,
-    WebSocket,
-    WebSocketDisconnect,
+    File,
     HTTPException,
     Query,
     UploadFile,
-    File,
+    WebSocket,
+    WebSocketDisconnect,
 )
-from typing import List, Dict, Optional
-from app.dynamic.device_management.device_manager import DeviceManager
+from fastapi.responses import FileResponse, JSONResponse, Response
+
+from app.core.app_manager import AsyncStorageService
 from app.dynamic.communication.websocket_manager import WebSocketManager
-from app.dynamic.tools.remote_shell import RemoteShell
-from app.dynamic.tools.file_manager import FileManager
+from app.dynamic.device_management.device_manager import DeviceManager
 from app.dynamic.tools.frida_manager import FridaManager
-from app.dynamic.tools.mitmproxy_manager import MitmproxyManager, get_mitmproxy_manager
+from app.dynamic.tools.file_manager import FileManager
+from app.dynamic.tools.mitmproxy_manager import get_mitmproxy_manager
+from app.dynamic.tools.remote_shell import RemoteShell
 from app.dynamic.utils.app_installer import AppInstaller
-import logging
-import tempfile
-import os
-import subprocess
-import time
 
 router = APIRouter()
 websocket_manager = WebSocketManager()
@@ -37,7 +43,7 @@ async def get_devices() -> List[Dict[str, str]]:
         device_manager = DeviceManager()
         devices = await device_manager.get_devices()
     except Exception as e:
-        logger.error(f"Error getting devices: {str(e)}")
+        logger.error("Error getting devices: %s", str(e))
 
     return devices
 
@@ -59,7 +65,7 @@ async def start_device_server(device_id: str):
             raise HTTPException(status_code=500, detail="Failed to start device server")
         return {"status": "success", "data": result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.websocket("/ws/{device_id}")
@@ -79,11 +85,14 @@ async def websocket_endpoint(
 
         await websocket.accept()
         logger.info(
-            f"WebSocket connection accepted for device '{device_id}' (len: {len(device_id)}) with action {action}"
+            "WebSocket connection accepted for device '%s' (len: %s) with action %s",
+            device_id,
+            len(device_id),
+            action,
         )
 
         if action == "stream":
-            logger.info(f"Connecting stream for device '{device_id}'")
+            logger.info("Connecting stream for device '%s'", device_id)
             await websocket_manager.connect(websocket, device_id)
 
             while True:
@@ -91,7 +100,7 @@ async def websocket_endpoint(
                     message = await websocket.receive()
                     if message["type"] == "websocket.disconnect":
                         break
-                    elif message["type"] == "websocket.receive":
+                    if message["type"] == "websocket.receive":
                         if "bytes" in message:
                             await websocket_manager.handle_binary_message(
                                 websocket, device_id, message["bytes"]
@@ -102,35 +111,35 @@ async def websocket_endpoint(
                             )
                 except Exception as e:
                     logger.error(
-                        f"Error handling message for device {device_id}: {str(e)}"
+                        "Error handling message for device %s: %s", device_id, str(e)
                     )
                     break
 
         elif action == "shell":
-            logger.info(f"Starting shell session for device {device_id}")
+            logger.info("Starting shell session for device %s", device_id)
             shell = RemoteShell(websocket, device_id)
             if not await shell.start():
-                logger.error(f"Failed to start shell for device {device_id}")
+                logger.error("Failed to start shell for device %s", device_id)
                 await websocket.close(code=4000, reason="Failed to start shell")
                 return
 
             logger.info(
-                f"Shell started successfully for device {device_id}, waiting for messages..."
+                "Shell started successfully for device %s, waiting for messages...", device_id
             )
 
             try:
                 while True:
                     try:
                         message = await websocket.receive()
-                        logger.info(f"Received WebSocket message: {message}")
+                        logger.info("Received WebSocket message: %s", message)
 
                         if message["type"] == "websocket.disconnect":
                             logger.info("WebSocket disconnect received")
                             break
-                        elif message["type"] == "websocket.receive":
+                        if message["type"] == "websocket.receive":
                             if "bytes" in message:
                                 logger.info(
-                                    f"Received bytes message: {len(message['bytes'])} bytes"
+                                    "Received bytes message: %s bytes", len(message['bytes'])
                                 )
                                 try:
                                     # Decode with explicit encoding and error handling
@@ -140,111 +149,117 @@ async def websocket_endpoint(
                                     await shell.handle_input(decoded_data)
                                 except Exception as e:
                                     logger.error(
-                                        f"Error decoding bytes message: {str(e)}"
+                                        "Error decoding bytes message: %s", str(e)
                                     )
                             elif "text" in message:
-                                logger.info(f"Received text message: {message['text']}")
+                                logger.info(
+                                    "Received text message: %s", message["text"]
+                                )
                                 await shell.handle_input(message["text"])
                         else:
-                            logger.info(f"Unknown message type: {message['type']}")
+                            logger.info("Unknown message type: %s", message["type"])
                     except Exception as e:
-                        logger.error(f"Error processing WebSocket message: {str(e)}")
+                        logger.error("Error processing WebSocket message: %s", str(e))
                         break
             except WebSocketDisconnect:
-                logger.info(f"Shell WebSocket disconnected for device {device_id}")
+                logger.info("Shell WebSocket disconnected for device %s", device_id)
             except Exception as e:
-                logger.error(f"Error in shell session: {str(e)}")
+                logger.error("Error in shell session: %s", str(e))
             finally:
                 await shell.stop()
 
         elif action == "file_manager":
-            logger.info(f"Starting file manager session for device {device_id}")
+            logger.info("Starting file manager session for device %s", device_id)
             file_manager = FileManager(websocket, device_id)
             if not await file_manager.start():
-                logger.error(f"Failed to start file manager for device {device_id}")
+                logger.error("Failed to start file manager for device %s", device_id)
                 await websocket.close(code=4000, reason="Failed to start file manager")
                 return
 
             logger.info(
-                f"File manager started successfully for device {device_id}, waiting for messages..."
+                "File manager started successfully for device %s, waiting for messages...",
+                device_id,
             )
 
             try:
                 while True:
                     try:
                         message = await websocket.receive()
-                        logger.info(f"Received WebSocket message: {message}")
+                        logger.info("Received WebSocket message: %s", message)
 
                         if message["type"] == "websocket.disconnect":
                             logger.info("WebSocket disconnect received")
                             break
-                        elif message["type"] == "websocket.receive":
+                        if message["type"] == "websocket.receive":
                             if "text" in message:
-                                logger.info(f"Received text message: {message['text']}")
+                                logger.info(
+                                    "Received text message: %s", message["text"]
+                                )
                                 await file_manager.handle_message(message["text"])
                             elif "bytes" in message:
                                 logger.info(
-                                    f"Received bytes message: {len(message['bytes'])} bytes"
+                                    "Received bytes message: %s bytes", len(message["bytes"])
                                 )
-                                pass
                         else:
-                            logger.info(f"Unknown message type: {message['type']}")
+                            logger.info("Unknown message type: %s", message["type"])
                     except Exception as e:
-                        logger.error(f"Error processing WebSocket message: {str(e)}")
+                        logger.error("Error processing WebSocket message: %s", str(e))
                         break
             except WebSocketDisconnect:
                 logger.info(
-                    f"File manager WebSocket disconnected for device {device_id}"
+                    "File manager WebSocket disconnected for device %s", device_id
                 )
             except Exception as e:
-                logger.error(f"Error in file manager session: {str(e)}")
+                logger.error("Error in file manager session: %s", str(e))
             finally:
                 await file_manager.stop()
 
         elif action == "frida":
-            logger.info(f"Starting Frida session for device {device_id}")
+            logger.info("Starting Frida session for device %s", device_id)
             frida_manager = FridaManager(websocket, device_id)
             if not await frida_manager.start():
-                logger.error(f"Failed to start Frida manager for device {device_id}")
+                logger.error("Failed to start Frida manager for device %s", device_id)
                 await websocket.close(code=4000, reason="Failed to start Frida manager")
                 return
 
             logger.info(
-                f"Frida manager started successfully for device {device_id}, waiting for messages..."
+                "Frida manager started successfully for device %s, waiting for messages...",
+                device_id,
             )
 
             try:
                 while True:
                     try:
                         message = await websocket.receive()
-                        logger.info(f"Received WebSocket message: {message}")
+                        logger.info("Received WebSocket message: %s", message)
 
                         if message["type"] == "websocket.disconnect":
                             logger.info("WebSocket disconnect received")
                             break
-                        elif message["type"] == "websocket.receive":
+                        if message["type"] == "websocket.receive":
                             if "text" in message:
-                                logger.info(f"Received text message: {message['text']}")
+                                logger.info(
+                                    "Received text message: %s", message["text"]
+                                )
                                 await frida_manager.handle_message(message["text"])
                             elif "bytes" in message:
                                 logger.info(
-                                    f"Received bytes message: {len(message['bytes'])} bytes"
+                                    "Received bytes message: %s bytes", len(message["bytes"])
                                 )
-                                pass
                         else:
-                            logger.info(f"Unknown message type: {message['type']}")
+                            logger.info("Unknown message type: %s", message["type"])
                     except Exception as e:
-                        logger.error(f"Error processing WebSocket message: {str(e)}")
+                        logger.error("Error processing WebSocket message: %s", str(e))
                         break
             except WebSocketDisconnect:
-                logger.info(f"Frida WebSocket disconnected for device {device_id}")
+                logger.info("Frida WebSocket disconnected for device %s", device_id)
             except Exception as e:
-                logger.error(f"Error in Frida session: {str(e)}")
+                logger.error("Error in Frida session: %s", str(e))
             finally:
                 await frida_manager.stop()
 
         elif action == "mitmproxy":
-            logger.info(f"Starting Mitmproxy session for device {device_id}")
+            logger.info("Starting Mitmproxy session for device %s", device_id)
             mitmproxy_manager = await get_mitmproxy_manager(device_id)
 
             # Register WebSocket for real-time events
@@ -252,7 +267,7 @@ async def websocket_endpoint(
 
             if not await mitmproxy_manager.start():
                 logger.error(
-                    f"Failed to start Mitmproxy manager for device {device_id}"
+                    "Failed to start Mitmproxy manager for device %s", device_id
                 )
                 mitmproxy_manager.remove_websocket(websocket)
                 await websocket.close(
@@ -261,25 +276,26 @@ async def websocket_endpoint(
                 return
 
             logger.info(
-                f"Mitmproxy manager started successfully for device {device_id}, waiting for messages..."
+                "Mitmproxy manager started successfully for device %s, waiting for messages...",
+                device_id,
             )
 
             try:
                 while True:
                     try:
                         message = await websocket.receive()
-                        logger.info(f"Received WebSocket message: {message}")
+                        logger.info("Received WebSocket message: %s", message)
 
                         if message["type"] == "websocket.disconnect":
                             logger.info("WebSocket disconnect received")
                             break
-                        elif message["type"] == "websocket.receive":
+                        if message["type"] == "websocket.receive":
                             if "text" in message:
-                                logger.info(f"Received text message: {message['text']}")
+                                logger.info(
+                                    "Received text message: %s", message["text"]
+                                )
                                 try:
                                     # Parse JSON message
-                                    import json
-
                                     data = json.loads(message["text"])
 
                                     # Add device_id to message if not present
@@ -292,7 +308,7 @@ async def websocket_endpoint(
                                     )
                                 except json.JSONDecodeError:
                                     logger.error(
-                                        f"Invalid JSON message: {message['text']}"
+                                        "Invalid JSON message: %s", message["text"]
                                     )
                                     await websocket.send_text(
                                         json.dumps(
@@ -305,18 +321,17 @@ async def websocket_endpoint(
                                     )
                             elif "bytes" in message:
                                 logger.info(
-                                    f"Received bytes message: {len(message['bytes'])} bytes"
+                                    "Received bytes message: %s bytes", len(message["bytes"])
                                 )
-                                pass
                         else:
-                            logger.info(f"Unknown message type: {message['type']}")
+                            logger.info("Unknown message type: %s", message["type"])
                     except Exception as e:
-                        logger.error(f"Error processing WebSocket message: {str(e)}")
+                        logger.error("Error processing WebSocket message: %s", str(e))
                         break
             except WebSocketDisconnect:
-                logger.info(f"Mitmproxy WebSocket disconnected for device {device_id}")
+                logger.info("Mitmproxy WebSocket disconnected for device %s", device_id)
             except Exception as e:
-                logger.error(f"Error in Mitmproxy session: {str(e)}")
+                logger.error("Error in Mitmproxy session: %s", str(e))
             finally:
                 # Remove WebSocket from registration
                 mitmproxy_manager.remove_websocket(websocket)
@@ -326,10 +341,10 @@ async def websocket_endpoint(
             await websocket_manager.handle_multiplex(websocket, device_id)
 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket connection closed for device {device_id}")
+        logger.info("WebSocket connection closed for device %s", device_id)
         await websocket_manager.disconnect(websocket, device_id)
     except Exception as e:
-        logger.error(f"Error in WebSocket endpoint for device {device_id}: {str(e)}")
+        logger.error("Error in WebSocket endpoint for device %s: %s", device_id, str(e))
         await websocket_manager.disconnect(websocket, device_id)
         try:
             await websocket.close(code=4000, reason=str(e))
@@ -355,7 +370,7 @@ async def multiplex_endpoint(websocket: WebSocket, action: Optional[str] = Query
     except WebSocketDisconnect:
         logger.info("Multiplex WebSocket connection closed")
     except Exception as e:
-        logger.error(f"Error in multiplex endpoint: {str(e)}")
+        logger.error("Error in multiplex endpoint: %s", str(e))
         try:
             await websocket.close(code=4000, reason=str(e))
         except Exception:
@@ -375,8 +390,6 @@ async def install_app_on_device(device_id: str, request: dict):
             raise HTTPException(
                 status_code=400, detail="file_hash and app_name are required"
             )
-
-        from app.core.app_manager import AsyncStorageService
 
         storage = AsyncStorageService()
 
@@ -407,14 +420,14 @@ async def install_app_on_device(device_id: str, request: dict):
                 "app_name": app_name,
                 "file_hash": file_hash,
             }
-        else:
-            raise HTTPException(status_code=500, detail=message)
+
+        raise HTTPException(status_code=500, detail=message)
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error installing app: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error installing app: {str(e)}")
+        logger.error("Error installing app: %s", str(e))
+        raise HTTPException(status_code=500, detail=f"Error installing app: {str(e)}") from e
 
 
 @router.post("/device/{device_id}/install-apk-direct")
@@ -432,39 +445,39 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
             temp_apk_path = temp_file.name
 
         try:
-            logger.info(f"Installing APK {apk_file.filename} on device {device_id}")
+            logger.info("Installing APK %s on device %s", apk_file.filename, device_id)
 
             success, message = await AppInstaller.install_apk(device_id, temp_apk_path)
 
             if success:
                 logger.info(
-                    f"Successfully installed {apk_file.filename} on device {device_id}"
+                    "Successfully installed %s on device %s", apk_file.filename, device_id
                 )
                 return {
                     "status": "success",
                     "message": message,
                     "app_name": apk_file.filename,
                 }
-            else:
-                logger.error(f"Failed to install {apk_file.filename}: {message}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=message,
-                )
+
+            logger.error("Failed to install %s: %s", apk_file.filename, message)
+            raise HTTPException(
+                status_code=500,
+                detail=message,
+            )
 
         finally:
             try:
                 os.unlink(temp_apk_path)
             except Exception as e:
                 logger.warning(
-                    f"Failed to cleanup temporary file {temp_apk_path}: {str(e)}"
+                    "Failed to cleanup temporary file %s: %s", temp_apk_path, str(e)
                 )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error installing APK directly: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error installing APK: {str(e)}")
+        logger.error("Error installing APK directly: %s", str(e))
+        raise HTTPException(status_code=500, detail=f"Error installing APK: {str(e)}") from e
 
 
 # Global storage for mitmproxy managers to maintain state
@@ -486,16 +499,16 @@ async def enable_wireless_debugging(device_id: str):
                 "message": "Wireless debugging enabled successfully",
                 "data": {"wireless_enabled": True},
             }
-        else:
-            raise HTTPException(
-                status_code=500, detail="Failed to enable wireless debugging"
-            )
+
+        raise HTTPException(
+            status_code=500, detail="Failed to enable wireless debugging"
+        )
 
     except Exception as e:
-        logger.error(f"Error enabling wireless debugging: {str(e)}")
+        logger.error("Error enabling wireless debugging: %s", str(e))
         raise HTTPException(
             status_code=500, detail=f"Error enabling wireless debugging: {str(e)}"
-        )
+        ) from e
 
 
 @router.post("/device/connect-wifi")
@@ -517,17 +530,17 @@ async def connect_wifi_device(request: dict):
                 "message": f"Successfully connected to device at {ip_address}:{port}",
                 "data": {"ip_address": ip_address, "port": port, "connected": True},
             }
-        else:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to connect to device at {ip_address}:{port}",
-            )
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to connect to device at {ip_address}:{port}",
+        )
 
     except Exception as e:
-        logger.error(f"Error connecting to WiFi device: {str(e)}")
+        logger.error("Error connecting to WiFi device: %s", str(e))
         raise HTTPException(
             status_code=500, detail=f"Error connecting to WiFi device: {str(e)}"
-        )
+        ) from e
 
 
 @router.post("/device/disconnect-wifi")
@@ -549,17 +562,17 @@ async def disconnect_wifi_device(request: dict):
                 "message": f"Successfully disconnected from device at {ip_address}:{port}",
                 "data": {"ip_address": ip_address, "port": port, "connected": False},
             }
-        else:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to disconnect from device at {ip_address}:{port}",
-            )
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to disconnect from device at {ip_address}:{port}",
+        )
 
     except Exception as e:
-        logger.error(f"Error disconnecting from WiFi device: {str(e)}")
+        logger.error("Error disconnecting from WiFi device: %s", str(e))
         raise HTTPException(
             status_code=500, detail=f"Error disconnecting from WiFi device: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/device/{device_id}/properties")
@@ -575,10 +588,10 @@ async def get_device_properties(device_id: str):
         }
 
     except Exception as e:
-        logger.error(f"Error getting device properties: {str(e)}")
+        logger.error("Error getting device properties: %s", str(e))
         raise HTTPException(
             status_code=500, detail=f"Error getting device properties: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/device/{device_id}/screen-info")
@@ -593,17 +606,17 @@ async def get_device_screen_info(device_id: str):
                 "status": "success",
                 "data": {"device_id": device_id, "screen_info": screen_info},
             }
-        else:
-            raise HTTPException(
-                status_code=404,
-                detail="Screen information not available for this device",
-            )
+
+        raise HTTPException(
+            status_code=404,
+            detail="Screen information not available for this device",
+        )
 
     except Exception as e:
-        logger.error(f"Error getting device screen info: {str(e)}")
+        logger.error("Error getting device screen info: %s", str(e))
         raise HTTPException(
             status_code=500, detail=f"Error getting device screen info: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/device/{device_id}/connectivity")
@@ -619,10 +632,10 @@ async def check_device_connectivity(device_id: str):
         }
 
     except Exception as e:
-        logger.error(f"Error checking device connectivity: {str(e)}")
+        logger.error("Error checking device connectivity: %s", str(e))
         raise HTTPException(
             status_code=500, detail=f"Error checking device connectivity: {str(e)}"
-        )
+        ) from e
 
 
 # Mitmproxy HTTP API Endpoints
@@ -652,23 +665,23 @@ async def get_mitmproxy_status(device_id: str):
                     "proxy_host": "0.0.0.0",
                 },
             }
-        else:
-            # No active manager
-            return {
-                "status": "success",
-                "data": {
-                    "proxy_running": False,
-                    "cert_installed": False,
-                    "su_available": False,
-                    "device_ip": None,
-                    "proxy_port": 8081,
-                    "proxy_host": "0.0.0.0",
-                },
-            }
+
+        # No active manager
+        return {
+            "status": "success",
+            "data": {
+                "proxy_running": False,
+                "cert_installed": False,
+                "su_available": False,
+                "device_ip": None,
+                "proxy_port": 8081,
+                "proxy_host": "0.0.0.0",
+            },
+        }
 
     except Exception as e:
-        logger.error(f"Error getting mitmproxy status: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error getting mitmproxy status: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/device/{device_id}/mitmproxy/start")
@@ -688,10 +701,10 @@ async def start_mitmproxy_proxy(device_id: str):
                         "proxy_host": "0.0.0.0",
                     },
                 }
-            else:
-                # Clean up old manager
-                await manager.stop()
-                del _mitmproxy_managers[device_id]
+
+            # Clean up old manager
+            await manager.stop()
+            del _mitmproxy_managers[device_id]
 
         # Create new manager
         mitmproxy_manager = await get_mitmproxy_manager(device_id)
@@ -716,23 +729,26 @@ async def start_mitmproxy_proxy(device_id: str):
                     "proxy_running": True,
                     "proxy_port": mitmproxy_manager.proxy_port,
                     "proxy_host": "0.0.0.0",
-                    "proxy_setting": f"{mitmproxy_manager.backend_ip}:{mitmproxy_manager.proxy_port}",
+                    "proxy_setting": (
+                        f"{mitmproxy_manager.backend_ip}:"
+                        f"{mitmproxy_manager.proxy_port}"
+                    ),
                 },
             }
-        else:
-            await mitmproxy_manager.stop()
-            raise HTTPException(status_code=500, detail="Failed to start mitmproxy")
+
+        await mitmproxy_manager.stop()
+        raise HTTPException(status_code=500, detail="Failed to start mitmproxy")
 
     except Exception as e:
-        logger.error(f"Error starting mitmproxy: {str(e)}")
+        logger.error("Error starting mitmproxy: %s", str(e))
         # Clean up state on error
         if device_id in _mitmproxy_managers:
             try:
                 await _mitmproxy_managers[device_id].stop()
-            except:
+            except Exception:
                 pass
             del _mitmproxy_managers[device_id]
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/device/{device_id}/mitmproxy/stop")
@@ -749,7 +765,7 @@ async def stop_mitmproxy_proxy(device_id: str):
         manager = _mitmproxy_managers[device_id]
 
         # Stop proxy (stop() already calls stop_proxy_threadsafe() internally)
-        success = await manager.stop()
+        await manager.stop()
 
         # Remove from global state
         del _mitmproxy_managers[device_id]
@@ -761,11 +777,11 @@ async def stop_mitmproxy_proxy(device_id: str):
         }
 
     except Exception as e:
-        logger.error(f"Error stopping mitmproxy: {str(e)}")
+        logger.error("Error stopping mitmproxy: %s", str(e))
         # Clean up state in any case
         if device_id in _mitmproxy_managers:
             del _mitmproxy_managers[device_id]
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/device/{device_id}/mitmproxy/generate-certificate")
@@ -783,7 +799,7 @@ async def generate_mitmproxy_certificate(device_id: str):
 
         if cert_path and os.path.exists(cert_path):
             # Read certificate content
-            with open(cert_path, "r") as f:
+            with open(cert_path, "r", encoding="utf-8") as f:
                 cert_content = f.read()
 
             return {
@@ -792,25 +808,26 @@ async def generate_mitmproxy_certificate(device_id: str):
                 "data": {
                     "certificate": cert_content,
                     "cert_path": cert_path,
-                    "download_url": f"/api/v1/dynamic-testing/device/{device_id}/mitmproxy/download-certificate",
+                    "download_url": (
+                        f"/api/v1/dynamic-testing/device/{device_id}/"
+                        f"mitmproxy/download-certificate"
+                    ),
                 },
             }
-        else:
-            raise HTTPException(
-                status_code=500, detail="Failed to generate certificate"
-            )
+
+        raise HTTPException(
+            status_code=500, detail="Failed to generate certificate"
+        )
 
     except Exception as e:
-        logger.error(f"Error generating certificate: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error generating certificate: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/device/{device_id}/mitmproxy/download-certificate")
 async def download_mitmproxy_certificate(device_id: str):
     """Download mitmproxy certificate file"""
     try:
-        from fastapi.responses import FileResponse
-
         certs_dir = "/tmp/mitmproxy/certs"
         cert_path = os.path.join(certs_dir, "mitmproxy-ca-cert.pem")
 
@@ -828,13 +845,16 @@ async def download_mitmproxy_certificate(device_id: str):
             media_type="application/x-pem-file",
             filename=f"mitmproxy-ca-cert-{device_id.replace(':', '_')}.pem",
             headers={
-                "Content-Disposition": f"attachment; filename=mitmproxy-ca-cert-{device_id.replace(':', '_')}.pem"
+                "Content-Disposition": (
+                    f"attachment; filename=mitmproxy-ca-cert-"
+                    f"{device_id.replace(':', '_')}.pem"
+                )
             },
         )
 
     except Exception as e:
-        logger.error(f"Error downloading certificate: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error downloading certificate: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/device/{device_id}/mitmproxy/install-certificate")
@@ -856,12 +876,12 @@ async def install_mitmproxy_certificate(device_id: str):
                 "message": "Certificate installed successfully on device",
                 "data": {"cert_installed": True},
             }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to install certificate")
+
+        raise HTTPException(status_code=500, detail="Failed to install certificate")
 
     except Exception as e:
-        logger.error(f"Error installing certificate: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error installing certificate: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/device/{device_id}/mitmproxy/configure-proxy")
@@ -882,12 +902,12 @@ async def configure_device_proxy(device_id: str):
                 "status": "success",
                 "message": "Proxy configured successfully on device",
             }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to configure proxy")
+
+        raise HTTPException(status_code=500, detail="Failed to configure proxy")
 
     except Exception as e:
-        logger.error(f"Error configuring proxy: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error configuring proxy: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/device/{device_id}/mitmproxy/disable-proxy")
@@ -908,16 +928,16 @@ async def disable_device_proxy(device_id: str):
                 "status": "success",
                 "message": "Proxy disabled successfully on device",
             }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to disable proxy")
+
+        raise HTTPException(status_code=500, detail="Failed to disable proxy")
 
     except Exception as e:
-        logger.error(f"Error disabling proxy: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error disabling proxy: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/device/{device_id}/mitmproxy/export")
-async def export_mitmproxy_traffic(device_id: str, format: str = "json"):
+async def export_mitmproxy_traffic(device_id: str, export_format: str = "json"):
     """Export captured traffic in specified format"""
     try:
         mitmproxy_manager = await get_mitmproxy_manager(device_id)
@@ -927,28 +947,27 @@ async def export_mitmproxy_traffic(device_id: str, format: str = "json"):
                 status_code=500, detail="Failed to initialize mitmproxy manager"
             )
 
-        exported_data = await mitmproxy_manager.export_traffic(format)
+        exported_data = await mitmproxy_manager.export_traffic(export_format)
 
-        if format == "json" or format == "har":
-            from fastapi.responses import JSONResponse
-
+        if export_format in {"json", "har"}:
             return JSONResponse(
-                {"status": "success", "format": format, "data": exported_data}
+                {"status": "success", "format": export_format, "data": exported_data}
             )
-        else:
-            from fastapi.responses import Response
 
-            return Response(
-                content=exported_data,
-                media_type="text/plain",
-                headers={
-                    "Content-Disposition": f"attachment; filename=traffic_{device_id}_{int(time.time())}.{format}"
-                },
-            )
+        return Response(
+            content=exported_data,
+            media_type="text/plain",
+            headers={
+                "Content-Disposition": (
+                    f"attachment; filename=traffic_{device_id}_"
+                    f"{int(time.time())}.{export_format}"
+                )
+            },
+        )
 
     except Exception as e:
-        logger.error(f"Error exporting traffic: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error exporting traffic: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/device/{device_id}/mitmproxy/clear-traffic")
@@ -967,8 +986,8 @@ async def clear_mitmproxy_traffic(device_id: str):
         return {"status": "success", "message": "Traffic data cleared successfully"}
 
     except Exception as e:
-        logger.error(f"Error clearing traffic: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error clearing traffic: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/device/{device_id}/mitmproxy/check-proxy")
@@ -995,17 +1014,15 @@ async def check_mitmproxy_proxy(device_id: str):
         )
 
         # Check port accessibility
-        import socket
-
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(1)
             result = sock.connect_ex(("127.0.0.1", manager.proxy_port))
             sock.close()
             port_accessible = result == 0
-        except Exception as e:
+        except OSError as e:
             port_accessible = False
-            logger.warning(f"Error checking port accessibility: {e}")
+            logger.warning("Error checking port accessibility: %s", e)
 
         return {
             "status": "success",
@@ -1020,20 +1037,14 @@ async def check_mitmproxy_proxy(device_id: str):
         }
 
     except Exception as e:
-        logger.error(f"Error checking mitmproxy proxy: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error checking mitmproxy proxy: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/device/{device_id}/mitmproxy/logs")
 async def get_mitmproxy_logs(device_id: str):
     """Get detailed logs for debugging mitmproxy issues"""
     try:
-        import logging
-        import io
-
-        # Get logs from all loggers
-        logs = []
-
         # Get root logger
         root_logger = logging.getLogger()
 
@@ -1082,8 +1093,8 @@ async def get_mitmproxy_logs(device_id: str):
         }
 
     except Exception as e:
-        logger.error(f"Error getting mitmproxy logs: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error getting mitmproxy logs: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/device/{device_id}/stop")

@@ -1,8 +1,9 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from app.models.settings import Base as SettingsBase
-from app.models import __all_bases__
 import os
+
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.models import __all_bases__
 
 # Get database URL from environment variable
 database_url = os.getenv(

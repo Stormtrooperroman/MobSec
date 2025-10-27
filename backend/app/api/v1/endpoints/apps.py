@@ -1,9 +1,10 @@
-from fastapi import APIRouter, UploadFile, HTTPException, status, Query
-from app.core.app_manager import AsyncStorageService
-from typing import List
-from datetime import datetime
-
 import logging
+from datetime import datetime
+from typing import List
+
+from fastapi import APIRouter, HTTPException, Query, UploadFile, status
+
+from app.core.app_manager import AsyncStorageService
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,11 +53,11 @@ async def upload_file(file: UploadFile):
         }
 
     except Exception as e:
-        logger.error(f"Error processing upload: {str(e)}")
+        logger.error("Error processing upload: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error processing file upload",
-        )
+        ) from e
 
 
 @router.get("/status/{file_hash}")
@@ -81,21 +82,21 @@ async def get_scan_status(file_hash: str):
     - 500: If there is an error retrieving the scan status
     """
     try:
-        status = await storage.get_scan_status(file_hash)
-        if not status:
+        scan_status = await storage.get_scan_status(file_hash)
+        if not scan_status:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
             )
-        return status
+        return scan_status
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error retrieving scan status: {str(e)}")
+        logger.error("Error retrieving scan status: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error retrieving scan status",
-        )
+        ) from e
 
 
 @router.get("/report/{file_hash}")
@@ -223,11 +224,11 @@ async def get_report(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error generating report: {str(e)}")
+        logger.error("Error generating report: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error generating report: {str(e)}",
-        )
+        ) from e
 
 
 @router.delete("/{file_hash}")
@@ -259,11 +260,11 @@ async def delete_file(file_hash: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting file: {str(e)}")
+        logger.error("Error deleting file: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error deleting file",
-        )
+        ) from e
 
 
 @router.get("/")
@@ -296,8 +297,8 @@ async def list_files(skip: int = 0, limit: int = 10):
         return {"total": total, "skip": skip, "limit": limit, "apps": files}
 
     except Exception as e:
-        logger.error(f"Error listing apps: {str(e)}")
+        logger.error("Error listing apps: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error retrieving file list",
-        )
+        ) from e

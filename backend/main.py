@@ -1,16 +1,17 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
-from app.api.v1.router import api_router
-from app.core.app_manager import AsyncStorageService
-from app.modules.chain_manager import ChainManager
-from app.modules.module_manager import ModuleManager
-from app.dynamic.device_management.emulator_manager import EmulatorManager
-from app.report_generator import start_report_generator, stop_report_generator
-from app.core.settings_db import init_db
-import os
 import asyncio
 import logging
+import os
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.api.v1.router import api_router
+from app.core.app_manager import AsyncStorageService
+from app.core.config import settings
+from app.core.settings_db import init_db
+from app.dynamic.device_management.emulator_manager import EmulatorManager
+from app.modules.chain_manager import ChainManager
+from app.modules.module_manager import ModuleManager
+from app.report_generator import start_report_generator, stop_report_generator
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ async def initialize_background_services():
         await emulator_manager.start_active_emulators()
 
     except Exception as e:
-        logger.error(f"Error during background initialization: {e}")
+        logger.error("Error during background initialization: %s", e)
 
 
 @app.on_event("startup")
@@ -88,7 +89,7 @@ async def shutdown_event():
         logger.info("Shutdown sequence completed successfully")
 
     except Exception as e:
-        logger.error(f"Error during shutdown: {str(e)}")
+        logger.error("Error during shutdown: %s", str(e))
 
 
 @app.get("/health")

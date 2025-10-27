@@ -1,17 +1,18 @@
+import enum
+from datetime import datetime, timezone
+
 from sqlalchemy import (
     Column,
-    String,
     DateTime,
-    Integer,
-    JSON,
     Enum,
     ForeignKey,
+    Integer,
+    JSON,
+    String,
     Table,
     select,
 )
 from sqlalchemy.orm import declarative_base, relationship
-import enum
-from datetime import datetime, timezone
 
 Base = declarative_base()
 

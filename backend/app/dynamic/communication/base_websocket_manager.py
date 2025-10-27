@@ -21,7 +21,7 @@ class BaseWebSocketManager:
             else:
                 logger.warning("WebSocket not connected, cannot send response")
         except Exception as e:
-            logger.error(f"Error sending response: {str(e)}")
+            logger.error("Error sending response: %s", str(e))
 
     async def send_error(self, message: str, error_type: str = "error"):
         """Universal error sending"""

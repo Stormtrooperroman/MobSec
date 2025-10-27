@@ -1,15 +1,16 @@
 import asyncio
+import base64
 import json
 import logging
 import os
-import stat
-from datetime import datetime
-from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
+
 from fastapi import WebSocket
-import subprocess
+
 from app.dynamic.communication.base_websocket_manager import BaseWebSocketManager
 from app.dynamic.utils.su_utils import check_su_availability
+from app.dynamic.utils.adb_utils import execute_adb_shell
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class FileManager(BaseWebSocketManager):
         self.current_path = "/data/local/tmp"
         self.use_su = False
         self.su_available = False
+        self.current_user = "unknown"
 
     async def start(self):
         """Starts the file manager"""
@@ -51,7 +53,7 @@ class FileManager(BaseWebSocketManager):
             return True
 
         except Exception as e:
-            logger.error(f"Error starting file manager: {str(e)}")
+            logger.error("Error starting file manager: %s", str(e))
             self.is_running = False
             return False
 
@@ -60,31 +62,26 @@ class FileManager(BaseWebSocketManager):
         try:
             self.su_available = await check_su_availability(self.device_id)
         except Exception as e:
-            logger.error(f"Error checking su availability: {str(e)}")
+            logger.error("Error checking su availability: %s", str(e))
             self.su_available = False
 
     async def get_current_user(self):
         """Gets the current user"""
         try:
+            
             command = "whoami" if not self.use_su else 'echo "whoami" | su'
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command=command
             )
-            stdout, stderr = await process.communicate()
 
-            if process.returncode == 0:
-                self.current_user = stdout.decode("utf-8", errors="ignore").strip()
+            if return_code == 0:
+                self.current_user = stdout.strip()
             else:
                 self.current_user = "unknown"
 
         except Exception as e:
-            logger.error(f"Error getting current user: {str(e)}")
+            logger.error("Error getting current user: %s", str(e))
             self.current_user = "unknown"
 
     async def toggle_su(self):
@@ -112,8 +109,7 @@ class FileManager(BaseWebSocketManager):
         if self.use_su and self.su_available:
             safe_command = command.replace('"', "'")
             return f'echo "{safe_command}" | su'
-        else:
-            return command
+        return command
 
     async def handle_message(self, data: str):
         """Handles incoming messages from WebSocket"""
@@ -124,13 +120,13 @@ class FileManager(BaseWebSocketManager):
                 if message.get("type") == "file_manager":
                     await self.handle_file_command(message)
                 else:
-                    logger.warning(f"Unknown message type: {message.get('type')}")
+                    logger.warning("Unknown message type: %s", message.get("type"))
             except json.JSONDecodeError:
                 logger.error("Invalid JSON in file manager message")
                 await self.send_error("Invalid JSON format")
 
         except Exception as e:
-            logger.error(f"Error handling file manager message: {str(e)}")
+            logger.error("Error handling file manager message: %s", str(e))
             await self.send_error(f"Error processing message: {str(e)}")
 
     async def handle_file_command(self, message: Dict[str, Any]):
@@ -156,7 +152,7 @@ class FileManager(BaseWebSocketManager):
         elif action == "toggle_su":
             await self.toggle_su()
         else:
-            logger.warning(f"Unknown file manager action: {action}")
+            logger.warning("Unknown file manager action: %s", action)
             await self.send_error(f"Unknown action: {action}")
 
     async def list_directory(self, path: str):
@@ -166,22 +162,16 @@ class FileManager(BaseWebSocketManager):
             check_command = self.get_shell_command(
                 f'test -d "{path}" && echo "DIR_EXISTS" || echo "NOT_DIR"'
             )
-
-            check_process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                check_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+    
+            check_output, check_error, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command=check_command
             )
-            check_stdout, check_stderr = await check_process.communicate()
 
-            check_output = check_stdout.decode().strip()
-            check_error = check_stderr.decode().strip()
+            check_output = check_output.strip()
+            check_error = check_error.strip()
 
-            if "NOT_DIR" in check_output or check_process.returncode != 0:
+            if "NOT_DIR" in check_output or return_code != 0:
                 error_msg = f"Path is not a directory or does not exist: {path}"
                 if check_error:
                     error_msg += f" (Error: {check_error})"
@@ -190,28 +180,22 @@ class FileManager(BaseWebSocketManager):
 
             ls_command = self.get_shell_command(f'ls -la "{path}" 2>/dev/null')
 
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                ls_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, stderr, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command=ls_command
             )
-            stdout, stderr = await process.communicate()
 
-            ls_output = stdout.decode("utf-8", errors="ignore")
-            ls_error = stderr.decode("utf-8", errors="ignore")
+            ls_output = stdout
+            ls_error = stderr
 
-            if process.returncode != 0:
+            if return_code != 0:
                 error_msg = f"Cannot access directory: {path}"
                 if ls_error:
                     error_msg += f" (Error: {ls_error})"
 
                 if self.use_su:
                     logger.warning(
-                        f"SU command failed for path {path}, suggesting to disable SU mode"
+                        "SU command failed for path %s, suggesting to disable SU mode", path
                     )
                     error_msg += " (Try disabling SU mode if the issue persists)"
 
@@ -223,14 +207,14 @@ class FileManager(BaseWebSocketManager):
 
             for i, line in enumerate(lines):
                 if not line.strip() or line.startswith("total"):
-                    logger.debug(f"Skipping line {i} (empty or total)")
+                    logger.debug("Skipping line %s (empty or total)", i)
                     continue
 
                 entry = self.parse_ls_line(line)
                 if entry:
                     entries.append(entry)
                 else:
-                    logger.debug(f"Failed to parse line {i}: {repr(line)}")
+                    logger.debug("Failed to parse line %s: %s", i, repr(line))
 
             entries.sort(key=lambda x: (not x["is_directory"], x["name"].lower()))
 
@@ -246,17 +230,17 @@ class FileManager(BaseWebSocketManager):
             )
 
         except Exception as e:
-            logger.error(f"Error listing directory {path}: {str(e)}")
+            logger.error("Error listing directory %s: %s", path, str(e))
             await self.send_error(f"Error listing directory: {str(e)}")
 
     def parse_ls_line(self, line: str) -> Optional[Dict[str, Any]]:
         """Parses the output of ls -la"""
         try:
-            logger.debug(f"Parsing ls line: {repr(line)}")
+            logger.debug("Parsing ls line: %s", repr(line))
 
             parts = line.strip().split()
             if len(parts) < 8:
-                logger.debug(f"Line has less than 8 parts: {len(parts)}")
+                logger.debug("Line has less than 8 parts: %s", len(parts))
                 return None
 
             permissions = parts[0]
@@ -286,11 +270,11 @@ class FileManager(BaseWebSocketManager):
                     )
 
             else:
-                logger.debug(f"Line doesn't have enough parts for date/name")
+                logger.debug("Line doesn't have enough parts for date/name")
                 return None
 
             if name in [".", ".."]:
-                logger.debug(f"Skipping directory entry: {name}")
+                logger.debug("Skipping directory entry: %s", name)
                 return None
 
             file_type = "file"
@@ -330,29 +314,24 @@ class FileManager(BaseWebSocketManager):
             if target:
                 result["target"] = target.strip()
 
-            logger.debug(f"Successfully parsed: {result}")
+            logger.debug("Successfully parsed: %s", result)
             return result
 
         except Exception as e:
-            logger.error(f"Error parsing ls line '{line}': {str(e)}")
+            logger.error("Error parsing ls line '%s': %s", line, str(e))
             return None
 
     async def stat_file(self, path: str):
         """Gets detailed information about a file"""
         try:
 
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                f'stat "{path}" 2>/dev/null || echo "ERROR: Cannot stat file"',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            
+            stdout, _, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command=f'stat "{path}" 2>/dev/null || echo "ERROR: Cannot stat file"'
             )
-            stdout, stderr = await process.communicate()
 
-            if process.returncode != 0:
+            if return_code != 0:
                 await self.send_error(f"Cannot stat file: {path}")
                 return
 
@@ -374,7 +353,7 @@ class FileManager(BaseWebSocketManager):
             )
 
         except Exception as e:
-            logger.error(f"Error getting file stats {path}: {str(e)}")
+            logger.error("Error getting file stats %s: %s", path, str(e))
             await self.send_error(f"Error getting file stats: {str(e)}")
 
     def parse_stat_output(self, output: str) -> Dict[str, Any]:
@@ -408,7 +387,7 @@ class FileManager(BaseWebSocketManager):
             return stat_info
 
         except Exception as e:
-            logger.error(f"Error parsing stat output: {str(e)}")
+            logger.error("Error parsing stat output: %s", str(e))
             return {}
 
     async def download_file(self, path: str):
@@ -418,25 +397,24 @@ class FileManager(BaseWebSocketManager):
             check_command = self.get_shell_command(
                 f'test -f "{path}" && echo "FILE" || echo "NOT_FILE"'
             )
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                check_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            
+            stdout, _, _ = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command=check_command
             )
-            stdout, stderr = await process.communicate()
 
-            if "NOT_FILE" in stdout.decode():
+            if "NOT_FILE" in stdout:
                 await self.send_error(f"Path is not a file: {path}")
                 return
 
             temp_file = f"/tmp/download_{os.path.basename(path)}_{asyncio.get_event_loop().time()}"
 
             if self.use_su and self.su_available:
-                temp_device_path = f"/data/local/tmp/temp_download_{os.path.basename(path)}_{int(asyncio.get_event_loop().time())}"
+                filename = os.path.basename(path)
+                timestamp = int(asyncio.get_event_loop().time())
+                temp_device_path = (
+                    f"/data/local/tmp/temp_download_{filename}_{timestamp}"
+                )
 
                 copy_command = self.get_shell_command(
                     f'cp "{path}" "{temp_device_path}" && chmod 644 "{temp_device_path}"'
@@ -450,7 +428,7 @@ class FileManager(BaseWebSocketManager):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                copy_stdout, copy_stderr = await copy_process.communicate()
+                _, copy_stderr = await copy_process.communicate()
 
                 if copy_process.returncode != 0:
                     await self.send_error(
@@ -491,7 +469,7 @@ class FileManager(BaseWebSocketManager):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, stderr = await process.communicate()
+                _, stderr = await process.communicate()
 
             if process.returncode != 0:
                 await self.send_error(f"Failed to download file: {stderr.decode()}")
@@ -500,8 +478,6 @@ class FileManager(BaseWebSocketManager):
             try:
                 with open(temp_file, "rb") as f:
                     file_data = f.read()
-
-                import base64
 
                 encoded_data = base64.b64encode(file_data).decode("utf-8")
 
@@ -519,19 +495,16 @@ class FileManager(BaseWebSocketManager):
             finally:
                 try:
                     os.remove(temp_file)
-                except:
+                except Exception:
                     pass
 
         except Exception as e:
-            logger.error(f"Error downloading file {path}: {str(e)}")
+            logger.error("Error downloading file %s: %s", path, str(e))
             await self.send_error(f"Error downloading file: {str(e)}")
 
     async def upload_file(self, path: str, data: str):
         """Uploads a file to the device"""
         try:
-
-            import base64
-
             file_data = base64.b64decode(data)
 
             temp_file = f"/tmp/upload_{os.path.basename(path)}_{asyncio.get_event_loop().time()}"
@@ -550,7 +523,7 @@ class FileManager(BaseWebSocketManager):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, stderr = await process.communicate()
+                _, stderr = await process.communicate()
 
                 if process.returncode != 0:
                     await self.send_error(f"Failed to upload file: {stderr.decode()}")
@@ -568,33 +541,27 @@ class FileManager(BaseWebSocketManager):
             finally:
                 try:
                     os.remove(temp_file)
-                except:
+                except Exception:
                     pass
 
         except Exception as e:
-            logger.error(f"Error uploading file {path}: {str(e)}")
+            logger.error("Error uploading file %s: %s", path, str(e))
             await self.send_error(f"Error uploading file: {str(e)}")
 
     async def delete_file(self, path: str):
         """Deletes a file or directory"""
         try:
-            logger.debug(f"Deleting: {path}")
+            logger.debug("Deleting: %s", path)
 
             rm_command = self.get_shell_command(
                 f'rm -rf "{path}" && echo "SUCCESS" || echo "FAILED"'
             )
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                rm_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command=rm_command
             )
-            stdout, stderr = await process.communicate()
 
-            if "FAILED" in stdout.decode() or process.returncode != 0:
+            if "FAILED" in stdout or return_code != 0:
                 await self.send_error(f"Failed to delete: {path}")
                 return
 
@@ -608,29 +575,23 @@ class FileManager(BaseWebSocketManager):
             )
 
         except Exception as e:
-            logger.error(f"Error deleting {path}: {str(e)}")
+            logger.error("Error deleting %s: %s", path, str(e))
             await self.send_error(f"Error deleting: {str(e)}")
 
     async def create_directory(self, path: str):
         """Creates a directory"""
         try:
-            logger.debug(f"Creating directory: {path}")
+            logger.debug("Creating directory: %s", path)
 
             mkdir_command = self.get_shell_command(
                 f'mkdir -p "{path}" && echo "SUCCESS" || echo "FAILED"'
             )
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                mkdir_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command=mkdir_command
             )
-            stdout, stderr = await process.communicate()
 
-            if "FAILED" in stdout.decode() or process.returncode != 0:
+            if "FAILED" in stdout or return_code != 0:
                 await self.send_error(f"Failed to create directory: {path}")
                 return
 
@@ -644,13 +605,13 @@ class FileManager(BaseWebSocketManager):
             )
 
         except Exception as e:
-            logger.error(f"Error creating directory {path}: {str(e)}")
+            logger.error("Error creating directory %s: %s", path, str(e))
             await self.send_error(f"Error creating directory: {str(e)}")
 
     async def move_file(self, source: str, destination: str):
         """Moves a file or directory"""
         try:
-            logger.debug(f"Moving {source} to {destination}")
+            logger.debug("Moving %s to %s", source, destination)
 
             mv_command = self.get_shell_command(
                 f'mv "{source}" "{destination}" && echo "SUCCESS" || echo "FAILED"'
@@ -664,7 +625,7 @@ class FileManager(BaseWebSocketManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await process.communicate()
+            stdout, _ = await process.communicate()
 
             if "FAILED" in stdout.decode() or process.returncode != 0:
                 await self.send_error(f"Failed to move {source} to {destination}")
@@ -681,13 +642,13 @@ class FileManager(BaseWebSocketManager):
             )
 
         except Exception as e:
-            logger.error(f"Error moving {source} to {destination}: {str(e)}")
+            logger.error("Error moving %s to %s: %s", source, destination, str(e))
             await self.send_error(f"Error moving file: {str(e)}")
 
     async def copy_file(self, source: str, destination: str):
         """Copies a file or directory"""
         try:
-            logger.debug(f"Copying {source} to {destination}")
+            logger.debug("Copying %s to %s", source, destination)
 
             cp_command = self.get_shell_command(
                 f'cp -r "{source}" "{destination}" && echo "SUCCESS" || echo "FAILED"'
@@ -701,7 +662,7 @@ class FileManager(BaseWebSocketManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await process.communicate()
+            stdout, _ = await process.communicate()
 
             if "FAILED" in stdout.decode() or process.returncode != 0:
                 await self.send_error(f"Failed to copy {source} to {destination}")
@@ -718,7 +679,7 @@ class FileManager(BaseWebSocketManager):
             )
 
         except Exception as e:
-            logger.error(f"Error copying {source} to {destination}: {str(e)}")
+            logger.error("Error copying %s to %s: %s", source, destination, str(e))
             await self.send_error(f"Error copying file: {str(e)}")
 
     async def stop(self):

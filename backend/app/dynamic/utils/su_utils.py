@@ -29,7 +29,7 @@ async def check_su_availability(device_id: str) -> bool:
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
-        which_stdout, which_stderr = await which_process.communicate()
+        _, _ = await which_process.communicate()
 
         if which_process.returncode != 0:
             logger.debug("su not found on device")
@@ -46,7 +46,7 @@ async def check_su_availability(device_id: str) -> bool:
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
-        stdout, stderr = await test_process.communicate()
+        stdout, _ = await test_process.communicate()
 
         output = stdout.decode("utf-8", errors="ignore").strip()
 
@@ -65,13 +65,13 @@ async def check_su_availability(device_id: str) -> bool:
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
-        simple_stdout, simple_stderr = await simple_process.communicate()
+        simple_stdout, _ = await simple_process.communicate()
         simple_output = simple_stdout.decode("utf-8", errors="ignore").strip()
 
         available = "SU_SIMPLE_WORKS" in simple_output
-        logger.debug(f"su availability: {available}")
+        logger.debug("su availability: %s", available)
         return available
 
     except Exception as e:
-        logger.error(f"Error checking su availability: {str(e)}")
+        logger.error("Error checking su availability: %s", str(e))
         return False

@@ -28,7 +28,7 @@ class ADBExecutor:
         """
         try:
             cmd = ["adb", "-s", self.device_id] + list(args)
-            logger.debug(f"Executing ADB command: {' '.join(cmd)}")
+            logger.debug("Executing ADB command: %s", " ".join(cmd))
 
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -41,15 +41,15 @@ class ADBExecutor:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(), timeout=timeout
                 )
-            except asyncio.TimeoutError:
+            except asyncio.TimeoutError as exc:
                 process.kill()
                 await process.wait()
-                raise TimeoutError(f"ADB command timed out after {timeout}s")
+                raise TimeoutError(f"ADB command timed out after {timeout}s") from exc
 
             return stdout, stderr, process.returncode
 
         except Exception as e:
-            logger.error(f"Error executing ADB command: {e}")
+            logger.error("Error executing ADB command: %s", e)
             raise
 
     async def execute_shell(

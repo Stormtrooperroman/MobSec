@@ -1,52 +1,18 @@
+from typing import Any, Dict
+
 from fastapi import APIRouter, HTTPException
-from app.core.settings_db import AsyncSessionLocal
-from app.models.settings import Settings
-from typing import Dict, Any
-from sqlalchemy import select
+
+from app.core.settings_service import settings_service
 
 router = APIRouter()
 
 
-async def get_db():
-    async with AsyncSessionLocal() as db:
-        try:
-            yield db
-        finally:
-            await db.close()
-
-
 async def load_settings() -> Dict[str, Any]:
-    async with AsyncSessionLocal() as db:
-        query = select(Settings)
-        result = await db.execute(query)
-        settings = result.scalar_one_or_none()
-
-        if not settings:
-            # Return default settings if no settings exist
-            return {
-                "zip_action": None,
-                "zip_action_type": None,
-                "apk_action": None,
-                "apk_action_type": None,
-                "ipa_action": None,
-                "ipa_action_type": None,
-            }
-        return settings.to_dict()
+    return await settings_service.get_settings()
 
 
 async def save_settings(settings_data: Dict[str, Any]) -> None:
-    async with AsyncSessionLocal() as db:
-        query = select(Settings)
-        result = await db.execute(query)
-        settings = result.scalar_one_or_none()
-
-        if settings:
-            for key, value in settings_data.items():
-                setattr(settings, key, value)
-        else:
-            settings = Settings(id="global", **settings_data)
-            db.add(settings)
-        await db.commit()
+    await settings_service.save_settings(settings_data)
 
 
 @router.get("/auto-run")

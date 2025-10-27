@@ -2,23 +2,16 @@ import asyncio
 import json
 import logging
 import os
-import tempfile
-import threading
 import time
 import socket
-import subprocess
-import ssl
 import hashlib
 import base64
 from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
-from pathlib import Path
-from dataclasses import dataclass, asdict
 from io import BytesIO
 from fastapi import WebSocket
 
-from mitmproxy import master, options, http, flow, io as mitmproxy_io
-from mitmproxy.addons import core
+from mitmproxy import master, options, flow, io as mitmproxy_io, certs
 from mitmproxy.tools.web.master import WebMaster
 from mitmproxy import addons
 from mitmproxy import log
@@ -28,10 +21,6 @@ from mitmproxy.addons import eventstore
 from mitmproxy.addons import intercept
 from mitmproxy.addons import readfile
 from mitmproxy.addons import view
-from mitmproxy.addons.proxyserver import Proxyserver
-from mitmproxy.tools.web import app
-from mitmproxy.tools.web import static_viewer
-from mitmproxy.tools.web import webaddons
 from mitmproxy.http import HTTPFlow
 from mitmproxy.tcp import TCPFlow
 from mitmproxy.udp import UDPFlow
@@ -44,11 +33,11 @@ from app.dynamic.utils.su_utils import check_su_availability
 logger = logging.getLogger(__name__)
 
 
-def cert_to_json(certs) -> dict | None:
+def cert_to_json(cert_list) -> dict | None:
     """Convert certificate to JSON format"""
-    if not certs:
+    if not cert_list:
         return None
-    cert = certs[0]
+    cert = cert_list[0]
     return {
         "keyinfo": cert.keyinfo,
         "sha256": cert.fingerprint().hex(),
@@ -70,65 +59,65 @@ __all__ = [
 ]
 
 
-def flow_to_json(flow: flow.Flow) -> dict:
+def flow_to_json(flow_obj: flow.Flow) -> dict:
     """
     Convert flow to JSON format
     """
     f = {
-        "id": flow.id,
-        "intercepted": flow.intercepted,
-        "is_replay": flow.is_replay,
-        "type": flow.type,
-        "modified": flow.modified(),
-        "marked": emoji.get(flow.marked, "🔴") if flow.marked else "",
-        "comment": flow.comment,
-        "timestamp_created": flow.timestamp_created,
+        "id": flow_obj.id,
+        "intercepted": flow_obj.intercepted,
+        "is_replay": flow_obj.is_replay,
+        "type": flow_obj.type,
+        "modified": flow_obj.modified(),
+        "marked": emoji.get(flow_obj.marked, "🔴") if flow_obj.marked else "",
+        "comment": flow_obj.comment,
+        "timestamp_created": flow_obj.timestamp_created,
     }
 
-    if flow.client_conn:
+    if flow_obj.client_conn:
         f["client_conn"] = {
-            "id": flow.client_conn.id,
-            "peername": flow.client_conn.peername,
-            "sockname": flow.client_conn.sockname,
-            "tls_established": flow.client_conn.tls_established,
-            "cert": cert_to_json(flow.client_conn.certificate_list),
-            "sni": flow.client_conn.sni,
-            "cipher": flow.client_conn.cipher,
-            "alpn": always_str(flow.client_conn.alpn, "ascii", "backslashreplace"),
-            "tls_version": flow.client_conn.tls_version,
-            "timestamp_start": flow.client_conn.timestamp_start,
-            "timestamp_tls_setup": flow.client_conn.timestamp_tls_setup,
-            "timestamp_end": flow.client_conn.timestamp_end,
+            "id": flow_obj.client_conn.id,
+            "peername": flow_obj.client_conn.peername,
+            "sockname": flow_obj.client_conn.sockname,
+            "tls_established": flow_obj.client_conn.tls_established,
+            "cert": cert_to_json(flow_obj.client_conn.certificate_list),
+            "sni": flow_obj.client_conn.sni,
+            "cipher": flow_obj.client_conn.cipher,
+            "alpn": always_str(flow_obj.client_conn.alpn, "ascii", "backslashreplace"),
+            "tls_version": flow_obj.client_conn.tls_version,
+            "timestamp_start": flow_obj.client_conn.timestamp_start,
+            "timestamp_tls_setup": flow_obj.client_conn.timestamp_tls_setup,
+            "timestamp_end": flow_obj.client_conn.timestamp_end,
         }
 
-    if flow.server_conn:
+    if flow_obj.server_conn:
         f["server_conn"] = {
-            "id": flow.server_conn.id,
-            "peername": flow.server_conn.peername,
-            "sockname": flow.server_conn.sockname,
-            "address": flow.server_conn.address,
-            "tls_established": flow.server_conn.tls_established,
-            "cert": cert_to_json(flow.server_conn.certificate_list),
-            "sni": flow.server_conn.sni,
-            "cipher": flow.server_conn.cipher,
-            "alpn": always_str(flow.server_conn.alpn, "ascii", "backslashreplace"),
-            "tls_version": flow.server_conn.tls_version,
-            "timestamp_start": flow.server_conn.timestamp_start,
-            "timestamp_tcp_setup": flow.server_conn.timestamp_tcp_setup,
-            "timestamp_tls_setup": flow.server_conn.timestamp_tls_setup,
-            "timestamp_end": flow.server_conn.timestamp_end,
+            "id": flow_obj.server_conn.id,
+            "peername": flow_obj.server_conn.peername,
+            "sockname": flow_obj.server_conn.sockname,
+            "address": flow_obj.server_conn.address,
+            "tls_established": flow_obj.server_conn.tls_established,
+            "cert": cert_to_json(flow_obj.server_conn.certificate_list),
+            "sni": flow_obj.server_conn.sni,
+            "cipher": flow_obj.server_conn.cipher,
+            "alpn": always_str(flow_obj.server_conn.alpn, "ascii", "backslashreplace"),
+            "tls_version": flow_obj.server_conn.tls_version,
+            "timestamp_start": flow_obj.server_conn.timestamp_start,
+            "timestamp_tcp_setup": flow_obj.server_conn.timestamp_tcp_setup,
+            "timestamp_tls_setup": flow_obj.server_conn.timestamp_tls_setup,
+            "timestamp_end": flow_obj.server_conn.timestamp_end,
         }
 
-    if flow.error:
-        f["error"] = flow.error.get_state()
+    if flow_obj.error:
+        f["error"] = flow_obj.error.get_state()
 
-    if isinstance(flow, HTTPFlow):
+    if isinstance(flow_obj, HTTPFlow):
         content_length: int | None
         content_hash: str | None
 
-        if flow.request.raw_content is not None:
-            content_length = len(flow.request.raw_content)
-            content_hash = hashlib.sha256(flow.request.raw_content).hexdigest()
+        if flow_obj.request.raw_content is not None:
+            content_length = len(flow_obj.request.raw_content)
+            content_hash = hashlib.sha256(flow_obj.request.raw_content).hexdigest()
         else:
             content_length = None
             content_hash = None
@@ -137,11 +126,11 @@ def flow_to_json(flow: flow.Flow) -> dict:
         request_content = None
         try:
             # Try to get text content first
-            request_content = flow.request.get_text(strict=False)
+            request_content = flow_obj.request.get_text(strict=False)
             # If None or empty string, try to get content and decode
             if not request_content or request_content == "":
                 # Get raw content
-                raw_data = flow.request.get_content(strict=False)
+                raw_data = flow_obj.request.get_content(strict=False)
                 if raw_data:
                     try:
                         # Try to decode as UTF-8
@@ -150,34 +139,34 @@ def flow_to_json(flow: flow.Flow) -> dict:
                         # If not UTF-8 text, encode as base64
                         request_content = base64.b64encode(raw_data).decode("utf-8")
         except Exception as e:
-            logger.warning(f"Error getting request content: {e}")
+            logger.warning("Error getting request content: %s", e)
             try:
                 # Fallback: try to get content
-                raw_data = flow.request.get_content(strict=False)
+                raw_data = flow_obj.request.get_content(strict=False)
                 if raw_data:
                     request_content = raw_data.decode("utf-8", errors="replace")
             except Exception:
                 request_content = None
 
         f["request"] = {
-            "method": flow.request.method,
-            "scheme": flow.request.scheme,
-            "host": flow.request.host,
-            "port": flow.request.port,
-            "path": flow.request.path,
-            "http_version": flow.request.http_version,
-            "headers": tuple(flow.request.headers.items(True)),
+            "method": flow_obj.request.method,
+            "scheme": flow_obj.request.scheme,
+            "host": flow_obj.request.host,
+            "port": flow_obj.request.port,
+            "path": flow_obj.request.path,
+            "http_version": flow_obj.request.http_version,
+            "headers": tuple(flow_obj.request.headers.items(True)),
             "contentLength": content_length,
             "contentHash": content_hash,
             "content": request_content,
-            "timestamp_start": flow.request.timestamp_start,
-            "timestamp_end": flow.request.timestamp_end,
-            "pretty_host": flow.request.pretty_host,
+            "timestamp_start": flow_obj.request.timestamp_start,
+            "timestamp_end": flow_obj.request.timestamp_end,
+            "pretty_host": flow_obj.request.pretty_host,
         }
-        if flow.response:
-            if flow.response.raw_content is not None:
-                content_length = len(flow.response.raw_content)
-                content_hash = hashlib.sha256(flow.response.raw_content).hexdigest()
+        if flow_obj.response:
+            if flow_obj.response.raw_content is not None:
+                content_length = len(flow_obj.response.raw_content)
+                content_hash = hashlib.sha256(flow_obj.response.raw_content).hexdigest()
             else:
                 content_length = None
                 content_hash = None
@@ -186,11 +175,11 @@ def flow_to_json(flow: flow.Flow) -> dict:
             response_content = None
             try:
                 # Try to get text content first
-                response_content = flow.response.get_text(strict=False)
+                response_content = flow_obj.response.get_text(strict=False)
                 # If None or empty string, try to get content and decode
                 if not response_content or response_content == "":
                     # Get raw content
-                    raw_data = flow.response.get_content(strict=False)
+                    raw_data = flow_obj.response.get_content(strict=False)
                     if raw_data:
                         try:
                             # Try to decode as UTF-8
@@ -201,59 +190,59 @@ def flow_to_json(flow: flow.Flow) -> dict:
                                 "utf-8"
                             )
             except Exception as e:
-                logger.warning(f"Error getting response content: {e}")
+                logger.warning("Error getting response content: %s", e)
                 try:
                     # Fallback: try to get content
-                    raw_data = flow.response.get_content(strict=False)
+                    raw_data = flow_obj.response.get_content(strict=False)
                     if raw_data:
                         response_content = raw_data.decode("utf-8", errors="replace")
                 except Exception:
                     response_content = None
 
             f["response"] = {
-                "http_version": flow.response.http_version,
-                "status_code": flow.response.status_code,
-                "reason": flow.response.reason,
-                "headers": tuple(flow.response.headers.items(True)),
+                "http_version": flow_obj.response.http_version,
+                "status_code": flow_obj.response.status_code,
+                "reason": flow_obj.response.reason,
+                "headers": tuple(flow_obj.response.headers.items(True)),
                 "contentLength": content_length,
                 "contentHash": content_hash,
                 "content": response_content,
-                "timestamp_start": flow.response.timestamp_start,
-                "timestamp_end": flow.response.timestamp_end,
+                "timestamp_start": flow_obj.response.timestamp_start,
+                "timestamp_end": flow_obj.response.timestamp_end,
             }
-            if flow.response.data.trailers:
+            if flow_obj.response.data.trailers:
                 f["response"]["trailers"] = tuple(
-                    flow.response.data.trailers.items(True)
+                    flow_obj.response.data.trailers.items(True)
                 )
 
-        if flow.websocket:
+        if flow_obj.websocket:
             f["websocket"] = {
                 "messages_meta": {
                     "contentLength": sum(
-                        len(x.content) for x in flow.websocket.messages
+                        len(x.content) for x in flow_obj.websocket.messages
                     ),
-                    "count": len(flow.websocket.messages),
+                    "count": len(flow_obj.websocket.messages),
                     "timestamp_last": (
-                        flow.websocket.messages[-1].timestamp
-                        if flow.websocket.messages
+                        flow_obj.websocket.messages[-1].timestamp
+                        if flow_obj.websocket.messages
                         else None
                     ),
                 },
-                "closed_by_client": flow.websocket.closed_by_client,
-                "close_code": flow.websocket.close_code,
-                "close_reason": flow.websocket.close_reason,
-                "timestamp_end": flow.websocket.timestamp_end,
+                "closed_by_client": flow_obj.websocket.closed_by_client,
+                "close_code": flow_obj.websocket.close_code,
+                "close_reason": flow_obj.websocket.close_reason,
+                "timestamp_end": flow_obj.websocket.timestamp_end,
             }
-    elif isinstance(flow, (TCPFlow, UDPFlow)):
+    elif isinstance(flow_obj, (TCPFlow, UDPFlow)):
         f["messages_meta"] = {
-            "contentLength": sum(len(x.content) for x in flow.messages),
-            "count": len(flow.messages),
-            "timestamp_last": flow.messages[-1].timestamp if flow.messages else None,
+            "contentLength": sum(len(x.content) for x in flow_obj.messages),
+            "count": len(flow_obj.messages),
+            "timestamp_last": flow_obj.messages[-1].timestamp if flow_obj.messages else None,
         }
-    elif isinstance(flow, DNSFlow):
-        f["request"] = flow.request.to_json()
-        if flow.response:
-            f["response"] = flow.response.to_json()
+    elif isinstance(flow_obj, DNSFlow):
+        f["request"] = flow_obj.request.to_json()
+        if flow_obj.response:
+            f["response"] = flow_obj.response.to_json()
 
     return f
 
@@ -298,7 +287,7 @@ class WebMaster(master.Master):
         if callable(callback):
             self.flow_callbacks.append(callback)
         else:
-            logger.warning(f"Invalid flow callback: {type(callback)} is not callable")
+            logger.warning("Invalid flow callback: %s is not callable", type(callback))
 
     def add_event_callback(self, callback: Callable):
         """Add callback for log events"""
@@ -307,7 +296,7 @@ class WebMaster(master.Master):
         if callable(callback):
             self.event_callbacks.append(callback)
         else:
-            logger.warning(f"Invalid event callback: {type(callback)} is not callable")
+            logger.warning("Invalid event callback: %s is not callable", type(callback))
 
     def add_option_callback(self, callback: Callable):
         """Add callback for option changes"""
@@ -316,46 +305,48 @@ class WebMaster(master.Master):
         if callable(callback):
             self.option_callbacks.append(callback)
         else:
-            logger.warning(f"Invalid option callback: {type(callback)} is not callable")
+            logger.warning(
+                "Invalid option callback: %s is not callable", type(callback)
+            )
 
-    def _sig_view_add(self, flow: flow.Flow) -> None:
+    def _sig_view_add(self, flow_obj: flow.Flow) -> None:
         if hasattr(self, "flow_callbacks"):
             for callback in self.flow_callbacks:
                 try:
                     if callable(callback):
-                        callback("flows/add", flow)
+                        callback("flows/add", flow_obj)
                     else:
                         logger.warning(
-                            f"Flow callback is not callable: {type(callback)}"
+                            "Flow callback is not callable: %s", type(callback)
                         )
-                except Exception as e:
-                    logger.error(f"Error in flow callback: {e}")
+                except Exception as callback_error:
+                    logger.error("Error in flow callback: %s", callback_error)
 
-    def _sig_view_update(self, flow: flow.Flow) -> None:
+    def _sig_view_update(self, flow_obj: flow.Flow) -> None:
         if hasattr(self, "flow_callbacks"):
             for callback in self.flow_callbacks:
                 try:
                     if callable(callback):
-                        callback("flows/update", flow)
+                        callback("flows/update", flow_obj)
                     else:
                         logger.warning(
-                            f"Flow callback is not callable: {type(callback)}"
+                            "Flow callback is not callable: %s", type(callback)
                         )
-                except Exception as e:
-                    logger.error(f"Error in flow callback: {e}")
+                except Exception as callback_error:
+                    logger.error("Error in flow callback: %s", callback_error)
 
-    def _sig_view_remove(self, flow: flow.Flow, index: int) -> None:
+    def _sig_view_remove(self, flow_obj: flow.Flow, _index: int) -> None:
         if hasattr(self, "flow_callbacks"):
             for callback in self.flow_callbacks:
                 try:
                     if callable(callback):
-                        callback("flows/remove", flow)
+                        callback("flows/remove", flow_obj)
                     else:
                         logger.warning(
-                            f"Flow callback is not callable: {type(callback)}"
+                            "Flow callback is not callable: %s", type(callback)
                         )
-                except Exception as e:
-                    logger.error(f"Error in flow callback: {e}")
+                except Exception as callback_error:
+                    logger.error("Error in flow callback: %s", callback_error)
 
     def _sig_view_refresh(self) -> None:
         if hasattr(self, "flow_callbacks"):
@@ -365,10 +356,10 @@ class WebMaster(master.Master):
                         callback("flows/refresh", None)
                     else:
                         logger.warning(
-                            f"Flow callback is not callable: {type(callback)}"
+                            "Flow callback is not callable: %s", type(callback)
                         )
-                except Exception as e:
-                    logger.error(f"Error in flow callback: {e}")
+                except Exception as callback_error:
+                    logger.error("Error in flow callback: %s", callback_error)
 
     def _sig_events_add(self, entry: log.LogEntry) -> None:
         if hasattr(self, "event_callbacks"):
@@ -378,10 +369,10 @@ class WebMaster(master.Master):
                         callback("events/add", entry)
                     else:
                         logger.warning(
-                            f"Event callback is not callable: {type(callback)}"
+                            "Event callback is not callable: %s", type(callback)
                         )
-                except Exception as e:
-                    logger.error(f"Error in event callback: {e}")
+                except Exception as callback_error:
+                    logger.error("Error in event callback: %s", callback_error)
 
     def _sig_events_refresh(self) -> None:
         if hasattr(self, "event_callbacks"):
@@ -391,10 +382,10 @@ class WebMaster(master.Master):
                         callback("events/refresh", None)
                     else:
                         logger.warning(
-                            f"Event callback is not callable: {type(callback)}"
+                            "Event callback is not callable: %s", type(callback)
                         )
-                except Exception as e:
-                    logger.error(f"Error in event callback: {e}")
+                except Exception as callback_error:
+                    logger.error("Error in event callback: %s", callback_error)
 
     def _sig_options_update(self, updated: set[str]) -> None:
         if hasattr(self, "option_callbacks"):
@@ -405,10 +396,10 @@ class WebMaster(master.Master):
                         callback("options/update", options_dict)
                     else:
                         logger.warning(
-                            f"Option callback is not callable: {type(callback)}"
+                            "Option callback is not callable: %s", type(callback)
                         )
-                except Exception as e:
-                    logger.error(f"Error in option callback: {e}")
+                except Exception as callback_error:
+                    logger.error("Error in option callback: %s", callback_error)
 
 
 class MitmproxyManager:
@@ -433,6 +424,9 @@ class MitmproxyManager:
         self.su_available = False
         self.cert_installed = False
 
+        # WebSocket connections
+        self._active_websockets = set()
+
         # Paths and directories
         self.certs_dir = "/tmp/mitmproxy/certs"
         self.data_dir = "/tmp/mitmproxy/data"
@@ -444,12 +438,14 @@ class MitmproxyManager:
     async def _get_device(self):
         """Get Device instance for this device_id"""
         try:
-            from app.dynamic.device_management.device_manager import DeviceManager
+            from app.dynamic.device_management.device_manager import (
+                DeviceManager
+            )
 
             device_manager = DeviceManager()
             return await device_manager.get_device(self.device_id)
-        except Exception as e:
-            logger.error(f"Error getting device {self.device_id}: {e}")
+        except Exception as device_error:
+            logger.error("Error getting device %s: %s", self.device_id, device_error)
             return None
 
     async def _initialize_master(self):
@@ -461,14 +457,15 @@ class MitmproxyManager:
                     if hasattr(self.master_instance, "shutdown"):
                         self.master_instance.shutdown()
                 except Exception as e:
-                    logger.warning(f"Error shutting down existing master: {e}")
+                    logger.warning("Error shutting down existing master: %s", e)
                 logger.info("Setting master_instance to None in _initialize_master()")
                 self.master_instance = None
 
             # Check port availability before initialization
             if not await self._check_port_available(self.proxy_port):
                 logger.warning(
-                    f"Port {self.proxy_port} is not available during initialization"
+                    "Port %s is not available during initialization",
+                    self.proxy_port
                 )
                 # Try to safely release the port
                 await self._safe_release_port()
@@ -481,12 +478,12 @@ class MitmproxyManager:
                         logger.info("Trying to find any available port...")
                         for test_port in range(8082, 8100):
                             if await self._check_port_available(test_port):
-                                logger.info(f"Found available port {test_port}")
+                                logger.info("Found available port %s", test_port)
                                 self.proxy_port = test_port
                                 break
                         else:
                             raise RuntimeError(
-                                f"Could not find any available port in range 8082-8100"
+                                "Could not find any available port in range 8082-8100"
                             )
 
             opts = options.Options(
@@ -501,22 +498,21 @@ class MitmproxyManager:
             self.master_instance.add_event_callback(self._handle_log_event)
             self.master_instance.add_option_callback(self._handle_option_event)
 
-            logger.info(f"Mitmproxy master initialized on port {self.proxy_port}")
+            logger.info("Mitmproxy master initialized on port %s", self.proxy_port)
         except Exception as e:
-            logger.error(f"Error initializing mitmproxy master: {e}")
+            logger.error("Error initializing mitmproxy master: %s", e)
             raise
 
     def _handle_flow_event(self, event_type: str, flow_obj):
         """Handle flow events"""
         try:
             # Log the event
+            flow_id = flow_obj.id if flow_obj else 'None'
             logger.debug(
-                f"Flow event: {event_type} - {flow_obj.id if flow_obj else 'None'}"
+                "Flow event: %s - %s", event_type, flow_id
             )
 
             if hasattr(self, "_active_websockets") and self._active_websockets:
-                import json
-
                 # Determine the correct action name based on event_type
                 action_name = ""
                 if event_type == "flows/add":
@@ -542,48 +538,48 @@ class MitmproxyManager:
                             asyncio.create_task(
                                 websocket.send_text(json.dumps(event_data))
                             )
-                        except Exception as e:
+                        except Exception as ws_error:
                             logger.warning(
-                                f"Failed to send flow event to WebSocket: {e}"
+                                "Failed to send flow event to WebSocket: %s", ws_error
                             )
 
-        except Exception as e:
-            logger.error(f"Error in flow event handler: {e}")
+        except Exception as event_error:
+            logger.error("Error in flow event handler: %s", event_error)
 
     def _handle_log_event(self, event_type: str, log_entry):
         """Handle log events"""
         try:
             # Just log the event
-            logger.debug(
-                f"Log event: {event_type} - {getattr(log_entry, 'msg', str(log_entry))}"
-            )
-        except Exception as e:
-            logger.error(f"Error in log event handler: {e}")
+            msg = getattr(log_entry, 'msg', str(log_entry))
+            logger.debug("Log event: %s - %s", event_type, msg)
+        except Exception as log_error:
+            logger.error("Error in log event handler: %s", log_error)
 
     def _handle_option_event(self, event_type: str, options_dict):
         """Handle option change events"""
         try:
             # Just log the event
-            logger.debug(f"Option event: {event_type} - {options_dict}")
+            logger.debug("Option event: %s - %s", event_type, options_dict)
         except Exception as e:
-            logger.error(f"Error in option event handler: {e}")
+            logger.error("Error in option event handler: %s", e)
 
     def add_websocket(self, websocket):
         """Add WebSocket connection for real-time updates"""
-        if not hasattr(self, "_active_websockets"):
-            self._active_websockets = set()
         self._active_websockets.add(websocket)
         logger.info(
-            f"Added WebSocket for device {self.device_id}, total: {len(self._active_websockets)}"
+            "Added WebSocket for device %s, total: %d",
+            self.device_id,
+            len(self._active_websockets),
         )
 
     def remove_websocket(self, websocket):
         """Remove WebSocket connection"""
-        if hasattr(self, "_active_websockets"):
-            self._active_websockets.discard(websocket)
-            logger.info(
-                f"Removed WebSocket for device {self.device_id}, total: {len(self._active_websockets)}"
-            )
+        self._active_websockets.discard(websocket)
+        logger.info(
+            "Removed WebSocket for device %s, total: %d",
+            self.device_id,
+            len(self._active_websockets),
+        )
 
     async def start(self) -> bool:
         """Start mitmproxy manager"""
@@ -592,7 +588,7 @@ class MitmproxyManager:
 
         try:
             self.is_running = True
-            logger.info(f"Starting Mitmproxy manager for device {self.device_id}")
+            logger.info("Starting Mitmproxy manager for device %s", self.device_id)
 
             # Always initialize a new master instance
             await self._initialize_master()
@@ -600,8 +596,6 @@ class MitmproxyManager:
             # Initialize backend_ip if it's not set
             if not self.backend_ip or self.backend_ip == "172.19.0.1":
                 # Create a task for asynchronous IP retrieval
-                import asyncio
-
                 try:
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
@@ -610,20 +604,20 @@ class MitmproxyManager:
                     else:
                         # If event loop is not running, start a new one
                         asyncio.run(self._initialize_backend_ip())
-                except Exception as e:
-                    logger.warning(f"Could not initialize backend IP: {e}")
+                except Exception as init_error:
+                    logger.warning("Could not initialize backend IP: %s", init_error)
 
             return True
 
         except Exception as e:
-            logger.error(f"Error starting Mitmproxy manager: {str(e)}")
+            logger.error("Error starting Mitmproxy manager: %s", str(e))
             self.is_running = False
             return False
 
     async def stop(self) -> bool:
         """Stop mitmproxy manager"""
         try:
-            logger.info(f"Stopping Mitmproxy manager for device {self.device_id}")
+            logger.info("Stopping Mitmproxy manager for device %s", self.device_id)
 
             # Use safe shutdown method that follows recommendations from GitHub issue #7237
             logger.info("Calling stop_proxy_threadsafe() instead of stop_proxy()")
@@ -641,7 +635,7 @@ class MitmproxyManager:
             return True
 
         except Exception as e:
-            logger.error(f"Error stopping Mitmproxy manager: {str(e)}")
+            logger.error("Error stopping Mitmproxy manager: %s", str(e))
             return False
 
     async def start_proxy(self) -> bool:
@@ -655,7 +649,7 @@ class MitmproxyManager:
                 logger.info("Proxy is already running")
                 return True
 
-            logger.info(f"Starting proxy on {self.proxy_host}:{self.proxy_port}")
+            logger.info("Starting proxy on %s:%s", self.proxy_host, self.proxy_port)
 
             # Create an asynchronous task to start the proxy
             self.proxy_task = asyncio.create_task(self._run_proxy())
@@ -665,21 +659,21 @@ class MitmproxyManager:
 
             # Check if proxy is listening
             if self._check_port_listening(self.proxy_port):
-                logger.info(f"Proxy started successfully on port {self.proxy_port}")
+                logger.info("Proxy started successfully on port %s", self.proxy_port)
                 return True
-            else:
-                logger.error("Proxy failed to start")
-                return False
+
+            logger.error("Proxy failed to start")
+            return False
 
         except Exception as e:
-            logger.error(f"Error starting proxy: {str(e)}")
+            logger.error("Error starting proxy: %s", str(e))
             return False
 
     async def stop_proxy(self) -> bool:
         """Stop the proxy server"""
         try:
             logger.info(
-                f"stop_proxy() called - master_instance: {self.master_instance is not None}"
+                "stop_proxy() called - master_instance: %s", self.master_instance is not None
             )
             if self.master_instance is None:
                 logger.info("Master instance is already None, nothing to stop")
@@ -688,14 +682,15 @@ class MitmproxyManager:
             # First disable the server, as recommended in GitHub issue #7237
             try:
                 logger.info(
-                    f"stop_proxy() - master_instance: {self.master_instance is not None}"
+                    "stop_proxy() - master_instance: %s", self.master_instance is not None
                 )
                 if self.master_instance is not None:
                     logger.info(
-                        f"stop_proxy() - master_instance type: {type(self.master_instance)}"
+                        "stop_proxy() - master_instance type: %s", type(self.master_instance)
                     )
                     logger.info(
-                        f"stop_proxy() - master_instance has options: {hasattr(self.master_instance, 'options')}"
+                        "stop_proxy() - master_instance has options: %s",
+                        hasattr(self.master_instance, 'options')
                     )
 
                 logger.info("Disabling server before shutdown")
@@ -703,7 +698,7 @@ class MitmproxyManager:
                 self.master_instance.options.update(server=False)
                 logger.info("Server disabled")
             except Exception as server_error:
-                logger.warning(f"Could not disable server: {server_error}")
+                logger.warning("Could not disable server: %s", server_error)
 
             # Stop the master instance
             try:
@@ -711,7 +706,7 @@ class MitmproxyManager:
                 self.master_instance.shutdown()
                 logger.info("Master instance shutdown")
             except Exception as shutdown_error:
-                logger.warning(f"Could not shutdown master instance: {shutdown_error}")
+                logger.warning("Could not shutdown master instance: %s", shutdown_error)
 
             # Force close all sockets
             try:
@@ -724,10 +719,10 @@ class MitmproxyManager:
                                 addon.shutdown()
                             except Exception as addon_error:
                                 logger.warning(
-                                    f"Error shutting down addon {type(addon).__name__}: {addon_error}"
+                                    "Error shutting down addon %s: %s", type(addon).__name__, addon_error
                                 )
             except Exception as e:
-                logger.warning(f"Error shutting down addons: {e}")
+                logger.warning("Error shutting down addons: %s", e)
 
             # Reset master instance for creating a new one on next startup
             logger.info("Setting master_instance to None in stop_proxy()")
@@ -748,14 +743,15 @@ class MitmproxyManager:
             return True
 
         except Exception as e:
-            logger.error(f"Error stopping proxy: {str(e)}")
+            logger.error("Error stopping proxy: %s", str(e))
             return False
 
     async def stop_proxy_threadsafe(self) -> bool:
         """Stop the proxy server from another thread safely"""
         try:
             logger.info(
-                f"stop_proxy_threadsafe() called - master_instance: {self.master_instance is not None}"
+                "stop_proxy_threadsafe() called - master_instance: %s",
+                self.master_instance is not None
             )
             if self.master_instance is None:
                 logger.info("Master instance is already None, nothing to stop")
@@ -768,14 +764,16 @@ class MitmproxyManager:
             def stop_server():
                 try:
                     logger.info(
-                        f"stop_server() called - master_instance_ref: {master_instance_ref is not None}"
+                        "stop_server() called - master_instance_ref: %s",
+                        master_instance_ref is not None
                     )
                     if master_instance_ref is not None:
                         logger.info(
-                            f"master_instance_ref type: {type(master_instance_ref)}"
+                            "master_instance_ref type: %s", type(master_instance_ref)
                         )
                         logger.info(
-                            f"master_instance_ref has options: {hasattr(master_instance_ref, 'options')}"
+                            "master_instance_ref has options: %s",
+                            hasattr(master_instance_ref, 'options')
                         )
                         if hasattr(master_instance_ref, "options"):
                             logger.info("Disabling server before shutdown (threadsafe)")
@@ -788,10 +786,12 @@ class MitmproxyManager:
                     else:
                         logger.warning("Master instance reference is None")
                 except Exception as e:
-                    logger.warning(f"Could not disable server (threadsafe): {e}")
+                    logger.warning("Could not disable server (threadsafe): %s", e)
 
+            event_loop = master_instance_ref.event_loop if master_instance_ref else None
             logger.info(
-                f"stop_server() called: {hasattr(master_instance_ref, 'event_loop')} {master_instance_ref.event_loop if master_instance_ref else None}"
+                "stop_server() called: %s %s",
+                hasattr(master_instance_ref, 'event_loop'), event_loop
             )
             # Call function in master instance event loop
             if (
@@ -806,7 +806,7 @@ class MitmproxyManager:
                     logger.info("Server stop should be completed in event loop")
                 except Exception as loop_error:
                     logger.warning(
-                        f"Could not schedule server stop in event loop: {loop_error}"
+                        "Could not schedule server stop in event loop: %s", loop_error
                     )
                     # Fallback to regular call
                     stop_server()
@@ -822,7 +822,7 @@ class MitmproxyManager:
                 logger.info("Master instance shutdown (threadsafe)")
             except Exception as shutdown_error:
                 logger.warning(
-                    f"Could not shutdown master instance (threadsafe): {shutdown_error}"
+                    "Could not shutdown master instance (threadsafe): %s", shutdown_error
                 )
 
             # Force close all sockets and addons
@@ -836,10 +836,10 @@ class MitmproxyManager:
                                 addon.shutdown()
                             except Exception as addon_error:
                                 logger.warning(
-                                    f"Error shutting down addon {type(addon).__name__}: {addon_error}"
+                                    "Error shutting down addon %s: %s", type(addon).__name__, addon_error
                                 )
             except Exception as e:
-                logger.warning(f"Error shutting down addons: {e}")
+                logger.warning("Error shutting down addons: %s", e)
 
             # Reset master instance for creating a new one on next startup
             logger.info("Setting master_instance to None in stop_proxy_threadsafe()")
@@ -856,11 +856,12 @@ class MitmproxyManager:
             # Force release port with multiple attempts
             logger.info("Starting aggressive port release...")
             for attempt in range(3):
-                logger.info(f"Port release attempt {attempt + 1}/3")
+                logger.info("Port release attempt %s/3", attempt + 1)
                 await self._safe_release_port()
                 if await self._check_port_available(self.proxy_port):
                     logger.info(
-                        f"Port {self.proxy_port} successfully released on attempt {attempt + 1}"
+                        "Port %s successfully released on attempt %s",
+                        self.proxy_port, attempt + 1
                     )
                     break
                 time.sleep(2)
@@ -869,7 +870,7 @@ class MitmproxyManager:
             return True
 
         except Exception as e:
-            logger.error(f"Error stopping proxy (threadsafe): {str(e)}")
+            logger.error("Error stopping proxy (threadsafe): %s", str(e))
             return False
 
     async def _run_proxy(self):
@@ -879,7 +880,7 @@ class MitmproxyManager:
                 # Start master in current event loop
                 await self.master_instance.run()
         except Exception as e:
-            logger.error(f"Error in proxy task: {str(e)}")
+            logger.error("Error in proxy task: %s", str(e))
 
     # Flow management methods
     def get_flows(self) -> List[flow.Flow]:
@@ -903,7 +904,7 @@ class MitmproxyManager:
             filter_func = flowfilter.parse(filter_expr)
             return [f for f in flows if filter_func(f)]
         except Exception as e:
-            logger.error(f"Error filtering flows: {e}")
+            logger.error("Error filtering flows: %s", e)
             return flows
 
     def clear_flows(self) -> bool:
@@ -914,7 +915,7 @@ class MitmproxyManager:
                 return True
             return False
         except Exception as e:
-            logger.error(f"Error clearing flows: {e}")
+            logger.error("Error clearing flows: %s", e)
             return False
 
     def update_flow(self, flow_obj: flow.Flow) -> bool:
@@ -925,7 +926,7 @@ class MitmproxyManager:
                 return True
             return False
         except Exception as e:
-            logger.error(f"Error updating flow: {e}")
+            logger.error("Error updating flow: %s", e)
             return False
 
     def delete_flow(self, flow_id: str) -> bool:
@@ -940,7 +941,7 @@ class MitmproxyManager:
                 return True
             return False
         except Exception as e:
-            logger.error(f"Error deleting flow: {e}")
+            logger.error("Error deleting flow: %s", e)
             return False
 
     def add_flow(self, flow_obj: flow.Flow) -> bool:
@@ -951,7 +952,7 @@ class MitmproxyManager:
                 return True
             return False
         except Exception as e:
-            logger.error(f"Error adding flow: {e}")
+            logger.error("Error adding flow: %s", e)
             return False
 
     def resume_all_flows(self) -> int:
@@ -964,7 +965,7 @@ class MitmproxyManager:
                     count += 1
             return count
         except Exception as e:
-            logger.error(f"Error resuming flows: {e}")
+            logger.error("Error resuming flows: %s", e)
             return 0
 
     def kill_all_flows(self) -> int:
@@ -977,7 +978,7 @@ class MitmproxyManager:
                     count += 1
             return count
         except Exception as e:
-            logger.error(f"Error killing flows: {e}")
+            logger.error("Error killing flows: %s", e)
             return 0
 
     def replay_flow(self, flow_obj: flow.Flow) -> bool:
@@ -988,7 +989,7 @@ class MitmproxyManager:
                 return True
             return False
         except Exception as e:
-            logger.error(f"Error replaying flow: {e}")
+            logger.error("Error replaying flow: %s", e)
             return False
 
     def load_flows_from_dump(self, dump_content: bytes) -> bool:
@@ -1005,11 +1006,11 @@ class MitmproxyManager:
                 self.add_flow(flow_obj)
                 flows_loaded += 1
 
-            logger.info(f"Loaded {flows_loaded} flows from dump")
+            logger.info("Loaded %s flows from dump", flows_loaded)
             return True
 
         except Exception as e:
-            logger.error(f"Error loading flows from dump: {e}")
+            logger.error("Error loading flows from dump: %s", e)
             return False
 
     def export_flows_to_dump(self, flows: List[flow.Flow]) -> bytes:
@@ -1025,29 +1026,31 @@ class MitmproxyManager:
             return bio.getvalue()
 
         except Exception as e:
-            logger.error(f"Error exporting flows to dump: {e}")
+            logger.error("Error exporting flows to dump: %s", e)
             return b""
 
-    async def export_traffic(self, format: str = "json") -> Any:
+    async def export_traffic(self, export_format: str = "json") -> Any:
         """Export captured traffic in specified format"""
         try:
             flows = self.get_flows()
 
-            if format == "json":
+            if export_format == "json":
                 flows_data = []
                 for flow_obj in flows:
                     flows_data.append(flow_to_json(flow_obj))
                 return flows_data
-            elif format == "har":
+
+            if export_format == "har":
                 har_data = self._convert_flows_to_har(flows)
                 return har_data
-            elif format == "dump":
+
+            if export_format == "dump":
                 return self.export_flows_to_dump(flows)
-            else:
-                raise ValueError(f"Unsupported export format: {format}")
+
+            raise ValueError(f"Unsupported export format: {export_format}")
 
         except Exception as e:
-            logger.error(f"Error exporting traffic: {e}")
+            logger.error("Error exporting traffic: %s", e)
             raise
 
     def _convert_flows_to_har(self, flows: List[flow.Flow]) -> dict:
@@ -1072,7 +1075,7 @@ class MitmproxyManager:
             return har_data
 
         except Exception as e:
-            logger.error(f"Error converting flows to HAR: {e}")
+            logger.error("Error converting flows to HAR: %s", e)
             return {"log": {"version": "1.2", "entries": []}}
 
     def _convert_flow_to_har_entry(self, flow_obj) -> Optional[dict]:
@@ -1117,7 +1120,7 @@ class MitmproxyManager:
             return entry
 
         except Exception as e:
-            logger.error(f"Error converting flow to HAR entry: {e}")
+            logger.error("Error converting flow to HAR entry: %s", e)
             return None
 
     def _convert_request_to_har(self, request) -> dict:
@@ -1165,7 +1168,7 @@ class MitmproxyManager:
             return har_request
 
         except Exception as e:
-            logger.error(f"Error converting request to HAR: {e}")
+            logger.error("Error converting request to HAR: %s", e)
             return {
                 "method": "GET",
                 "url": "",
@@ -1219,7 +1222,7 @@ class MitmproxyManager:
             return har_response
 
         except Exception as e:
-            logger.error(f"Error converting response to HAR: {e}")
+            logger.error("Error converting response to HAR: %s", e)
             return {
                 "status": 200,
                 "statusText": "OK",
@@ -1242,23 +1245,23 @@ class MitmproxyManager:
         try:
             return self.clear_flows()
         except Exception as e:
-            logger.error(f"Error clearing traffic: {e}")
+            logger.error("Error clearing traffic: %s", e)
             return False
 
     async def handle_message(self, websocket: WebSocket, data: str):
         """Handle WebSocket message"""
         try:
-            import json
-
             message = json.loads(data)
 
             if "device_id" in message and message["device_id"] != self.device_id:
+                expected = self.device_id
+                got = message['device_id']
                 await self.send_response(
                     websocket,
                     {
                         "type": "mitmproxy",
                         "action": "error",
-                        "message": f"Device ID mismatch: expected {self.device_id}, got {message['device_id']}",
+                        "message": f"Device ID mismatch: expected {expected}, got {got}",
                     },
                 )
                 return
@@ -1414,7 +1417,7 @@ class MitmproxyManager:
                             stdout=asyncio.subprocess.PIPE,
                             stderr=asyncio.subprocess.PIPE,
                         )
-                        stdout, stderr = await process.communicate()
+                        _, stderr = await process.communicate()
 
                         success = process.returncode == 0
                         await self.send_response(
@@ -1426,7 +1429,7 @@ class MitmproxyManager:
                                 "message": (
                                     "Device rebooted"
                                     if success
-                                    else f"Reboot error: {stderr.decode()}"
+                                    else f"Reboot failed: {stderr.decode()}"
                                 ),
                             },
                         )
@@ -1520,7 +1523,7 @@ class MitmproxyManager:
                 )
 
         except Exception as e:
-            logger.error(f"Error handling message: {e}")
+            logger.error("Error handling message: %s", e)
             await self.send_response(
                 websocket, {"type": "mitmproxy", "action": "error", "message": str(e)}
             )
@@ -1533,7 +1536,7 @@ class MitmproxyManager:
                 return optmanager.dump_dicts(self.master_instance.options)
             return {}
         except Exception as e:
-            logger.error(f"Error getting options: {e}")
+            logger.error("Error getting options: %s", e)
             return {}
 
     def update_options(self, options_dict: dict) -> bool:
@@ -1544,7 +1547,7 @@ class MitmproxyManager:
                 return True
             return False
         except Exception as e:
-            logger.error(f"Error updating options: {e}")
+            logger.error("Error updating options: %s", e)
             return False
 
     # State management
@@ -1580,7 +1583,7 @@ class MitmproxyManager:
 
             return state
         except Exception as e:
-            logger.error(f"Error getting state: {e}")
+            logger.error("Error getting state: %s", e)
             return {}
 
     def get_proxy_port(self) -> int:
@@ -1595,11 +1598,10 @@ class MitmproxyManager:
 
         if await self._check_port_available(port):
             self.proxy_port = port
-            logger.info(f"Proxy port set to {port}")
+            logger.info("Proxy port set to %s", port)
             return True
-        else:
-            logger.warning(f"Port {port} is not available")
-            return False
+        logger.warning("Port %s is not available", port)
+        return False
 
     # Commands management
     def get_commands(self) -> dict:
@@ -1615,7 +1617,7 @@ class MitmproxyManager:
                 return commands
             return {}
         except Exception as e:
-            logger.error(f"Error getting commands: {e}")
+            logger.error("Error getting commands: %s", e)
             return {}
 
     def execute_command(self, cmd: str, args: List[str] = None) -> Any:
@@ -1626,7 +1628,7 @@ class MitmproxyManager:
                 return self.master_instance.commands.call_strings(cmd, args)
             return None
         except Exception as e:
-            logger.error(f"Error executing command {cmd}: {e}")
+            logger.error("Error executing command %s: %s", cmd, e)
             raise
 
     # Certificate management methods (keep your existing implementation)
@@ -1639,24 +1641,20 @@ class MitmproxyManager:
             cert_path = os.path.join(self.certs_dir, "mitmproxy-ca-cert.pem")
 
             if os.path.exists(cert_path):
-                logger.info(f"Certificate already exists at {cert_path}")
+                logger.info("Certificate already exists at %s", cert_path)
                 return cert_path
 
-            temp_opts = options.Options(confdir=self.data_dir)
-
             # Create certificate using mitmproxy's certificate authority
-            from mitmproxy import certs
-
             ca = certs.CertStore.from_store(self.data_dir, "mitmproxy", 2048)
 
             with open(cert_path, "wb") as f:
                 f.write(ca.default_ca.to_pem())
 
-            logger.info(f"Certificate generated at {cert_path}")
+            logger.info("Certificate generated at %s", cert_path)
             return cert_path
 
         except Exception as e:
-            logger.error(f"Error generating certificate: {str(e)}")
+            logger.error("Error generating certificate: %s", str(e))
             return None
 
     def _check_port_listening(self, port: int) -> bool:
@@ -1677,7 +1675,7 @@ class MitmproxyManager:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, self._check_port_sync, port)
         except Exception as e:
-            logger.debug(f"Port {port} is not available: {e}")
+            logger.debug("Port %s is not available: %s", port, e)
             return False
 
     def _check_port_sync(self, port: int) -> bool:
@@ -1688,11 +1686,11 @@ class MitmproxyManager:
             # Set flags for port reuse
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            result = sock.bind(("0.0.0.0", port))
+            sock.bind(("0.0.0.0", port))
             sock.close()
             return True
         except Exception as e:
-            logger.debug(f"Port {port} is not available: {e}")
+            logger.debug("Port %s is not available: %s", port, e)
             return False
 
     async def _diagnose_port_usage(self, port: int):
@@ -1706,16 +1704,16 @@ class MitmproxyManager:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await process.communicate()
+            stdout, _ = await process.communicate()
 
             if process.returncode == 0 and stdout.strip():
-                logger.info(f"Port {port} is being used by:")
+                logger.info("Port %s is being used by:", port)
                 logger.info(stdout.decode().strip())
             else:
-                logger.info(f"lsof shows no processes using port {port}")
+                logger.info("lsof shows no processes using port %s", port)
 
         except Exception as e:
-            logger.warning(f"Error diagnosing port usage: {e}")
+            logger.warning("Error diagnosing port usage: %s", e)
 
     async def _safe_release_port(self):
         """Safely release the proxy port by waiting for natural release"""
@@ -1724,38 +1722,40 @@ class MitmproxyManager:
             await self._diagnose_port_usage(self.proxy_port)
 
             # Wait for natural port release with multiple attempts
-            logger.info(f"Waiting for port {self.proxy_port} to be released naturally")
+            logger.info("Waiting for port %s to be released naturally", self.proxy_port)
 
             # Attempt 1: short wait
             await asyncio.sleep(1)
             if await self._check_port_available(self.proxy_port):
-                logger.info(f"Port {self.proxy_port} is now available after short wait")
+                logger.info(
+                    "Port %s is now available after short wait", self.proxy_port
+                )
                 return
 
             # Attempt 2: medium wait
-            logger.info(f"Port {self.proxy_port} still in use, waiting longer...")
+            logger.info("Port %s still in use, waiting longer...", self.proxy_port)
             await asyncio.sleep(3)
             if await self._check_port_available(self.proxy_port):
                 logger.info(
-                    f"Port {self.proxy_port} is now available after medium wait"
+                    "Port %s is now available after medium wait", self.proxy_port
                 )
                 return
 
             # Attempt 3: long wait
-            logger.info(f"Port {self.proxy_port} still in use, waiting even longer...")
+            logger.info("Port %s still in use, waiting even longer...", self.proxy_port)
             await asyncio.sleep(5)
             if await self._check_port_available(self.proxy_port):
-                logger.info(f"Port {self.proxy_port} is now available after long wait")
+                logger.info("Port %s is now available after long wait", self.proxy_port)
                 return
 
             # If port is still in use, log warning and re-diagnose
             logger.warning(
-                f"Port {self.proxy_port} is still in use after all waiting attempts"
+                "Port %s is still in use after all waiting attempts", self.proxy_port
             )
             await self._diagnose_port_usage(self.proxy_port)
 
         except Exception as e:
-            logger.warning(f"Error in safe port release: {e}")
+            logger.warning("Error in safe port release: %s", e)
 
     async def _cleanup_all_mitmproxy_processes(self):
         """Clean up all mitmproxy processes - simplified version"""
@@ -1764,12 +1764,12 @@ class MitmproxyManager:
             # Just wait for natural port release
             await asyncio.sleep(1)
         except Exception as e:
-            logger.warning(f"Error in cleanup: {e}")
+            logger.warning("Error in cleanup: %s", e)
 
     async def install_certificate(self, websocket: Optional[WebSocket] = None) -> bool:
         """Install certificate on device"""
         try:
-            logger.info(f"Installing certificate on device {self.device_id}")
+            logger.info("Installing certificate on device %s", self.device_id)
 
             # Check su availability
             await self._check_su_availability()
@@ -1801,12 +1801,12 @@ class MitmproxyManager:
 
             if process.returncode == 0:
                 cert_hash = stdout.decode().strip()
-                logger.info(f"Certificate hash (subject_hash_old): {cert_hash}")
+                logger.info("Certificate hash (subject_hash_old): %s", cert_hash)
             else:
                 # Fallback to old method
                 cert_hash = hashlib.md5(cert_content).hexdigest()[:8]
                 logger.warning(
-                    f"Failed to get subject_hash_old, using MD5 fallback: {cert_hash}"
+                    "Failed to get subject_hash_old, using MD5 fallback: %s", cert_hash
                 )
 
             # Remove temporary file
@@ -1822,7 +1822,7 @@ class MitmproxyManager:
             stdout, stderr = await process.communicate()
 
             if process.returncode != 0:
-                logger.error(f"Failed to push certificate: {stderr.decode()}")
+                logger.error("Failed to push certificate: %s", stderr.decode())
                 return False
 
             # Check su availability
@@ -1835,7 +1835,10 @@ class MitmproxyManager:
                     {
                         "type": "mitmproxy",
                         "action": "certificate_warning",
-                        "message": "Certificate copied to device but cannot install to system store without root access",
+                        "message": (
+                            "Certificate copied to device but cannot install "
+                            "to system store without root access"
+                        ),
                     },
                 )
                 return True  # Technically successful, but without system store installation
@@ -1850,7 +1853,7 @@ class MitmproxyManager:
             test_stdout, test_stderr = await test_process.communicate()
 
             if test_process.returncode != 0 or "root" not in test_stdout.decode():
-                logger.error(f"su access verification failed: {test_stderr.decode()}")
+                logger.error("su access verification failed: %s", test_stderr.decode())
                 await self.send_response(
                     websocket,
                     {
@@ -1876,12 +1879,13 @@ class MitmproxyManager:
 
             try:
                 sdk_version = int(version_stdout.decode().strip())
-                logger.info(f"Android SDK version: {sdk_version}")
+                logger.info("Android SDK version: %s", sdk_version)
 
                 # Android 14 (API 34) and above use APEX container
                 if sdk_version >= 34:
                     logger.info(
-                        "Android 14+ detected, certificate installation may require additional steps"
+                        "Android 14+ detected, certificate installation may "
+                        "require additional steps"
                     )
                     system_cert_path = (
                         f"/apex/com.android.conscrypt/cacerts/{cert_hash}.0"
@@ -1893,16 +1897,23 @@ class MitmproxyManager:
                         {
                             "type": "mitmproxy",
                             "action": "certificate_warning",
-                            "message": "Android 14+ detected. System certificate installation may not work due to APEX containers. Consider using Magisk modules.",
+                            "message": (
+                                "Android 14+ detected. System certificate "
+                                "installation may not work due to APEX containers. "
+                                "Consider using Magisk modules."
+                            ),
                         },
                     )
-            except:
+            except Exception:
                 logger.warning(
                     "Could not determine Android version, using default path"
                 )
 
             # Check existing certificates in system
-            list_certs_cmd = f"adb -s {self.device_id} shell su 0 ls -la /system/etc/security/cacerts/ | head -10"
+            list_certs_cmd = (
+                f"adb -s {self.device_id} shell su 0 ls -la "
+                "/system/etc/security/cacerts/ | head -10"
+            )
             list_process = await asyncio.create_subprocess_shell(
                 list_certs_cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -1912,10 +1923,10 @@ class MitmproxyManager:
 
             if list_process.returncode == 0:
                 existing_certs = list_stdout.decode().strip()
-                logger.info(f"Existing system certificates: {existing_certs}")
+                logger.info("Existing system certificates: %s", existing_certs)
             else:
                 logger.warning(
-                    f"Failed to list existing certificates: {list_stderr.decode()}"
+                    "Failed to list existing certificates: %s", list_stderr.decode()
                 )
 
             # Mount system as RW if needed
@@ -1928,10 +1939,10 @@ class MitmproxyManager:
             await mount_process.communicate()
 
             # Detailed diagnostics before installation
-            logger.info(f"Installing certificate:")
-            logger.info(f"  - Device cert path: {device_cert_path}")
-            logger.info(f"  - System cert path: {system_cert_path}")
-            logger.info(f"  - Certificate hash: {cert_hash}")
+            logger.info("Installing certificate:")
+            logger.info("  - Device cert path: %s", device_cert_path)
+            logger.info("  - System cert path: %s", system_cert_path)
+            logger.info("  - Certificate hash: %s", cert_hash)
 
             install_commands = [
                 f"adb -s {self.device_id} shell su 0 cp {device_cert_path} {system_cert_path}",
@@ -1941,7 +1952,7 @@ class MitmproxyManager:
 
             success_count = 0
             for i, cmd in enumerate(install_commands):
-                logger.info(f"Executing install command {i+1}/3: {cmd}")
+                logger.info("Executing install command %s/3: %s", i + 1, cmd)
                 process = await asyncio.create_subprocess_shell(
                     cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
@@ -1949,11 +1960,13 @@ class MitmproxyManager:
 
                 if process.returncode == 0:
                     success_count += 1
-                    logger.info(f"Command {i+1} succeeded: {stdout.decode().strip()}")
+                    logger.info(
+                        "Command %s succeeded: %s", i + 1, stdout.decode().strip()
+                    )
                 else:
-                    logger.error(f"Command {i+1} failed: {stderr.decode()}")
+                    logger.error("Command %s failed: %s", i + 1, stderr.decode())
 
-            logger.info(f"Install commands: {success_count}/3 successful")
+            logger.info("Install commands: %s/3 successful", success_count)
 
             # Mount system back as RO
             mount_ro_cmd = f"adb -s {self.device_id} shell su 0 mount -o ro,remount /"
@@ -1975,7 +1988,7 @@ class MitmproxyManager:
 
             if verify_process.returncode == 0:
                 file_info = verify_stdout.decode().strip()
-                logger.info(f"Certificate verification: {file_info}")
+                logger.info("Certificate verification: %s", file_info)
 
                 # Check that certificate exactly matches original
                 compare_cmd = (
@@ -1997,15 +2010,15 @@ class MitmproxyManager:
                         self.cert_installed = True
                     else:
                         logger.error("❌ Certificate content does not match original!")
-                        logger.error(f"Original length: {len(original_cert)}")
-                        logger.error(f"Installed length: {len(installed_cert)}")
+                        logger.error("Original length: %s", len(original_cert))
+                        logger.error("Installed length: %s", len(installed_cert))
                         logger.error(
-                            f"First 100 chars of installed: {installed_cert[:100]}"
+                            "First 100 chars of installed: %s", installed_cert[:100]
                         )
                         self.cert_installed = False
                 else:
                     logger.error(
-                        f"Failed to read installed certificate: {compare_stderr.decode()}"
+                        "Failed to read installed certificate: %s", compare_stderr.decode()
                     )
                     self.cert_installed = False
 
@@ -2022,17 +2035,17 @@ class MitmproxyManager:
                     stat_stdout, _ = await stat_process.communicate()
                     if stat_process.returncode == 0:
                         logger.info(
-                            f"Certificate file stats: {stat_stdout.decode().strip()}"
+                            "Certificate file stats: %s", stat_stdout.decode().strip()
                         )
 
                 if self.cert_installed:
                     logger.info(
-                        f"✅ Certificate successfully installed and verified at {system_cert_path}"
+                        "✅ Certificate successfully installed and verified at %s", system_cert_path
                     )
 
             else:
                 logger.error(
-                    f"❌ Certificate verification failed: {verify_stderr.decode()}"
+                    "❌ Certificate verification failed: %s", verify_stderr.decode()
                 )
                 self.cert_installed = False
 
@@ -2043,24 +2056,25 @@ class MitmproxyManager:
                     {
                         "type": "mitmproxy",
                         "action": "certificate_installed_reboot_needed",
-                        "message": "Certificate installed successfully. Reboot is recommended to activate it.",
+                        "message": "Certificate installed successfully. "
+                        "Reboot is recommended to activate it.",
                         "reboot_available": True,
                     },
                 )
                 return True
-            else:
-                await self.send_response(
-                    websocket,
-                    {
-                        "type": "mitmproxy",
-                        "action": "certificate_error",
-                        "message": "Certificate installation failed",
-                    },
-                )
-                return False
+
+            await self.send_response(
+                websocket,
+                {
+                    "type": "mitmproxy",
+                    "action": "certificate_error",
+                    "message": "Certificate installation failed",
+                },
+            )
+            return False
 
         except Exception as e:
-            logger.error(f"Error installing certificate: {str(e)}")
+            logger.error("Error installing certificate: %s", str(e))
             return False
 
     async def send_response(self, websocket: Optional[WebSocket], response_data: dict):
@@ -2070,9 +2084,9 @@ class MitmproxyManager:
                 await websocket.send_text(json.dumps(response_data))
             else:
                 # For HTTP endpoints, just log the response
-                logger.info(f"HTTP endpoint response: {response_data}")
+                logger.info("HTTP endpoint response: %s", response_data)
         except Exception as e:
-            logger.error(f"Error sending response: {e}")
+            logger.error("Error sending response: %s", e)
 
     async def send_error(self, websocket: Optional[WebSocket], message: str):
         """Send error response through WebSocket"""
@@ -2085,16 +2099,16 @@ class MitmproxyManager:
                 )
             else:
                 # For HTTP endpoints, just log the error
-                logger.error(f"HTTP endpoint error: {message}")
+                logger.error("HTTP endpoint error: %s", message)
         except Exception as e:
-            logger.error(f"Error sending error response: {e}")
+            logger.error("Error sending error response: %s", e)
 
     async def configure_device_proxy(
         self, websocket: Optional[WebSocket] = None
     ) -> bool:
         """Configure proxy on device"""
         try:
-            logger.info(f"Configuring proxy on device {self.device_id}")
+            logger.info("Configuring proxy on device %s", self.device_id)
 
             # Check su availability
             await self._check_su_availability()
@@ -2109,18 +2123,24 @@ class MitmproxyManager:
 
             if self.su_available:
                 # Use su for global proxy configuration
-                cmd = f"adb -s {self.device_id} shell su 0 settings put global http_proxy {proxy_setting}"
+                cmd = (
+                    f"adb -s {self.device_id} shell su 0 "
+                    f"settings put global http_proxy {proxy_setting}"
+                )
             else:
                 # Try to configure without su
-                cmd = f"adb -s {self.device_id} shell settings put global http_proxy {proxy_setting}"
+                cmd = (
+                    f"adb -s {self.device_id} shell "
+                    f"settings put global http_proxy {proxy_setting}"
+                )
 
             process = await asyncio.create_subprocess_shell(
                 cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await process.communicate()
+            _, stderr = await process.communicate()
 
             if process.returncode == 0:
-                logger.info(f"Proxy configured successfully: {proxy_setting}")
+                logger.info("Proxy configured successfully: %s", proxy_setting)
 
                 # Mark proxy as configured in Device
                 device = await self._get_device()
@@ -2139,7 +2159,7 @@ class MitmproxyManager:
                 check_stdout, _ = await check_process.communicate()
 
                 current_proxy = check_stdout.decode().strip()
-                logger.info(f"Current proxy setting: {current_proxy}")
+                logger.info("Current proxy setting: %s", current_proxy)
 
                 # Send updated port information
                 await self.send_response(
@@ -2154,18 +2174,18 @@ class MitmproxyManager:
                 )
 
                 return True
-            else:
-                logger.error(f"Failed to configure proxy: {stderr.decode()}")
-                return False
+
+            logger.error("Failed to configure proxy: %s", stderr.decode())
+            return False
 
         except Exception as e:
-            logger.error(f"Error configuring proxy: {str(e)}")
+            logger.error("Error configuring proxy: %s", str(e))
             return False
 
     async def disable_device_proxy(self, websocket: Optional[WebSocket] = None) -> bool:
         """Disable proxy on device"""
         try:
-            logger.info(f"Disabling proxy on device {self.device_id}")
+            logger.info("Disabling proxy on device %s", self.device_id)
 
             # Check su availability
             await self._check_su_availability()
@@ -2181,7 +2201,7 @@ class MitmproxyManager:
             process = await asyncio.create_subprocess_shell(
                 cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await process.communicate()
+            _, stderr = await process.communicate()
 
             if process.returncode == 0:
                 logger.info("Proxy disabled successfully")
@@ -2203,7 +2223,7 @@ class MitmproxyManager:
                 check_stdout, _ = await check_process.communicate()
 
                 current_proxy = check_stdout.decode().strip()
-                logger.info(f"Current proxy setting: {current_proxy}")
+                logger.info("Current proxy setting: %s", current_proxy)
 
                 # Send response
                 await self.send_response(
@@ -2217,12 +2237,12 @@ class MitmproxyManager:
                 )
 
                 return True
-            else:
-                logger.error(f"Failed to disable proxy: {stderr.decode()}")
-                return False
+
+            logger.error("Failed to disable proxy: %s", stderr.decode())
+            return False
 
         except Exception as e:
-            logger.error(f"Error disabling proxy: {str(e)}")
+            logger.error("Error disabling proxy: %s", str(e))
             return False
 
     async def _get_emulator_name_by_device_id(self) -> Optional[str]:
@@ -2251,24 +2271,24 @@ class MitmproxyManager:
                         or (self.device_ip and container_ip == self.device_ip)
                     ):
                         logger.info(
-                            f"Found emulator {emulator['name']} for device {self.device_id}"
+                            "Found emulator %s for device %s", emulator['name'], self.device_id
                         )
                         return emulator["name"]
 
-            logger.info(f"Device {self.device_id} is not a Docker emulator")
+            logger.info("Device %s is not a Docker emulator", self.device_id)
             return None
 
         except Exception as e:
-            logger.warning(f"Could not determine emulator name: {str(e)}")
+            logger.warning("Could not determine emulator name: %s", str(e))
             return None
 
     async def _initialize_backend_ip(self) -> None:
         """Initialize backend container IP address"""
         try:
             self.backend_ip = await self._get_backend_ip()
-            logger.info(f"Backend IP initialized: {self.backend_ip}")
+            logger.info("Backend IP initialized: %s", self.backend_ip)
         except Exception as e:
-            logger.error(f"Error initializing backend IP: {e}")
+            logger.error("Error initializing backend IP: %s", e)
             self.backend_ip = None  # Fallback
 
     async def _get_backend_ip(self) -> str:
@@ -2280,19 +2300,19 @@ class MitmproxyManager:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await process.communicate()
+            stdout, _ = await process.communicate()
 
             if process.returncode == 0:
                 # Get first IP address
                 ips = stdout.decode().strip().split()
                 if ips:
                     backend_ip = ips[0]
-                    logger.info(f"Backend container IP: {backend_ip}")
+                    logger.info("Backend container IP: %s", backend_ip)
                     return backend_ip
 
             # Method 2: Read IP from /proc/net/route (default routing)
             try:
-                with open("/proc/net/route", "r") as f:
+                with open("/proc/net/route", "r", encoding="utf-8") as f:
                     for line in f:
                         fields = line.split()
                         if (
@@ -2300,8 +2320,12 @@ class MitmproxyManager:
                         ):  # Default route
                             # Get interface IP
                             interface = fields[0]
+                            grep_cmd = (
+                                f"ip addr show {interface} | grep 'inet ' | "
+                                "head -1 | awk '{print $2}' | cut -d/ -f1"
+                            )
                             process = await asyncio.create_subprocess_shell(
-                                f"ip addr show {interface} | grep 'inet ' | head -1 | awk '{{print $2}}' | cut -d/ -f1",
+                                grep_cmd,
                                 stdout=asyncio.subprocess.PIPE,
                                 stderr=asyncio.subprocess.PIPE,
                             )
@@ -2310,7 +2334,7 @@ class MitmproxyManager:
                                 ip = stdout.decode().strip()
                                 if ip and not ip.startswith("127."):
                                     logger.info(
-                                        f"Backend container IP from route: {ip}"
+                                        "Backend container IP from route: %s", ip
                                     )
                                     return ip
                             break
@@ -2322,7 +2346,7 @@ class MitmproxyManager:
             return None
 
         except Exception as e:
-            logger.error(f"Error getting backend IP: {str(e)}")
+            logger.error("Error getting backend IP: %s", str(e))
             return None  # Fallback
 
     async def _get_device_ip(self) -> None:
@@ -2333,7 +2357,7 @@ class MitmproxyManager:
             process = await asyncio.create_subprocess_shell(
                 cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await process.communicate()
+            stdout, _ = await process.communicate()
 
             if process.returncode == 0:
                 output = stdout.decode().strip()
@@ -2343,7 +2367,7 @@ class MitmproxyManager:
                     src_index = parts.index("src")
                     if src_index + 1 < len(parts):
                         self.device_ip = parts[src_index + 1]
-                        logger.info(f"Device IP: {self.device_ip}")
+                        logger.info("Device IP: %s", self.device_ip)
                         return
 
             # Alternative method
@@ -2351,7 +2375,7 @@ class MitmproxyManager:
             process = await asyncio.create_subprocess_shell(
                 cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await process.communicate()
+            stdout, _ = await process.communicate()
 
             if process.returncode == 0:
                 # Look for first non-localhost IP
@@ -2360,13 +2384,13 @@ class MitmproxyManager:
                     if "inet addr:" in line and "127.0.0.1" not in line:
                         ip_part = line.split("inet addr:")[1].split()[0]
                         self.device_ip = ip_part
-                        logger.info(f"Device IP (alternative): {self.device_ip}")
+                        logger.info("Device IP (alternative): %s", self.device_ip)
                         return
 
             logger.warning("Could not determine device IP")
 
         except Exception as e:
-            logger.error(f"Error getting device IP: {str(e)}")
+            logger.error("Error getting device IP: %s", str(e))
 
     async def _check_su_availability(self) -> None:
         """Check su availability on device"""
@@ -2377,7 +2401,7 @@ class MitmproxyManager:
             else:
                 logger.info("su is not available on device")
         except Exception as e:
-            logger.error(f"Error checking su availability: {str(e)}")
+            logger.error("Error checking su availability: %s", str(e))
             self.su_available = False
 
     async def _check_certificate_status(self) -> None:
@@ -2419,13 +2443,16 @@ class MitmproxyManager:
 
                 # Check if certificate with this hash exists in system
                 system_cert_path = f"/system/etc/security/cacerts/{cert_hash}.0"
-                check_cmd = f"adb -s {self.device_id} shell su 0 test -f {system_cert_path} && echo 'exists'"
+                check_cmd = (
+                    f"adb -s {self.device_id} shell su 0 test -f "
+                    f"{system_cert_path} && echo 'exists'"
+                )
                 check_process = await asyncio.create_subprocess_shell(
                     check_cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                check_stdout, check_stderr = await check_process.communicate()
+                check_stdout, _ = await check_process.communicate()
 
                 if check_process.returncode == 0 and "exists" in check_stdout.decode():
                     # Check that content matches
@@ -2446,24 +2473,24 @@ class MitmproxyManager:
                         if installed_cert == original_cert:
                             self.cert_installed = True
                             logger.info(
-                                f"✅ Mitmproxy certificate verified at {system_cert_path}"
+                                "✅ Mitmproxy certificate verified at %s", system_cert_path
                             )
                         else:
                             logger.warning(
-                                f"❌ Certificate content mismatch at {system_cert_path}"
+                                "❌ Certificate content mismatch at %s", system_cert_path
                             )
                     else:
                         logger.warning(
-                            f"❌ Cannot read certificate at {system_cert_path}"
+                            "❌ Cannot read certificate at %s", system_cert_path
                         )
                 else:
-                    logger.info(f"❌ Certificate not found at {system_cert_path}")
+                    logger.info("❌ Certificate not found at %s", system_cert_path)
             else:
                 os.unlink(temp_cert_file)
-                logger.warning(f"Failed to get certificate hash: {stderr.decode()}")
+                logger.warning("Failed to get certificate hash: %s", stderr.decode())
 
         except Exception as e:
-            logger.error(f"Error checking certificate status: {str(e)}")
+            logger.error("Error checking certificate status: %s", str(e))
             self.cert_installed = False
 
 
@@ -2475,10 +2502,10 @@ async def get_mitmproxy_manager(device_id: str) -> MitmproxyManager:
     """Get MitmproxyManager instance for device"""
     async with _manager_lock:
         if device_id not in _mitmproxy_managers:
-            logger.info(f"Creating new mitmproxy manager for device {device_id}")
+            logger.info("Creating new mitmproxy manager for device %s", device_id)
             _mitmproxy_managers[device_id] = MitmproxyManager(device_id)
         else:
-            logger.info(f"Reusing existing mitmproxy manager for device {device_id}")
+            logger.info("Reusing existing mitmproxy manager for device %s", device_id)
         return _mitmproxy_managers[device_id]
 
 
@@ -2487,14 +2514,14 @@ async def cleanup_mitmproxy_manager(device_id: str):
     async with _manager_lock:
         if device_id in _mitmproxy_managers:
             manager = _mitmproxy_managers[device_id]
-            logger.info(f"Cleaning up mitmproxy manager for device {device_id}")
+            logger.info("Cleaning up mitmproxy manager for device %s", device_id)
             try:
                 await manager.stop()
             except Exception as e:
-                logger.error(f"Error stopping manager during cleanup: {e}")
+                logger.error("Error stopping manager during cleanup: %s", e)
             del _mitmproxy_managers[device_id]
-            logger.info(f"Cleaned up mitmproxy manager for device {device_id}")
+            logger.info("Cleaned up mitmproxy manager for device %s", device_id)
         else:
             logger.info(
-                f"No mitmproxy manager found for device {device_id} during cleanup"
+                "No mitmproxy manager found for device %s during cleanup", device_id
             )

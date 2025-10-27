@@ -1,19 +1,21 @@
-import os
-import logging
 import asyncio
+import logging
+import os
+import re
+import socket
 import subprocess
+from typing import Any, Dict, List, Optional
+
 import docker
 import docker.errors
 import yaml
-import socket
-import re
-from typing import Dict, Any, List, Optional
-from sqlalchemy import select
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select
 from redis import Redis
-from app.models.emulator import Emulator, Base
+
 from app.dynamic.utils.adb_utils import get_adb_env
+from app.models.emulator import Base, Emulator
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,7 @@ class EmulatorManager:
         # Check if ADB server is already running
         try:
             result = subprocess.run(
-                ["adb", "devices"], capture_output=True, text=True, timeout=5
+                ["adb", "devices"], capture_output=True, text=True, timeout=5, check=False
             )
             if result.returncode == 0:
                 self.adb_port = 5037
@@ -65,16 +67,16 @@ class EmulatorManager:
 
         try:
             result = subprocess.run(
-                ["adb", "kill-server"], capture_output=True, text=True, timeout=10
+                ["adb", "kill-server"], capture_output=True, text=True, timeout=10, check=False
             )
             logger.info("Killed existing ADB server")
             await asyncio.sleep(1)
-        except Exception as e:
+        except Exception:
             pass
 
         try:
             result = subprocess.run(
-                ["adb", "start-server"], capture_output=True, text=True, timeout=10
+                ["adb", "start-server"], capture_output=True, text=True, timeout=10, check=False
             )
             if result.returncode == 0:
                 self.adb_port = 5037
@@ -82,9 +84,11 @@ class EmulatorManager:
                 os.environ["ANDROID_ADB_SERVER_PORT"] = "5037"
                 return 5037
             else:
-                logger.warning(f"Failed to start ADB on standard port: {result.stderr}")
+                logger.warning(
+                    "Failed to start ADB on standard port: %s", result.stderr
+                )
         except Exception as e:
-            logger.warning(f"Failed to start ADB on standard port: {e}")
+            logger.warning("Failed to start ADB on standard port: %s", e)
 
         dynamic_port = self._find_free_port()
         try:
@@ -97,14 +101,15 @@ class EmulatorManager:
                 text=True,
                 timeout=10,
                 env=env,
+                check=False,
             )
             if result.returncode == 0:
                 self.adb_port = dynamic_port
-                logger.info(f"ADB server started on port {dynamic_port}")
+                logger.info("ADB server started on port %s", dynamic_port)
                 os.environ["ANDROID_ADB_SERVER_PORT"] = str(dynamic_port)
                 return dynamic_port
         except Exception as e:
-            logger.warning(f"Failed to start ADB on dynamic port: {e}")
+            logger.warning("Failed to start ADB on dynamic port: %s", e)
 
         logger.warning("Could not start ADB server, using default port 5037")
         self.adb_port = 5037
@@ -115,7 +120,7 @@ class EmulatorManager:
         self, host: str, port: int, timeout: int = 120
     ) -> bool:
         """Wait for Android system to fully boot"""
-        logger.info(f"Waiting for Android system to boot...")
+        logger.info("Waiting for Android system to boot...")
 
         env = get_adb_env()
         start_time = asyncio.get_event_loop().time()
@@ -128,6 +133,7 @@ class EmulatorManager:
                     text=True,
                     timeout=10,
                     env=env,
+                    check=False,
                 )
 
                 if connect_result.returncode != 0:
@@ -140,6 +146,7 @@ class EmulatorManager:
                     text=True,
                     timeout=10,
                     env=env,
+                    check=False,
                 )
 
                 if (
@@ -159,18 +166,19 @@ class EmulatorManager:
                         text=True,
                         timeout=10,
                         env=env,
+                        check=False,
                     )
 
                     if boot_check.returncode == 0 and "1" in boot_check.stdout.strip():
-                        logger.info(f"Android system ready")
+                        logger.info("Android system ready")
                         return True
 
                 await asyncio.sleep(3)
 
-            except Exception as e:
+            except Exception:
                 await asyncio.sleep(2)
 
-        logger.warning(f"Timeout waiting for Android boot")
+        logger.warning("Timeout waiting for Android boot")
         return False
 
     async def _adb_connect(self, host: str, port: int) -> bool:
@@ -181,11 +189,11 @@ class EmulatorManager:
             env = get_adb_env()
 
             check_result = subprocess.run(
-                ["adb", "devices"], capture_output=True, text=True, timeout=10, env=env
+                ["adb", "devices"], capture_output=True, text=True, timeout=10, env=env, check=False
             )
 
             if check_result.returncode == 0 and f"{host}:{port}" in check_result.stdout:
-                logger.info(f"Device already connected")
+                logger.info("Device already connected")
                 return True
 
             if not await self._wait_for_android_boot(host, port):
@@ -197,6 +205,7 @@ class EmulatorManager:
                 text=True,
                 timeout=15,
                 env=env,
+                check=False,
             )
 
             success = (
@@ -205,32 +214,32 @@ class EmulatorManager:
                 or "already connected" in result.stdout.lower()
             )
             if success:
-                logger.info(f"Successfully connected via ADB")
+                logger.info("Successfully connected via ADB")
             else:
-                logger.warning(f"Failed to connect via ADB: {result.stderr}")
+                logger.warning("Failed to connect via ADB: %s", result.stderr)
 
             return success
 
         except Exception as e:
-            logger.error(f"Error connecting via ADB: {e}")
+            logger.error("Error connecting via ADB: %s", e)
             return False
 
     def _load_emulators_config(self) -> Dict[str, Any]:
         """Load emulator configurations"""
         configs = {}
         try:
-            for root, dirs, files in os.walk(self.emulators_path):
+            for root, _, files in os.walk(self.emulators_path):
                 if "config.yaml" in files:
                     config_path = os.path.join(root, "config.yaml")
                     rel_path = os.path.relpath(root, self.emulators_path)
                     emulator_name = rel_path.replace(os.sep, "_")
 
-                    with open(config_path) as f:
+                    with open(config_path, encoding="utf-8") as f:
                         config = yaml.safe_load(f)
                         config["path"] = root
                         configs[emulator_name] = config
         except Exception as e:
-            logger.error(f"Error loading emulator configs: {e}")
+            logger.error("Error loading emulator configs: %s", e)
         return configs
 
     def _get_available_ports(self, emulator_name: str) -> Dict[str, int]:
@@ -262,7 +271,7 @@ class EmulatorManager:
                     return network["IPAddress"]
 
         except Exception as e:
-            logger.error(f"Error getting container IP: {e}")
+            logger.error("Error getting container IP: %s", e)
 
         return None
 
@@ -272,7 +281,7 @@ class EmulatorManager:
             async with self.engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
         except Exception as e:
-            logger.error(f"Failed to create emulator table: {e}")
+            logger.error("Failed to create emulator table: %s", e)
             raise
 
     async def _register_emulator(self, emulator_name: str, config: dict):
@@ -316,13 +325,13 @@ class EmulatorManager:
                     "status": emulator.status,
                 }
             except Exception as e:
-                logger.error(f"Failed to register emulator {emulator_name}: {e}")
+                logger.error("Failed to register emulator %s: %s", emulator_name, e)
                 await session.rollback()
                 raise
 
     async def start_emulator(self, emulator_name: str) -> Dict[str, Any]:
         """Start emulator"""
-        logger.info(f"Starting emulator {emulator_name}...")
+        logger.info("Starting emulator %s...", emulator_name)
 
         if emulator_name not in self.emulators_config:
             raise ValueError(f"Emulator {emulator_name} not found")
@@ -334,17 +343,17 @@ class EmulatorManager:
         container_name = f"emulator_{emulator_name}"
         try:
             existing_container = self.docker_client.containers.get(container_name)
-            logger.info(f"Removing existing container {container_name}")
+            logger.info("Removing existing container %s", container_name)
             try:
                 existing_container.stop(timeout=10)
-            except Exception as e:
-                logger.warning(f"Failed to stop existing container: {e}")
+            except Exception as exc:
+                logger.warning("Failed to stop existing container: %s", exc)
 
             existing_container.remove()
         except docker.errors.NotFound:
             pass
-        except Exception as e:
-            logger.warning(f"Error handling existing container: {e}")
+        except Exception as exc:
+            logger.warning("Error handling existing container: %s", exc)
 
         image_name = f"mobsec_emulator_{emulator_name}"
         ports = self._get_available_ports(emulator_name)
@@ -355,7 +364,7 @@ class EmulatorManager:
         if not os.path.exists(dockerfile_path):
             raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
 
-        logger.info(f"Building Docker image for {emulator_name}...")
+        logger.info("Building Docker image for %s...", emulator_name)
         self.docker_client.images.build(
             path=os.path.dirname(dockerfile_path),
             dockerfile=dockerfile_path,
@@ -380,7 +389,7 @@ class EmulatorManager:
 
         await self._update_emulator_status(emulator_name, "running", container.id)
 
-        logger.info(f"Container started for {emulator_name}")
+        logger.info("Container started for %s", emulator_name)
         await self.connect_to_emulator(emulator_name)
         return {
             "name": emulator_name,
@@ -403,15 +412,15 @@ class EmulatorManager:
                         )
                         container.stop()
                         container.remove()
-                        logger.info(f"Stopped emulator {emulator_name}")
+                        logger.info("Stopped emulator %s", emulator_name)
                     except Exception as e:
-                        logger.warning(f"Error stopping container: {e}")
+                        logger.warning("Error stopping container: %s", e)
 
                 await self._update_emulator_status(emulator_name, "stopped", None)
                 return True
 
         except Exception as e:
-            logger.error(f"Error stopping emulator {emulator_name}: {e}")
+            logger.error("Error stopping emulator %s: %s", emulator_name, e)
             return False
 
     async def _update_emulator_status(
@@ -452,7 +461,7 @@ class EmulatorManager:
         await self._create_emulator_table()
 
         async with self.async_session() as session:
-            stmt = select(Emulator).where(Emulator.active == True)
+            stmt = select(Emulator).where(Emulator.active.is_(True))
             result = await session.execute(stmt)
             emulators = result.scalars().all()
 
@@ -496,47 +505,51 @@ class EmulatorManager:
             ]
 
             if active_emulators:
-                logger.info(f"Starting {len(active_emulators)} active emulators")
+                logger.info("Starting %s active emulators", len(active_emulators))
                 started = 0
                 for emulator_name in active_emulators:
                     try:
                         await self.start_emulator(emulator_name)
                         started += 1
                     except Exception as e:
-                        logger.error(f"Failed to start emulator {emulator_name}: {e}")
+                        logger.error(
+                            "Failed to start emulator %s: %s", emulator_name, e
+                        )
 
                 logger.info(
-                    f"Started {started}/{len(active_emulators)} emulators successfully"
+                    "Started %s/%s emulators successfully",
+                    started,
+                    len(active_emulators),
                 )
             else:
                 logger.info("No active emulators configured")
 
         except Exception as e:
-            logger.error(f"Error starting active emulators: {e}")
+            logger.error("Error starting active emulators: %s", e)
 
     async def connect_to_emulator(self, emulator_name: str) -> bool:
         """Connect to emulator via ADB"""
         status_data = await self.get_emulator_status(emulator_name)
         if "error" in status_data or status_data["status"] != "running":
-            logger.warning(f"Emulator {emulator_name} is not running")
+            logger.warning("Emulator %s is not running", emulator_name)
             return False
 
         container_id = status_data.get("container_id")
         if not container_id:
-            logger.warning(f"No container ID for emulator {emulator_name}")
+            logger.warning("No container ID for emulator %s", emulator_name)
             return False
 
         container_ip = self._get_container_ip(container_id)
         if not container_ip:
-            logger.warning(f"Could not get container IP for emulator {emulator_name}")
+            logger.warning("Could not get container IP for emulator %s", emulator_name)
             return False
 
-        logger.info(f"Connecting to emulator {emulator_name}...")
+        logger.info("Connecting to emulator %s...", emulator_name)
         connection_result = await self._adb_connect(container_ip, 5555)
 
         if connection_result:
-            logger.info(f"Successfully connected to emulator {emulator_name}")
+            logger.info("Successfully connected to emulator %s", emulator_name)
         else:
-            logger.error(f"Failed to connect to emulator {emulator_name}")
+            logger.error("Failed to connect to emulator %s", emulator_name)
 
         return connection_result

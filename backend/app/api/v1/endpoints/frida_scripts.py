@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
-from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, Request
+
 from app.dynamic.tools.frida_script_service import FridaScriptService
 
 router = APIRouter()
@@ -25,9 +25,9 @@ async def create_script(
         script = await script_service.create_script(name=name, content=content)
         return script
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating script: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating script: {str(e)}") from e
 
 
 @router.get("/scripts")
@@ -39,7 +39,7 @@ async def list_scripts(
         scripts = await script_service.list_scripts()
         return scripts
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error listing scripts: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error listing scripts: {str(e)}") from e
 
 
 @router.get("/scripts/{script_name}")
@@ -57,7 +57,7 @@ async def get_script(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting script: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting script: {str(e)}") from e
 
 
 @router.get("/scripts/{script_name}/content")
@@ -77,7 +77,7 @@ async def get_script_content(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error getting script content: {str(e)}"
-        )
+        ) from e
 
 
 @router.put("/scripts/{script_name}")
@@ -98,11 +98,11 @@ async def update_script(
             )
         return script
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error updating script: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating script: {str(e)}") from e
 
 
 @router.delete("/scripts/{script_name}")
@@ -118,11 +118,11 @@ async def delete_script(
             )
         return {"message": f"Script '{script_name}' deleted successfully"}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error deleting script: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error deleting script: {str(e)}") from e
 
 
 @router.get("/scripts/stats")
@@ -136,4 +136,4 @@ async def get_script_stats(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error getting script stats: {str(e)}"
-        )
+        ) from e

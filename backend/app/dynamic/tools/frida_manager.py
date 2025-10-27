@@ -2,14 +2,21 @@ import asyncio
 import json
 import logging
 import os
-import tempfile
-from typing import Dict, Any, List
-from fastapi import WebSocket
+import re
 import socket
-from app.dynamic.tools.frida_script_service import FridaScriptService
-from app.dynamic.device_management.emulator_manager import EmulatorManager
+import tempfile
+from typing import Any, Dict, List
+
+from fastapi import WebSocket
+
+from app.core.app_manager import AsyncStorageService
 from app.dynamic.communication.base_websocket_manager import BaseWebSocketManager
+from app.dynamic.device_management.emulator_manager import EmulatorManager
+from app.dynamic.tools.frida_script_service import FridaScriptService
 from app.dynamic.utils.device_info_helper import DeviceInfoHelper
+from app.dynamic.utils.adb_utils import remove_all_port_forwarding
+from app.dynamic.utils.adb_utils import execute_adb_shell, execute_adb_command
+
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +49,7 @@ class FridaManager(BaseWebSocketManager):
 
         try:
             self.is_running = True
-            logger.info(f"Starting Frida manager for device {self.device_id}")
+            logger.info("Starting Frida manager for device %s", self.device_id)
 
             await self.get_device_ip()
 
@@ -69,14 +76,14 @@ class FridaManager(BaseWebSocketManager):
             return True
 
         except Exception as e:
-            logger.error(f"Error starting Frida manager: {str(e)}")
+            logger.error("Error starting Frida manager: %s", str(e))
             self.is_running = False
             return False
 
     async def get_device_ip(self):
         """Get device IP address using existing EmulatorManager functionality"""
         try:
-            logger.info(f"Getting IP address for device {self.device_id}")
+            logger.info("Getting IP address for device %s", self.device_id)
 
             if ":" in self.device_id and not self.device_id.startswith("emulator-"):
                 ip_part = self.device_id.split(":")[0]
@@ -84,7 +91,7 @@ class FridaManager(BaseWebSocketManager):
                 if self._is_valid_ip(ip_part):
                     self.device_ip = ip_part
                     self.frida_host = ip_part
-                    logger.info(f"Using IP from device_id: {self.device_ip}")
+                    logger.info("Using IP from device_id: %s", self.device_ip)
                     return
 
             try:
@@ -98,6 +105,7 @@ class FridaManager(BaseWebSocketManager):
                     if emulator.get("status") == "running" and emulator.get(
                         "container_id"
                     ):
+                        # pylint: disable=protected-access
                         container_ip = self.emulator_manager._get_container_ip(
                             emulator["container_id"]
                         )
@@ -106,17 +114,18 @@ class FridaManager(BaseWebSocketManager):
                                 self.device_ip = container_ip
                                 self.frida_host = container_ip
                                 logger.info(
-                                    f"Found matching emulator IP: {self.device_ip}"
+                                    "Found matching emulator IP: %s",
+                                    self.device_ip,
                                 )
                                 return
 
             except Exception as e:
-                logger.debug(f"Could not use EmulatorManager: {str(e)}")
+                logger.debug("Could not use EmulatorManager: %s", str(e))
 
             await self.get_device_ip_via_adb()
 
         except Exception as e:
-            logger.error(f"Error getting device IP: {str(e)}")
+            logger.error("Error getting device IP: %s", str(e))
             self.device_ip = "localhost"
             self.frida_host = "localhost"
             await self.setup_port_forwarding()
@@ -128,46 +137,47 @@ class FridaManager(BaseWebSocketManager):
     async def get_device_ip_via_adb(self):
         """Get device IP address via ADB commands (fallback method)"""
         try:
-            logger.info(f"Getting IP via ADB for device {self.device_id}")
+            logger.info("Getting IP via ADB for device %s", self.device_id)
 
             interfaces = ["wlan0", "eth0", "eth1", "wlan1"]
 
             for interface in interfaces:
                 try:
-                    process = await asyncio.create_subprocess_exec(
-                        "adb",
-                        "-s",
-                        self.device_id,
-                        "shell",
-                        f"ip addr show {interface} | grep 'inet ' | head -1 | awk '{{print $2}}' | cut -d'/' -f1",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
+                    shell_cmd = (
+                        f"ip addr show {interface} | grep 'inet ' | head -1 "
+                        f"| awk '{{print $2}}' | cut -d'/' -f1"
                     )
-                    stdout, stderr = await process.communicate()
+                    stdout, _, return_code = await execute_adb_shell(
+                        device_id=self.device_id,
+                        shell_command=shell_cmd
+                    )
 
-                    if process.returncode == 0:
-                        ip = stdout.decode().strip()
+                    if return_code == 0:
+                        ip = stdout.strip()
                         if ip and ip != "127.0.0.1" and not ip.startswith("169.254"):
                             self.device_ip = ip
                             self.frida_host = ip
                             logger.info(
-                                f"Found device IP: {self.device_ip} on interface {interface}"
+                                "Found device IP: %s on interface %s",
+                                self.device_ip,
+                                interface,
                             )
                             return
 
                 except Exception as e:
-                    logger.debug(f"Failed to get IP from {interface}: {str(e)}")
+                    logger.debug("Failed to get IP from %s: %s", interface, str(e))
                     continue
 
             logger.warning(
-                f"Could not determine device IP via ADB, falling back to localhost with port forwarding"
+                "Could not determine device IP via ADB, "
+                "falling back to localhost with port forwarding"
             )
             self.device_ip = "localhost"
             self.frida_host = "localhost"
             await self.setup_port_forwarding()
 
         except Exception as e:
-            logger.error(f"Error getting device IP via ADB: {str(e)}")
+            logger.error("Error getting device IP via ADB: %s", str(e))
             self.device_ip = "localhost"
             self.frida_host = "localhost"
             await self.setup_port_forwarding()
@@ -179,33 +189,29 @@ class FridaManager(BaseWebSocketManager):
             self.frida_port = self.adb_forward_port
 
             logger.info(
-                f"Setting up port forwarding {self.adb_forward_port}:27042 for device {self.device_id}"
+                "Setting up port forwarding %s:27042 for device %s",
+                self.adb_forward_port,
+                self.device_id,
             )
 
             await self.remove_port_forwarding()
 
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "forward",
-                f"tcp:{self.adb_forward_port}",
-                "tcp:27042",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            _, stderr, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command=f"forward tcp:{self.adb_forward_port} tcp:27042"
             )
-            stdout, stderr = await process.communicate()
 
-            if process.returncode == 0:
+            if return_code == 0:
                 logger.info(
-                    f"Port forwarding setup successful: {self.adb_forward_port}:27042"
+                    "Port forwarding setup successful: %s:27042",
+                    self.adb_forward_port,
                 )
             else:
-                logger.error(f"Failed to setup port forwarding: {stderr.decode()}")
-                raise Exception(f"Port forwarding failed: {stderr.decode()}")
+                logger.error("Failed to setup port forwarding: %s", stderr)
+                raise RuntimeError(f"Port forwarding failed: {stderr}")
 
         except Exception as e:
-            logger.error(f"Error setting up port forwarding: {str(e)}")
+            logger.error("Error setting up port forwarding: %s", str(e))
             raise
 
     async def find_available_port(self, start_port: int = 27043) -> int:
@@ -222,48 +228,33 @@ class FridaManager(BaseWebSocketManager):
                 s.settimeout(1)
                 result = s.connect_ex(("localhost", port))
                 return result != 0
-        except:
+        except (OSError, socket.error):
             return False
 
     async def remove_port_forwarding(self):
         """Remove existing port forwarding for this device"""
         try:
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "forward",
-                "--remove-all",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await process.communicate()
+            _, _, _ = await remove_all_port_forwarding(device_id=self.device_id)
         except Exception as e:
-            logger.warning(f"Error removing port forwarding: {str(e)}")
+            logger.warning("Error removing port forwarding: %s", str(e))
 
     async def get_frida_connection_args(self) -> List[str]:
         """Get Frida connection arguments"""
         if self.frida_host and self.frida_port:
             return ["-H", f"{self.frida_host}:{self.frida_port}"]
-        else:
-            return ["-U"]
+
+        return ["-U"]
 
     async def detect_device_architecture(self):
         """Detect device architecture"""
         try:
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                "getprop ro.product.cpu.abi",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command="getprop ro.product.cpu.abi"
             )
-            stdout, stderr = await process.communicate()
 
-            if process.returncode == 0:
-                arch = stdout.decode().strip()
+            if return_code == 0:
+                arch = stdout.strip()
                 arch_map = {
                     "arm64-v8a": "arm64",
                     "armeabi-v7a": "arm",
@@ -271,86 +262,68 @@ class FridaManager(BaseWebSocketManager):
                     "x86": "x86",
                 }
                 self.device_arch = arch_map.get(arch, arch)
-                logger.info(f"Device architecture: {self.device_arch}")
+                logger.info("Device architecture: %s", self.device_arch)
             else:
-                logger.warning(f"Failed to detect architecture: {stderr.decode()}")
+                logger.warning("Failed to detect architecture")
                 self.device_arch = "arm64"
 
         except Exception as e:
-            logger.error(f"Error detecting device architecture: {str(e)}")
+            logger.error("Error detecting device architecture: %s", str(e))
             self.device_arch = "arm64"
 
     async def check_frida_installation(self) -> bool:
         """Check if Frida server is installed on device"""
         try:
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                "ls /data/local/tmp/frida-server",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            _, _, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command="ls /data/local/tmp/frida-server"
             )
-            stdout, stderr = await process.communicate()
 
-            installed = process.returncode == 0
-            logger.info(f"Frida server installed: {installed}")
+            installed = return_code == 0
+            logger.info("Frida server installed: %s", installed)
             return installed
 
         except Exception as e:
-            logger.error(f"Error checking Frida installation: {str(e)}")
+            logger.error("Error checking Frida installation: %s", str(e))
             return False
 
     async def check_frida_server_status(self) -> bool:
         """Check if Frida server is running"""
         try:
-            process1 = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                "ps | grep frida-server",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command="ps | grep frida-server"
             )
-            stdout, stderr = await process1.communicate()
 
-            output = stdout.decode().strip()
+            output = stdout.strip()
             if output and "frida-server" in output:
-                logger.info(f"Frida server running (ps method): True")
+                logger.info("Frida server running (ps method): True")
                 return True
 
-            logger.info(f"Frida server running: False")
+            logger.info("Frida server running: False")
             return False
 
         except Exception as e:
-            logger.error(f"Error checking Frida server status: {str(e)}")
+            logger.error("Error checking Frida server status: %s", str(e))
             return False
 
     async def _kill_frida_server(self):
         """Kill Frida server processes using su privileges"""
         try:
-            kill_process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                "su 0 pkill frida-server",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            _, _, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command="su 0 pkill frida-server"
             )
-            await kill_process.communicate()
 
             await asyncio.sleep(1)
 
         except Exception as e:
-            logger.warning(f"Error killing Frida server: {str(e)}")
+            logger.warning("Error killing Frida server: %s", str(e))
 
     async def install_frida_server(self):
         """Install Frida server on device"""
         try:
-            logger.info(f"Installing Frida server for {self.device_arch}")
+            logger.info("Installing Frida server for %s", self.device_arch)
 
             await self.send_response(
                 {
@@ -361,7 +334,11 @@ class FridaManager(BaseWebSocketManager):
                 }
             )
 
-            frida_url = f"https://github.com/frida/frida/releases/download/{self.frida_version}/frida-server-{self.frida_version}-android-{self.device_arch}.xz"
+            frida_url = (
+                f"https://github.com/frida/frida/releases/download/"
+                f"{self.frida_version}/frida-server-"
+                f"{self.frida_version}-android-{self.device_arch}.xz"
+            )
 
             with tempfile.TemporaryDirectory() as temp_dir:
                 frida_xz_path = os.path.join(temp_dir, "frida-server.xz")
@@ -413,34 +390,21 @@ class FridaManager(BaseWebSocketManager):
                     }
                 )
 
-                push_process = await asyncio.create_subprocess_exec(
-                    "adb",
-                    "-s",
-                    self.device_id,
-                    "push",
-                    frida_path,
-                    "/data/local/tmp/frida-server",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                _, _, return_code = await execute_adb_shell(
+                    device_id=self.device_id,
+                    shell_command=f"push {frida_path} /data/local/tmp/frida-server"
                 )
-                await push_process.communicate()
 
-                if push_process.returncode != 0:
+                if return_code != 0:
                     await self.send_error("Failed to push Frida server to device")
                     return
 
-                chmod_process = await asyncio.create_subprocess_exec(
-                    "adb",
-                    "-s",
-                    self.device_id,
-                    "shell",
-                    "chmod 755 /data/local/tmp/frida-server",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                _, _, return_code = await execute_adb_shell(
+                    device_id=self.device_id,
+                    shell_command="chmod 755 /data/local/tmp/frida-server"
                 )
-                await chmod_process.communicate()
 
-                if chmod_process.returncode != 0:
+                if return_code != 0:
                     await self.send_error(
                         "Failed to set executable permissions for Frida server"
                     )
@@ -456,7 +420,7 @@ class FridaManager(BaseWebSocketManager):
                 )
 
         except Exception as e:
-            logger.error(f"Error installing Frida server: {str(e)}")
+            logger.error("Error installing Frida server: %s", str(e))
             await self.send_error(f"Error installing Frida server: {str(e)}")
 
     async def start_frida_server(self):
@@ -477,16 +441,16 @@ class FridaManager(BaseWebSocketManager):
 
             await self._kill_frida_server()
 
-            self.frida_server_process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                "nohup su 0 /data/local/tmp/frida-server -l 0.0.0.0:27042 > /dev/null 2>&1 &",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command="nohup su 0 /data/local/tmp/frida-server -l 0.0.0.0:27042 > /dev/null 2>&1 &"
             )
-            await self.frida_server_process.communicate()
+
+            if return_code != 0:
+                await self.send_error("Failed to start Frida server")
+                return
+
+            self.frida_server_process = stdout
 
             await asyncio.sleep(3)
 
@@ -506,7 +470,7 @@ class FridaManager(BaseWebSocketManager):
             )
 
         except Exception as e:
-            logger.error(f"Error starting Frida server: {str(e)}")
+            logger.error("Error starting Frida server: %s", str(e))
             await self.send_error(f"Error starting Frida server: {str(e)}")
 
     async def stop_frida_server(self):
@@ -532,13 +496,13 @@ class FridaManager(BaseWebSocketManager):
             )
 
         except Exception as e:
-            logger.error(f"Error stopping Frida server: {str(e)}")
+            logger.error("Error stopping Frida server: %s", str(e))
             await self.send_error(f"Error stopping Frida server: {str(e)}")
 
     async def load_script(self, script_name: str, script_content: str = None):
         """Load a Frida script - saves script to system"""
         try:
-            logger.info(f"Loading script: {script_name}")
+            logger.info("Loading script: %s", script_name)
 
             existing_script = await self.script_service.get_script_by_name(script_name)
 
@@ -568,7 +532,7 @@ class FridaManager(BaseWebSocketManager):
             )
 
         except Exception as e:
-            logger.error(f"Error loading script: {str(e)}")
+            logger.error("Error loading script: %s", str(e))
             await self.send_error(f"Error loading script: {str(e)}")
 
     async def _read_frida_output(self, script_name: str):
@@ -588,10 +552,10 @@ class FridaManager(BaseWebSocketManager):
                     os.unlink(self.current_script_file)
                     self.current_script_file = None
                 except Exception as e:
-                    logger.warning(f"Failed to clean up script file: {str(e)}")
+                    logger.warning("Failed to clean up script file: %s", str(e))
 
         except Exception as e:
-            logger.error(f"Error in Frida output reader: {str(e)}")
+            logger.error("Error in Frida output reader: %s", str(e))
 
     async def _read_stream(self, stream, script_name: str, stream_type: str):
         """Read output from a specific stream (stdout or stderr)"""
@@ -605,7 +569,7 @@ class FridaManager(BaseWebSocketManager):
                             processed_output = self._process_frida_output(output)
                             if processed_output:
                                 logger.info(
-                                    f"Frida {stream_type} output: {processed_output}"
+                                    "Frida %s output: %s", stream_type, processed_output
                                 )
                                 await self.send_response(
                                     {
@@ -619,11 +583,11 @@ class FridaManager(BaseWebSocketManager):
                 except asyncio.TimeoutError:
                     continue
                 except Exception as e:
-                    logger.error(f"Error reading Frida {stream_type}: {str(e)}")
+                    logger.error("Error reading Frida %s: %s", stream_type, str(e))
                     break
 
         except Exception as e:
-            logger.error(f"Error in Frida {stream_type} reader: {str(e)}")
+            logger.error("Error in Frida %s reader: %s", stream_type, str(e))
 
     def _process_frida_output(self, output: str) -> str:
         """Process and clean up Frida output"""
@@ -657,26 +621,23 @@ class FridaManager(BaseWebSocketManager):
 
             if "{'type': 'send', 'payload':" in output:
                 try:
-                    import re
 
                     match = re.search(r"'payload': '([^']*)'", output)
                     if match:
                         payload = match.group(1)
                         return payload
                 except Exception as e:
-                    logger.debug(f"Error parsing Frida message: {e}")
+                    logger.debug("Error parsing Frida message: %s", e)
                     return output
 
             if '"payload":' in output:
                 try:
-                    import re
-
                     match = re.search(r'"payload":\s*"([^"]*)"', output)
                     if match:
                         payload = match.group(1)
                         return payload
                 except Exception as e:
-                    logger.debug(f"Error parsing JSON message: {e}")
+                    logger.debug("Error parsing JSON message: %s", e)
                     return output
 
             if "console.log" in output.lower() or "[INFO]" in output:
@@ -688,13 +649,13 @@ class FridaManager(BaseWebSocketManager):
             return output.strip()
 
         except Exception as e:
-            logger.debug(f"Error processing Frida output: {e}")
+            logger.debug("Error processing Frida output: %s", e)
             return output
 
     async def run_script(self, script_name: str, target_process: str):
         """Run a Frida script against a target process"""
         try:
-            logger.info(f"Running script '{script_name}' against '{target_process}'")
+            logger.info("Running script '%s' against '%s'", script_name, target_process)
 
             script_content = await self.script_service.get_script_content(script_name)
             if script_content is None:
@@ -744,7 +705,7 @@ class FridaManager(BaseWebSocketManager):
                     ]
                 )
 
-            logger.info(f"Running Frida command: {' '.join(cmd)}")
+            logger.info("Running Frida command: %s", " ".join(cmd))
 
             self.frida_process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -769,114 +730,34 @@ class FridaManager(BaseWebSocketManager):
             )
 
         except Exception as e:
-            logger.error(f"Error running script: {str(e)}")
+            logger.error("Error running script: %s", str(e))
             await self.send_error(f"Error running script: {str(e)}")
 
     async def stop_script(self, script_name: str):
         """Stop running Frida script"""
         try:
             if self.frida_process:
-                logger.info(f"Stopping script '{script_name}'")
+                logger.info("Stopping script '%s'", script_name)
 
                 if self.frida_process.returncode is not None:
                     logger.info(
-                        f"Process already terminated with code: {self.frida_process.returncode}"
+                        "Process already terminated with code: %s",
+                        self.frida_process.returncode,
                     )
-
-                    if (
-                        self.process_monitor_task
-                        and not self.process_monitor_task.done()
-                    ):
-                        self.process_monitor_task.cancel()
-                        logger.info("Cancelled process monitor task")
-
-                    self.frida_process = None
-                    self.current_script_name = None
-                    self.process_monitor_task = None
-
-                    if self.current_script_file and os.path.exists(
-                        self.current_script_file
-                    ):
-                        try:
-                            os.unlink(self.current_script_file)
-                            self.current_script_file = None
-                        except Exception as e:
-                            logger.warning(f"Failed to clean up script file: {str(e)}")
-
-                    await self.send_response(
-                        {
-                            "type": "frida",
-                            "action": "script_stopped",
-                            "script_name": script_name,
-                            "message": f"Script '{script_name}' was already completed",
-                        }
-                    )
+                    await self._handle_already_terminated_process(script_name)
                     return
 
                 if self.process_monitor_task and not self.process_monitor_task.done():
                     self.process_monitor_task.cancel()
                     logger.info("Cancelled process monitor task")
 
-                try:
-                    self.frida_process.terminate()
-                    logger.info(f"Sent SIGTERM to process")
-                except ProcessLookupError:
-                    logger.info(f"Process already terminated")
-                    self.frida_process = None
-                except Exception as e:
-                    logger.warning(
-                        f"Error terminating process: {str(e)} ({type(e).__name__})"
-                    )
+                await self._terminate_frida_process()
+                await self._wait_for_process_termination()
+                self._cleanup_script_resources()
 
-                if self.frida_process:
-                    try:
-                        await asyncio.wait_for(self.frida_process.wait(), timeout=5.0)
-                        logger.info(f"Process terminated gracefully")
-                    except asyncio.TimeoutError:
-                        logger.warning(
-                            f"Process did not terminate gracefully, forcing kill"
-                        )
-                        try:
-                            self.frida_process.kill()
-                            await self.frida_process.wait()
-                            logger.info(f"Process force killed")
-                        except ProcessLookupError:
-                            logger.info(f"Process already terminated during force kill")
-                        except Exception as e:
-                            logger.error(
-                                f"Error force killing process: {str(e)} ({type(e).__name__})"
-                            )
-                    except Exception as e:
-                        logger.error(
-                            f"Error waiting for process termination: {str(e)} ({type(e).__name__})"
-                        )
-
-                self.frida_process = None
-                self.current_script_name = None
-                self.process_monitor_task = None
-
-                if self.current_script_file and os.path.exists(
-                    self.current_script_file
-                ):
-                    try:
-                        os.unlink(self.current_script_file)
-                        self.current_script_file = None
-                        logger.info(f"Cleaned up script file")
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to clean up script file: {str(e)} ({type(e).__name__})"
-                        )
-
-                await self.send_response(
-                    {
-                        "type": "frida",
-                        "action": "script_stopped",
-                        "script_name": script_name,
-                        "message": f"Script '{script_name}' stopped",
-                    }
-                )
+                await self._notify_script_stopped(script_name, f"Script '{script_name}' stopped")
             else:
-                logger.info(f"No script process to stop")
+                logger.info("No script process to stop")
                 await self.send_response(
                     {
                         "type": "frida",
@@ -922,17 +803,17 @@ class FridaManager(BaseWebSocketManager):
                     if test_process.returncode == 0:
                         cmd = test_cmd
                         break
-                    else:
-                        logger.debug(f"Failed to run {path}: {stderr.decode()}")
+
+                    logger.debug("Failed to run %s: %s", path, stderr.decode())
                 except Exception as e:
-                    logger.debug(f"Error testing {path}: {str(e)}")
+                    logger.debug("Error testing %s: %s", path, str(e))
                     continue
 
             if not cmd:
                 await self.send_error("frida-ps not found or not working")
                 return
 
-            logger.info(f"Running frida-ps command: {' '.join(cmd)}")
+            logger.info("Running frida-ps command: %s", " ".join(cmd))
 
             process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -970,7 +851,7 @@ class FridaManager(BaseWebSocketManager):
                 await self.send_error(f"Failed to list processes: {error_msg}")
 
         except Exception as e:
-            logger.error(f"Error listing processes: {str(e)}")
+            logger.error("Error listing processes: %s", str(e))
             await self.send_error(f"Error listing processes: {str(e)}")
 
     async def list_scripts(self):
@@ -987,13 +868,13 @@ class FridaManager(BaseWebSocketManager):
                 }
             )
         except Exception as e:
-            logger.error(f"Error listing scripts: {str(e)}")
+            logger.error("Error listing scripts: %s", str(e))
             await self.send_error(f"Error listing scripts: {str(e)}")
 
     async def get_script_info(self, script_name: str):
         """Get information about a specific script"""
         try:
-            logger.info(f"Getting script info: {script_name}")
+            logger.info("Getting script info: %s", script_name)
             script_info = await self.script_service.get_script_by_name(script_name)
 
             if script_info:
@@ -1007,13 +888,13 @@ class FridaManager(BaseWebSocketManager):
             else:
                 await self.send_error(f"Script '{script_name}' not found")
         except Exception as e:
-            logger.error(f"Error getting script info: {str(e)}")
+            logger.error("Error getting script info: %s", str(e))
             await self.send_error(f"Error getting script info: {str(e)}")
 
     async def delete_script(self, script_name: str):
         """Delete a script"""
         try:
-            logger.info(f"Deleting script: {script_name}")
+            logger.info("Deleting script: %s", script_name)
             success = await self.script_service.delete_script(script_name)
 
             if success:
@@ -1028,7 +909,7 @@ class FridaManager(BaseWebSocketManager):
             else:
                 await self.send_error(f"Failed to delete script '{script_name}'")
         except Exception as e:
-            logger.error(f"Error deleting script: {str(e)}")
+            logger.error("Error deleting script: %s", str(e))
             await self.send_error(f"Error deleting script: {str(e)}")
 
     async def get_script_stats(self):
@@ -1045,13 +926,13 @@ class FridaManager(BaseWebSocketManager):
                 }
             )
         except Exception as e:
-            logger.error(f"Error getting script stats: {str(e)}")
+            logger.error("Error getting script stats: %s", str(e))
             await self.send_error(f"Error getting script stats: {str(e)}")
 
     async def install_app(self, file_hash: str, app_name: str):
         """Install an APK file on the device"""
         try:
-            logger.info(f"Installing app: {app_name} ({file_hash})")
+            logger.info("Installing app: %s (%s)", app_name, file_hash)
 
             await self.send_response(
                 {
@@ -1061,8 +942,6 @@ class FridaManager(BaseWebSocketManager):
                     "file_hash": file_hash,
                 }
             )
-
-            from app.core.app_manager import AsyncStorageService
 
             storage = AsyncStorageService()
 
@@ -1111,20 +990,12 @@ class FridaManager(BaseWebSocketManager):
                 }
             )
 
-            install_process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "install",
-                "-r",
-                apk_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, stderr, return_code = await execute_adb_command(
+                device_id=self.device_id,
+                command=["install", "-r", apk_path]
             )
 
-            stdout, stderr = await install_process.communicate()
-
-            if install_process.returncode == 0:
+            if return_code == 0:
                 success_msg = f"Successfully installed {app_name}"
                 logger.info(success_msg)
                 await self.send_response(
@@ -1137,7 +1008,7 @@ class FridaManager(BaseWebSocketManager):
                 )
             else:
                 error_output = (
-                    stderr.decode().strip() if stderr else stdout.decode().strip()
+                    stderr.strip() if stderr else stdout.strip()
                 )
                 error_msg = f"Failed to install {app_name}: {error_output}"
                 logger.error(error_msg)
@@ -1159,19 +1030,19 @@ class FridaManager(BaseWebSocketManager):
     async def handle_message(self, data: str):
         """Handle incoming messages from WebSocket"""
         try:
-            logger.info(f"Received Frida message: {data}")
+            logger.info("Received Frida message: %s", data)
 
             message = json.loads(data)
             if message.get("type") == "frida":
                 await self.handle_frida_command(message)
             else:
-                logger.warning(f"Unknown message type: {message.get('type')}")
+                logger.warning("Unknown message type: %s", message.get("type"))
 
         except json.JSONDecodeError:
             logger.error("Invalid JSON in Frida message")
             await self.send_error("Invalid JSON format")
         except Exception as e:
-            logger.error(f"Error handling Frida message: {str(e)}")
+            logger.error("Error handling Frida message: %s", str(e))
             await self.send_error(f"Error processing message: {str(e)}")
 
     async def handle_frida_command(self, message: Dict[str, Any]):
@@ -1219,7 +1090,7 @@ class FridaManager(BaseWebSocketManager):
                 }
             )
         else:
-            logger.warning(f"Unknown Frida action: {action}")
+            logger.warning("Unknown Frida action: %s", action)
             await self.send_error(f"Unknown action: {action}")
 
     async def stop(self):
@@ -1237,7 +1108,7 @@ class FridaManager(BaseWebSocketManager):
             try:
                 self.frida_process.terminate()
                 await self.frida_process.wait()
-            except:
+            except (ProcessLookupError, AttributeError):
                 pass
 
         self.frida_process = None
@@ -1248,13 +1119,13 @@ class FridaManager(BaseWebSocketManager):
             try:
                 os.unlink(self.current_script_file)
                 self.current_script_file = None
-            except:
+            except (OSError, FileNotFoundError):
                 pass
 
         if self.frida_host == "localhost" and hasattr(self, "adb_forward_port"):
             await self.remove_port_forwarding()
 
-        logger.info(f"Frida manager stopped for device {self.device_id}")
+        logger.info("Frida manager stopped for device %s", self.device_id)
 
     async def _monitor_process_completion(self, script_name: str):
         """Monitor Frida process completion"""
@@ -1262,19 +1133,19 @@ class FridaManager(BaseWebSocketManager):
             if not self.frida_process:
                 return
 
-            logger.info(f"Starting process monitor for script '{script_name}'")
+            logger.info("Starting process monitor for script '%s'", script_name)
 
             returncode = await self.frida_process.wait()
 
-            logger.info(f"Process completed with return code: {returncode}")
+            logger.info("Process completed with return code: %s", returncode)
 
             if self.current_script_file and os.path.exists(self.current_script_file):
                 try:
                     os.unlink(self.current_script_file)
                     self.current_script_file = None
-                    logger.info(f"Cleaned up script file")
+                    logger.info("Cleaned up script file")
                 except Exception as e:
-                    logger.warning(f"Failed to clean up script file: {str(e)}")
+                    logger.warning("Failed to clean up script file: %s", str(e))
 
             self.frida_process = None
             self.current_script_name = None
@@ -1296,7 +1167,10 @@ class FridaManager(BaseWebSocketManager):
                         "type": "frida",
                         "action": "script_completed",
                         "script_name": script_name,
-                        "message": f"Script '{script_name}' completed with errors (code: {returncode})",
+                        "message": (
+                            f"Script '{script_name}' completed "
+                            f"with errors (code: {returncode})"
+                        ),
                         "return_code": returncode,
                     }
                 )
@@ -1320,3 +1194,96 @@ class FridaManager(BaseWebSocketManager):
                     "return_code": -1,
                 }
             )
+
+    async def _notify_script_stopped(self, script_name: str, message: str):
+        """Send notification that script was stopped"""
+        await self.send_response(
+            {
+                "type": "frida",
+                "action": "script_stopped",
+                "script_name": script_name,
+                "message": message,
+            }
+        )
+
+    async def _terminate_frida_process(self):
+        """Terminate Frida process gracefully"""
+        try:
+            self.frida_process.terminate()
+            logger.info("Sent SIGTERM to process")
+        except ProcessLookupError:
+            logger.info("Process already terminated")
+            self.frida_process = None
+        except Exception as e:
+            logger.warning(
+                "Error terminating process: %s (%s)",
+                str(e),
+                type(e).__name__,
+            )
+
+    async def _wait_for_process_termination(self):
+        """Wait for process to terminate, with timeout and kill fallback"""
+        if not self.frida_process:
+            return
+
+        try:
+            await asyncio.wait_for(self.frida_process.wait(), timeout=5.0)
+            logger.info("Process terminated gracefully")
+        except asyncio.TimeoutError:
+            logger.warning("Process did not terminate gracefully, forcing kill")
+            try:
+                self.frida_process.kill()
+                await self.frida_process.wait()
+                logger.info("Process force killed")
+            except ProcessLookupError:
+                logger.info("Process already terminated during force kill")
+            except Exception as e:
+                logger.error(
+                    "Error force killing process: %s (%s)",
+                    str(e),
+                    type(e).__name__,
+                )
+        except Exception as e:
+            logger.error(
+                "Error waiting for process termination: %s (%s)",
+                str(e),
+                type(e).__name__,
+            )
+
+    def _cleanup_script_resources(self):
+        """Clean up script file and reset process state"""
+        self.frida_process = None
+        self.current_script_name = None
+        self.process_monitor_task = None
+
+        if self.current_script_file and os.path.exists(self.current_script_file):
+            try:
+                os.unlink(self.current_script_file)
+                self.current_script_file = None
+                logger.info("Cleaned up script file")
+            except Exception as e:
+                logger.warning(
+                    "Failed to clean up script file: %s (%s)",
+                    str(e),
+                    type(e).__name__,
+                )
+
+    async def _handle_already_terminated_process(self, script_name: str):
+        """Handle case when process is already terminated"""
+        if (
+            self.process_monitor_task
+            and not self.process_monitor_task.done()
+        ):
+            self.process_monitor_task.cancel()
+            logger.info("Cancelled process monitor task")
+
+        self._cleanup_script_resources()
+
+        await self.send_response(
+            {
+                "type": "frida",
+                "action": "script_stopped",
+                "script_name": script_name,
+                "message": f"Script '{script_name}' was already completed",
+            }
+        )

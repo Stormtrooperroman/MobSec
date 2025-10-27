@@ -1,9 +1,8 @@
 import asyncio
 import logging
-from typing import Optional, Dict
-from fastapi import WebSocket
+
 import aiohttp
-from urllib.parse import urlparse, parse_qs
+from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +40,10 @@ class WebSocketProxy:
         self._session = aiohttp.ClientSession()
         self.device_id = device_id
         self.logger.info(
-            f"Initializing WebSocket proxy for device '{device_id}' (len: {len(device_id)}) on port {remote_port}"
+            "Initializing WebSocket proxy for device '%s' (len: %s) on port %s",
+            device_id,
+            len(device_id),
+            remote_port,
         )
         try:
             self.remote_port = remote_port
@@ -69,10 +71,10 @@ class WebSocketProxy:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await forward_process.communicate()
+            _, stderr = await forward_process.communicate()
 
             if forward_process.returncode != 0:
-                raise Exception(f"Failed to setup port forwarding: {stderr.decode()}")
+                raise RuntimeError(f"Failed to setup port forwarding: {stderr.decode()}")
 
             max_retries = 5
             retry_delay = 1
@@ -81,7 +83,9 @@ class WebSocketProxy:
                 try:
                     ws_url = f"ws://127.0.0.1:{self.local_port}/"
                     self.logger.info(
-                        f"Attempting WebSocket connection to {ws_url} (attempt {attempt + 1})"
+                        "Attempting WebSocket connection to %s (attempt %s)",
+                        ws_url,
+                        attempt + 1,
                     )
 
                     self.device_ws = await self._session.ws_connect(
@@ -89,15 +93,21 @@ class WebSocketProxy:
                     )
 
                     self.logger.info(
-                        f"WebSocket connection established for device {device_id} (local:{self.local_port} -> remote:{self.remote_port})"
+                        "WebSocket connection established for device %s "
+                        "(local:%s -> remote:%s)",
+                        device_id,
+                        self.local_port,
+                        self.remote_port,
                     )
 
                     self._start_device_message_handler()
                     return
 
-                except Exception as e:
+                except (RuntimeError, ConnectionError) as e:
                     self.logger.warning(
-                        f"Connection attempt {attempt + 1} failed: {str(e)}"
+                        "Connection attempt %s failed: %s",
+                        attempt + 1,
+                        str(e),
                     )
                     if (
                         "Connection refused" in str(e)
@@ -111,9 +121,9 @@ class WebSocketProxy:
                     else:
                         raise
 
-        except Exception as e:
+        except (RuntimeError, ConnectionError) as e:
             await self.cleanup()
-            self.logger.error(f"Failed to initialize WebSocket proxy: {str(e)}")
+            self.logger.error("Failed to initialize WebSocket proxy: %s", str(e))
             raise
 
     async def handle_client_message(self, message: str):
@@ -122,10 +132,12 @@ class WebSocketProxy:
         """
         if self.device_ws and not self.device_ws.closed:
             try:
-                self.logger.info(f"Sending text to device {self.device_id}: {message}")
+                self.logger.info(
+                    "Sending text to device %s: %s", self.device_id, message
+                )
                 await self.device_ws.send_str(message)
-            except Exception as e:
-                self.logger.error(f"Error sending message to device: {str(e)}")
+            except (RuntimeError, ConnectionError) as e:
+                self.logger.error("Error sending message to device: %s", str(e))
                 await self.cleanup()
 
     async def handle_client_binary(self, data: bytes):
@@ -135,8 +147,8 @@ class WebSocketProxy:
         if self.device_ws and not self.device_ws.closed:
             try:
                 await self.device_ws.send_bytes(data)
-            except Exception as e:
-                self.logger.error(f"Error sending binary data to device: {str(e)}")
+            except (RuntimeError, ConnectionError) as e:
+                self.logger.error("Error sending binary data to device: %s", str(e))
                 await self.cleanup()
 
     def _start_device_message_handler(self):
@@ -150,18 +162,15 @@ class WebSocketProxy:
                     if msg.type == aiohttp.WSMsgType.TEXT:
                         await self.client_ws.send_text(msg.data)
                     elif msg.type == aiohttp.WSMsgType.BINARY:
-                        data_preview = (
-                            msg.data[:20] if len(msg.data) >= 20 else msg.data
-                        )
                         await self.client_ws.send_bytes(msg.data)
                     elif msg.type == aiohttp.WSMsgType.ERROR:
-                        self.logger.error(f"WebSocket error: {str(msg.data)}")
+                        self.logger.error("WebSocket error: %s", str(msg.data))
                         break
                     elif msg.type == aiohttp.WSMsgType.CLOSED:
                         self.logger.info("Device WebSocket closed")
                         break
-            except Exception as e:
-                self.logger.error(f"Error handling device messages: {str(e)}")
+            except (RuntimeError, ConnectionError) as e:
+                self.logger.error("Error handling device messages: %s", str(e))
             finally:
                 await self.cleanup()
 
@@ -189,18 +198,20 @@ class WebSocketProxy:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, stderr = await remove_process.communicate()
+                _, stderr = await remove_process.communicate()
 
                 if remove_process.returncode != 0:
                     self.logger.error(
-                        f"Failed to remove port forwarding: {stderr.decode()}"
+                        "Failed to remove port forwarding: %s",
+                        stderr.decode(),
                     )
                 else:
                     self.logger.info(
-                        f"Successfully removed port forwarding for {self.device_id}"
+                        "Successfully removed port forwarding for %s",
+                        self.device_id,
                     )
-        except Exception as e:
-            self.logger.error(f"Error during cleanup: {str(e)}")
+        except (RuntimeError, ConnectionError) as e:
+            self.logger.error("Error during cleanup: %s", str(e))
 
     async def close(self):
         """
