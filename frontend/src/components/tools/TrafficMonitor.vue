@@ -286,14 +286,6 @@
                     <font-awesome-icon icon="eye" />
                   </button>
                   <button 
-                    v-if="entry.intercepted"
-                    @click.stop="resumeFlow(entry.id)" 
-                    class="action-btn"
-                    title="Resume flow"
-                  >
-                    <font-awesome-icon icon="play" />
-                  </button>
-                  <button 
                     @click.stop="killFlow(entry.id)" 
                     class="action-btn delete-btn"
                     title="Stop flow"
@@ -1155,32 +1147,19 @@ export default {
       try {
         this.isLoading = true
         
-        if (entry.id) {
-          const response = await axios.get(`/api/v1/mitmproxy/flows/${entry.id}`, {
-            params: { device_id: this.deviceId }
-          })
-          
-          if (response.data) {
-            this.selectedEntry = this.convertFlowToTrafficEntry(response.data)
-            this.selectedEntry.detailed = true
-            
-            this.selectedEntry.request_view = 'auto'
-            this.selectedEntry.response_view = 'auto'
-            
-            // Content will be loaded in the modal component
-            this.selectedEntry.request_content = ''
-            this.selectedEntry.response_content = ''
-          } else {
-            this.selectedEntry = entry
-          }
-        } else {
-          this.selectedEntry = entry
-        }
+        // Use local entry data instead of fetching (flows might be cleared)
+        this.selectedEntry = { ...entry }
+        this.selectedEntry.request_view = 'auto'
+        this.selectedEntry.response_view = 'auto'
+        
+        // Content will be loaded in the modal component
+        this.selectedEntry.request_content = null
+        this.selectedEntry.response_content = null
         
         this.showDetailsModal = true
       } catch (error) {
-        console.error('Error getting flow details:', error)
-        this.selectedEntry = entry
+        console.error('Error opening flow details:', error)
+        this.selectedEntry = { ...entry }
         this.showDetailsModal = true
       } finally {
         this.isLoading = false
@@ -1188,34 +1167,6 @@ export default {
     },
 
 
-
-    async resumeFlow(flowId) {
-      try {
-        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "resume_flow",
-            device_id: this.deviceId,
-            flow_id: flowId
-          }))
-        } else {
-          const response = await axios.post(`/api/v1/mitmproxy/flows/${flowId}/resume`, {
-            device_id: this.deviceId
-          })
-          
-          if (response.data.status === 'success') {
-            this.$emit('success', 'Flow resumed')
-            const index = this.trafficData.findIndex(entry => entry.id === flowId)
-            if (index !== -1) {
-              this.trafficData[index].intercepted = false
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error resuming flow:', error)
-        this.$emit('error', 'Error resuming flow: ' + (error.response?.data?.detail || error.message))
-      }
-    },
 
     async killFlow(flowId) {
       try {
@@ -1318,8 +1269,11 @@ export default {
           
         case 'flows':
           if (data.data && Array.isArray(data.data)) {
-            this.trafficData = data.data.map(flow => this.convertFlowToTrafficEntry(flow))
-            this.applyFilters()
+            // Don't replace if empty array received (might be temporary)
+            if (data.data.length > 0 || this.trafficData.length === 0) {
+              this.trafficData = data.data.map(flow => this.convertFlowToTrafficEntry(flow))
+              this.applyFilters()
+            }
           }
           break
           
@@ -1422,18 +1376,6 @@ export default {
           }
           break
           
-        case 'flow_resumed':
-          if (data.success) {
-            this.$emit('success', 'Flow resumed')
-            const index = this.trafficData.findIndex(entry => entry.id === data.flow_id)
-            if (index !== -1) {
-              this.trafficData[index].intercepted = false
-            }
-          } else {
-            this.$emit('error', 'Error resuming flow')
-          }
-          break
-          
         case 'flow_killed':
           if (data.success) {
             this.$emit('success', 'Flow stopped')
@@ -1528,11 +1470,6 @@ export default {
           response_content: '', 
           request_view: 'auto', 
           response_view: 'auto', 
-          intercepted: flow.intercepted || false,
-          is_replay: flow.is_replay || false,
-          modified: flow.modified || false,
-          marked: flow.marked || '',
-          comment: flow.comment || '',
           type: flow.type || 'http',
           client_conn: flow.client_conn || null,
           server_conn: flow.server_conn || null,
@@ -1543,15 +1480,15 @@ export default {
     startAutoRefresh() {
       this.stopAutoRefresh()
       
-      this.refreshInterval = setInterval(() => {
-        if (this.status.proxy_running && this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "get_flows",
-            device_id: this.deviceId
-          }))
-        }
-      }, 5000) 
+      // Don't periodically request flows - rely on WebSocket events (flow_add, flow_update)
+      // Only request initial state once
+      if (this.status.proxy_running && this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
+        this.mitmproxyWebSocket.send(JSON.stringify({
+          type: "mitmproxy",
+          action: "get_state",
+          device_id: this.deviceId
+        }))
+      }
       
       this.autoRefresh = true
     },
@@ -1598,8 +1535,8 @@ export default {
     openMitmproxyWebSocket() {
       try {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80')
-        const mitmproxyWsUrl = `${wsProtocol}//${window.location.hostname}:${port}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=mitmproxy`
+        const wsHost = window.location.host
+        const mitmproxyWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=mitmproxy`
         
         if (this.mitmproxyWebSocket) {
           this.mitmproxyWebSocket.close()

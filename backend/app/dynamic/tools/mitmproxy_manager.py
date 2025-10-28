@@ -309,8 +309,9 @@ class WebMaster(master.Master):
                 "Invalid option callback: %s is not callable", type(callback)
             )
 
-    def _sig_view_add(self, flow_obj: flow.Flow) -> None:
-        if hasattr(self, "flow_callbacks"):
+    def _sig_view_add(self, **kwargs) -> None:
+        flow_obj = kwargs.get('flow')
+        if hasattr(self, "flow_callbacks") and flow_obj:
             for callback in self.flow_callbacks:
                 try:
                     if callable(callback):
@@ -322,8 +323,9 @@ class WebMaster(master.Master):
                 except Exception as callback_error:
                     logger.error("Error in flow callback: %s", callback_error)
 
-    def _sig_view_update(self, flow_obj: flow.Flow) -> None:
-        if hasattr(self, "flow_callbacks"):
+    def _sig_view_update(self, **kwargs) -> None:
+        flow_obj = kwargs.get('flow')
+        if hasattr(self, "flow_callbacks") and flow_obj:
             for callback in self.flow_callbacks:
                 try:
                     if callable(callback):
@@ -335,8 +337,9 @@ class WebMaster(master.Master):
                 except Exception as callback_error:
                     logger.error("Error in flow callback: %s", callback_error)
 
-    def _sig_view_remove(self, flow_obj: flow.Flow, _index: int) -> None:
-        if hasattr(self, "flow_callbacks"):
+    def _sig_view_remove(self, **kwargs) -> None:
+        flow_obj = kwargs.get('flow')
+        if hasattr(self, "flow_callbacks") and flow_obj:
             for callback in self.flow_callbacks:
                 try:
                     if callable(callback):
@@ -583,15 +586,25 @@ class MitmproxyManager:
 
     async def start(self) -> bool:
         """Start mitmproxy manager"""
-        if self.is_running:
-            return True
-
         try:
             self.is_running = True
             logger.info("Starting Mitmproxy manager for device %s", self.device_id)
 
-            # Always initialize a new master instance
-            await self._initialize_master()
+            # Only initialize master if it doesn't exist
+            if self.master_instance is None:
+                await self._initialize_master()
+            else:
+                logger.info("Reusing existing master instance (preserving flows)")
+
+            # Check if proxy is already running
+            if self.proxy_task and not self.proxy_task.done():
+                return True
+            else:
+                # Start the proxy (will reuse master if it exists)
+                proxy_started = await self.start_proxy()
+                if not proxy_started:
+                    logger.error("Failed to start proxy")
+                    return False
 
             # Initialize backend_ip if it's not set
             if not self.backend_ip or self.backend_ip == "172.19.0.1":
@@ -614,19 +627,25 @@ class MitmproxyManager:
             self.is_running = False
             return False
 
-    async def stop(self) -> bool:
-        """Stop mitmproxy manager"""
+    async def stop(self, cleanup=False) -> bool:
+        """Stop mitmproxy manager
+        
+        Args:
+            cleanup: If True, clears master_instance and all flows. If False, preserves flows for reuse.
+        """
         try:
             logger.info("Stopping Mitmproxy manager for device %s", self.device_id)
 
             # Use safe shutdown method that follows recommendations from GitHub issue #7237
-            logger.info("Calling stop_proxy_threadsafe() instead of stop_proxy()")
-            await self.stop_proxy_threadsafe()
+            await self.stop_proxy_threadsafe(cleanup=cleanup)
             self.is_running = False
 
-            # Reset master instance for complete cleanup
-            logger.info("Setting master_instance to None in stop()")
-            self.master_instance = None
+            # Only reset master instance if cleanup is requested
+            if cleanup:
+                logger.info("Clearing master instance")
+                self.master_instance = None
+            else:
+                logger.info("Preserving master instance for future use")
 
             # Safely release the port
             await self._safe_release_port()
@@ -641,9 +660,12 @@ class MitmproxyManager:
     async def start_proxy(self) -> bool:
         """Start the proxy server"""
         try:
-            # Always create a new master instance to avoid event loop issues
-            # _initialize_master() will automatically release the port or find a free one
-            await self._initialize_master()
+            # Only create master if it doesn't exist
+            if self.master_instance is None:
+                logger.info("No master instance, initializing...")
+                await self._initialize_master()
+            else:
+                logger.info("Reusing existing master instance (preserving flows)")
 
             if self.proxy_task and not self.proxy_task.done():
                 logger.info("Proxy is already running")
@@ -746,15 +768,14 @@ class MitmproxyManager:
             logger.error("Error stopping proxy: %s", str(e))
             return False
 
-    async def stop_proxy_threadsafe(self) -> bool:
-        """Stop the proxy server from another thread safely"""
+    async def stop_proxy_threadsafe(self, cleanup=False) -> bool:
+        """Stop the proxy server from another thread safely
+        
+        Args:
+            cleanup: If True, clears master_instance and all flows. If False, preserves flows for reuse.
+        """
         try:
-            logger.info(
-                "stop_proxy_threadsafe() called - master_instance: %s",
-                self.master_instance is not None
-            )
             if self.master_instance is None:
-                logger.info("Master instance is already None, nothing to stop")
                 return True
 
             # Save reference to master_instance at function creation time
@@ -841,9 +862,9 @@ class MitmproxyManager:
             except Exception as e:
                 logger.warning("Error shutting down addons: %s", e)
 
-            # Reset master instance for creating a new one on next startup
-            logger.info("Setting master_instance to None in stop_proxy_threadsafe()")
-            self.master_instance = None
+            # Reset master instance only if cleanup is requested
+            if cleanup:
+                self.master_instance = None
 
             if self.proxy_task:
                 self.proxy_task.cancel()
@@ -2516,7 +2537,7 @@ async def cleanup_mitmproxy_manager(device_id: str):
             manager = _mitmproxy_managers[device_id]
             logger.info("Cleaning up mitmproxy manager for device %s", device_id)
             try:
-                await manager.stop()
+                await manager.stop(cleanup=True)
             except Exception as e:
                 logger.error("Error stopping manager during cleanup: %s", e)
             del _mitmproxy_managers[device_id]

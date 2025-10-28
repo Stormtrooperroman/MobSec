@@ -3,6 +3,7 @@ import logging
 
 import aiohttp
 from fastapi import WebSocket
+from app.dynamic.utils.adb_utils import execute_adb_command
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ class WebSocketProxy:
         self.device_id = None
         self.logger = logging.getLogger(__name__)
         self._session = None
+        self._cleanup_done = False
 
     @classmethod
     async def create_proxy(
@@ -49,32 +51,18 @@ class WebSocketProxy:
             self.remote_port = remote_port
             self.local_port = remote_port
 
-            remove_process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                device_id,
-                "forward",
-                "--remove",
-                f"tcp:{self.local_port}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            await execute_adb_command(
+                device_id=device_id,
+                command=["forward", "--remove", f"tcp:{self.local_port}"],
             )
-            await remove_process.communicate()
 
-            forward_process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                device_id,
-                "forward",
-                f"tcp:{self.local_port}",
-                f"tcp:{self.remote_port}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            _, stderr, returncode = await execute_adb_command(
+                device_id=device_id,
+                command=["forward", f"tcp:{self.local_port}", f"tcp:{self.remote_port}"],
             )
-            _, stderr = await forward_process.communicate()
 
-            if forward_process.returncode != 0:
-                raise RuntimeError(f"Failed to setup port forwarding: {stderr.decode()}")
+            if returncode != 0:
+                raise RuntimeError(f"Failed to setup port forwarding: {stderr}")
 
             max_retries = 5
             retry_delay = 1
@@ -103,7 +91,7 @@ class WebSocketProxy:
                     self._start_device_message_handler()
                     return
 
-                except (RuntimeError, ConnectionError) as e:
+                except (RuntimeError, ConnectionError, Exception) as e:
                     self.logger.warning(
                         "Connection attempt %s failed: %s",
                         attempt + 1,
@@ -119,9 +107,16 @@ class WebSocketProxy:
                     if attempt < max_retries - 1:
                         await asyncio.sleep(retry_delay)
                     else:
+                        # Close session before raising error
+                        if self._session:
+                            try:
+                                await self._session.close()
+                                self._session = None
+                            except Exception:
+                                pass
                         raise
 
-        except (RuntimeError, ConnectionError) as e:
+        except (RuntimeError, ConnectionError, Exception) as e:
             await self.cleanup()
             self.logger.error("Failed to initialize WebSocket proxy: %s", str(e))
             raise
@@ -180,38 +175,49 @@ class WebSocketProxy:
         """
         Cleans up all resources, including ADB forwarding
         """
+        if self._cleanup_done:
+            return
+        
         try:
+            # Close device WebSocket
             if self.device_ws and not self.device_ws.closed:
-                await self.device_ws.close()
+                try:
+                    await self.device_ws.close()
+                except Exception as e:
+                    self.logger.warning("Error closing device WebSocket: %s", str(e))
 
             if self._session:
-                await self._session.close()
+                try:
+                    await self._session.close()
+                except Exception as e:
+                    self.logger.warning("Error closing session: %s", str(e))
+                finally:
+                    self._session = None
 
             if self.device_id and self.local_port:
-                remove_process = await asyncio.create_subprocess_exec(
-                    "adb",
-                    "-s",
-                    self.device_id,
-                    "forward",
-                    "--remove",
-                    f"tcp:{self.local_port}",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                _, stderr = await remove_process.communicate()
+                try:
+                    _, stderr, returncode = await execute_adb_command(
+                        device_id=self.device_id,
+                        command=["forward", "--remove", f"tcp:{self.local_port}"],
+                    )
 
-                if remove_process.returncode != 0:
-                    self.logger.error(
-                        "Failed to remove port forwarding: %s",
-                        stderr.decode(),
-                    )
-                else:
-                    self.logger.info(
-                        "Successfully removed port forwarding for %s",
-                        self.device_id,
-                    )
-        except (RuntimeError, ConnectionError) as e:
+                    if returncode != 0:
+                        self.logger.error(
+                            "Failed to remove port forwarding: %s",
+                            stderr,
+                        )
+                    else:
+                        self.logger.info(
+                            "Successfully removed port forwarding for %s",
+                            self.device_id,
+                        )
+                except Exception as e:
+                    self.logger.error("Error removing port forwarding: %s", str(e))
+                    
+        except Exception as e:
             self.logger.error("Error during cleanup: %s", str(e))
+        finally:
+            self._cleanup_done = True
 
     async def close(self):
         """

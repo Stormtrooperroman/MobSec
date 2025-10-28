@@ -9,7 +9,7 @@ from fastapi import WebSocket
 
 from app.dynamic.communication.base_websocket_manager import BaseWebSocketManager
 from app.dynamic.utils.su_utils import check_su_availability
-from app.dynamic.utils.adb_utils import execute_adb_shell
+from app.dynamic.utils.adb_utils import execute_adb_shell, execute_adb_command
 
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,6 @@ class FileManager(BaseWebSocketManager):
     async def get_current_user(self):
         """Gets the current user"""
         try:
-            
             command = "whoami" if not self.use_su else 'echo "whoami" | su'
             stdout, _, return_code = await execute_adb_shell(
                 device_id=self.device_id,
@@ -162,7 +161,7 @@ class FileManager(BaseWebSocketManager):
             check_command = self.get_shell_command(
                 f'test -d "{path}" && echo "DIR_EXISTS" || echo "NOT_DIR"'
             )
-    
+
             check_output, check_error, return_code = await execute_adb_shell(
                 device_id=self.device_id,
                 shell_command=check_command
@@ -324,8 +323,6 @@ class FileManager(BaseWebSocketManager):
     async def stat_file(self, path: str):
         """Gets detailed information about a file"""
         try:
-
-            
             stdout, _, return_code = await execute_adb_shell(
                 device_id=self.device_id,
                 shell_command=f'stat "{path}" 2>/dev/null || echo "ERROR: Cannot stat file"'
@@ -397,7 +394,7 @@ class FileManager(BaseWebSocketManager):
             check_command = self.get_shell_command(
                 f'test -f "{path}" && echo "FILE" || echo "NOT_FILE"'
             )
-            
+
             stdout, _, _ = await execute_adb_shell(
                 device_id=self.device_id,
                 shell_command=check_command
@@ -419,60 +416,35 @@ class FileManager(BaseWebSocketManager):
                 copy_command = self.get_shell_command(
                     f'cp "{path}" "{temp_device_path}" && chmod 644 "{temp_device_path}"'
                 )
-                copy_process = await asyncio.create_subprocess_exec(
-                    "adb",
-                    "-s",
-                    self.device_id,
-                    "shell",
-                    copy_command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                _, stderr, return_code = await execute_adb_shell(
+                    device_id=self.device_id,
+                    shell_command=copy_command,
                 )
-                _, copy_stderr = await copy_process.communicate()
 
-                if copy_process.returncode != 0:
+                if return_code != 0:
                     await self.send_error(
-                        f"Failed to copy file for download: {copy_stderr.decode()}"
+                        f"Failed to copy file for download: {stderr}"
                     )
                     return
 
-                process = await asyncio.create_subprocess_exec(
-                    "adb",
-                    "-s",
-                    self.device_id,
-                    "pull",
-                    temp_device_path,
-                    temp_file,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                _, _, return_code = await execute_adb_command(
+                    device_id=self.device_id,
+                    command=["pull", temp_device_path, temp_file],
                 )
-                stdout, stderr = await process.communicate()
 
                 cleanup_command = self.get_shell_command(f'rm "{temp_device_path}"')
-                await asyncio.create_subprocess_exec(
-                    "adb",
-                    "-s",
-                    self.device_id,
-                    "shell",
-                    cleanup_command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                _, _, return_code = await execute_adb_shell(
+                    device_id=self.device_id,
+                    shell_command=cleanup_command,
                 )
             else:
-                process = await asyncio.create_subprocess_exec(
-                    "adb",
-                    "-s",
-                    self.device_id,
-                    "pull",
-                    path,
-                    temp_file,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                _, _, return_code = await execute_adb_command(
+                    device_id=self.device_id,
+                    command=["pull", path, temp_file],
                 )
-                _, stderr = await process.communicate()
 
-            if process.returncode != 0:
-                await self.send_error(f"Failed to download file: {stderr.decode()}")
+            if return_code != 0:
+                await self.send_error(f"Failed to download file: {stderr}")
                 return
 
             try:
@@ -513,20 +485,13 @@ class FileManager(BaseWebSocketManager):
                 with open(temp_file, "wb") as f:
                     f.write(file_data)
 
-                process = await asyncio.create_subprocess_exec(
-                    "adb",
-                    "-s",
-                    self.device_id,
-                    "push",
-                    temp_file,
-                    path,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                _, stderr, return_code = await execute_adb_command(
+                    device_id=self.device_id,
+                    command=["push", temp_file, path],
                 )
-                _, stderr = await process.communicate()
 
-                if process.returncode != 0:
-                    await self.send_error(f"Failed to upload file: {stderr.decode()}")
+                if return_code != 0:
+                    await self.send_error(f"Failed to upload file: {stderr}")
                     return
 
                 await self.send_response(
@@ -616,18 +581,12 @@ class FileManager(BaseWebSocketManager):
             mv_command = self.get_shell_command(
                 f'mv "{source}" "{destination}" && echo "SUCCESS" || echo "FAILED"'
             )
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                mv_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command=mv_command,
             )
-            stdout, _ = await process.communicate()
 
-            if "FAILED" in stdout.decode() or process.returncode != 0:
+            if "FAILED" in stdout or return_code != 0:
                 await self.send_error(f"Failed to move {source} to {destination}")
                 return
 
@@ -653,18 +612,12 @@ class FileManager(BaseWebSocketManager):
             cp_command = self.get_shell_command(
                 f'cp -r "{source}" "{destination}" && echo "SUCCESS" || echo "FAILED"'
             )
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.device_id,
-                "shell",
-                cp_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, return_code = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command=cp_command,
             )
-            stdout, _ = await process.communicate()
 
-            if "FAILED" in stdout.decode() or process.returncode != 0:
+            if "FAILED" in stdout or return_code != 0:
                 await self.send_error(f"Failed to copy {source} to {destination}")
                 return
 

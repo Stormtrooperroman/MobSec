@@ -3,7 +3,7 @@ import asyncio
 import logging
 
 from app.dynamic.utils.adb_utils import remove_all_port_forwarding
-
+from app.dynamic.utils.adb_utils import execute_adb_shell, execute_adb_command
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,45 +37,27 @@ class Device:
     async def get_server_pid(self) -> List[int]:
         """Get PID of running scrcpy server process"""
         try:
-            cat_process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.serial,
-                "shell",
-                f"test -f {PID_FILE} && cat {PID_FILE}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, _ = await execute_adb_shell(
+                device_id=self.serial,
+                shell_command=f"test -f {PID_FILE} && cat {PID_FILE}",
             )
-            stdout, _ = await cat_process.communicate()
 
             if stdout:
                 try:
-                    pid = int(stdout.decode().strip())
-                    ps_process = await asyncio.create_subprocess_exec(
-                        "adb",
-                        "-s",
-                        self.serial,
-                        "shell",
-                        f"ps -ef | grep {pid} | grep {SERVER_PROCESS_NAME}",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
+                    pid = int(stdout.strip())
+                    ps_stdout, _, _ = await execute_adb_shell(
+                        device_id=self.serial,
+                        shell_command=f"ps -ef | grep {pid} | grep {SERVER_PROCESS_NAME}",
                     )
-                    ps_stdout, _ = await ps_process.communicate()
 
                     if ps_stdout:
-                        cmd_process = await asyncio.create_subprocess_exec(
-                            "adb",
-                            "-s",
-                            self.serial,
-                            "shell",
-                            f"cat /proc/{pid}/cmdline",
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE,
+                        cmd_stdout, _, _ = await execute_adb_shell(
+                            device_id=self.serial,
+                            shell_command=f"cat /proc/{pid}/cmdline",
                         )
-                        cmd_stdout, _ = await cmd_process.communicate()
 
                         if cmd_stdout:
-                            args = cmd_stdout.decode().split("\0")
+                            args = cmd_stdout.split("\0")
                             if SERVER_PACKAGE in args:
                                 pkg_index = args.index(SERVER_PACKAGE)
                                 if len(args) > pkg_index + 1:
@@ -92,36 +74,24 @@ class Device:
                 except ValueError:
                     logger.error("Invalid PID in PID file")
 
-            ps_process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.serial,
-                "shell",
-                f"ps -ef | grep {SERVER_PROCESS_NAME} | grep {SERVER_PACKAGE}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            ps_stdout, _, _ = await execute_adb_shell(
+                device_id=self.serial,
+                shell_command=f"ps -ef | grep {SERVER_PROCESS_NAME} | grep {SERVER_PACKAGE}",
             )
-            ps_stdout, _ = await ps_process.communicate()
 
             pids = []
-            for line in ps_stdout.decode().splitlines():
+            for line in ps_stdout.splitlines():
                 parts = line.split()
                 if len(parts) > 1:
                     try:
                         pid = int(parts[1])
-                        cmd_process = await asyncio.create_subprocess_exec(
-                            "adb",
-                            "-s",
-                            self.serial,
-                            "shell",
-                            f"cat /proc/{pid}/cmdline",
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE,
+                        cmd_stdout, _, _ = await execute_adb_shell(
+                            device_id=self.serial,
+                            shell_command=f"cat /proc/{pid}/cmdline",
                         )
-                        cmd_stdout, _ = await cmd_process.communicate()
 
                         if cmd_stdout:
-                            args = cmd_stdout.decode().split("\0")
+                            args = cmd_stdout.split("\0")
                             if SERVER_PACKAGE in args:
                                 pkg_index = args.index(SERVER_PACKAGE)
                                 if len(args) > pkg_index + 1:
@@ -148,19 +118,13 @@ class Device:
     async def kill_process(self, pid: int) -> Optional[str]:
         """Kill a process on the device"""
         try:
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.serial,
-                "shell",
-                f"kill {pid}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, stderr, _ = await execute_adb_shell(
+                device_id=self.serial,
+                shell_command=f"kill {pid}",
             )
-            stdout, stderr = await process.communicate()
             if stderr:
-                logger.error("Error killing process %s: %s", pid, stderr.decode())
-            return stdout.decode().strip()
+                logger.error("Error killing process %s: %s", pid, stderr)
+            return stdout.strip()
         except Exception as e:
             logger.error("Error killing process: %s", e)
             return None
@@ -174,46 +138,27 @@ class Device:
                 "ps -ef | grep 'app_process.*scrcpy' | grep -v grep | "
                 "awk '{print $2}' | xargs -r kill -9"
             )
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.serial,
-                "shell",
-                kill_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            await execute_adb_shell(
+                device_id=self.serial,
+                shell_command=kill_cmd,
             )
-            await process.communicate()
 
             pid_cleanup_cmd = (
                 "test -f /data/local/tmp/ws_scrcpy.pid && "
                 "cat /data/local/tmp/ws_scrcpy.pid | xargs kill -9"
             )
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.serial,
-                "shell",
-                pid_cleanup_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            await execute_adb_shell(
+                device_id=self.serial,
+                shell_command=pid_cleanup_cmd,
             )
-            await process.communicate()
 
-            _, _, _ = await remove_all_port_forwarding(device_id=None)
+            await remove_all_port_forwarding(device_id=None)
 
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.serial,
-                "shell",
-                "rm -f /data/local/tmp/scrcpy-server.jar /data/local/tmp/ws_scrcpy.pid",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            await execute_adb_shell(
+                device_id=self.serial,
+                shell_command="rm -f /data/local/tmp/scrcpy-server.jar /data/local/tmp/ws_scrcpy.pid",
             )
-            await process.communicate()
 
-            await asyncio.sleep(2)
             logger.info(
                 "Killed all scrcpy processes and cleaned up for device: %s",
                 self.serial,
@@ -232,39 +177,29 @@ class Device:
             logger.info("Pushing server to device...")
             server_jar = "/app/scrcpy-server.jar"
             push_cmd = [
-                "adb",
-                "-s",
-                self.serial,
                 "push",
                 server_jar,
-                f"{TEMP_PATH}{SERVER_JAR}",
+                f"{TEMP_PATH}{SERVER_JAR}"
             ]
-            process = await asyncio.create_subprocess_exec(
-                *push_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, stderr, returncode = await execute_adb_command(
+                device_id=self.serial,
+                command=push_cmd,
             )
-            stdout, stderr = await process.communicate()
-            if process.returncode != 0:
-                logger.error("Failed to push server: %s", stderr.decode())
+            if returncode != 0:
+                logger.error("Failed to push server: %s", stderr)
                 return None
 
             logger.info("Setting up ADB forward...")
             forward_cmd = [
-                "adb",
-                "-s",
-                self.serial,
                 "forward",
                 f"tcp:{self.port}",
-                f"tcp:{self.port}",
+                f"tcp:{self.port}"
             ]
-            process = await asyncio.create_subprocess_exec(
-                *forward_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, stderr, returncode = await execute_adb_command(
+                device_id=self.serial,
+                command=forward_cmd,
             )
-            await process.communicate()
-            if process.returncode != 0:
+            if returncode != 0:
                 logger.error("Failed to set up ADB forward")
                 return None
 
@@ -280,23 +215,17 @@ class Device:
 
             logger.info("Starting server with command: %s", server_cmd)
 
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "-s",
-                self.serial,
-                "shell",
-                server_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, stderr, _ = await execute_adb_shell(
+                device_id=self.serial,
+                shell_command=server_cmd,
             )
-            stdout, stderr = await process.communicate()
 
             if stderr:
-                logger.error("Error starting server: %s", stderr.decode())
+                logger.error("Error starting server: %s", stderr)
                 return None
 
             logger.info(
-                "Server start stdout: %s", stdout.decode() if stdout else "None"
+                "Server start stdout: %s", stdout if stdout else "None"
             )
 
             result = None
@@ -304,16 +233,10 @@ class Device:
                 pids = await self.get_server_pid()
                 if pids:
                     pid = pids[0]
-                    netstat_process = await asyncio.create_subprocess_exec(
-                        "adb",
-                        "-s",
-                        self.serial,
-                        "shell",
-                        f"netstat -ln | grep {self.port}",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
+                    netstat_stdout, _, _ = await execute_adb_shell(
+                        device_id=self.serial,
+                        shell_command=f"netstat -ln | grep {self.port}",
                     )
-                    netstat_stdout, _ = await netstat_process.communicate()
 
                     if netstat_stdout:
                         logger.info(
@@ -329,18 +252,12 @@ class Device:
 
                     logger.info("Server process running but not listening yet")
 
-                log_process = await asyncio.create_subprocess_exec(
-                    "adb",
-                    "-s",
-                    self.serial,
-                    "shell",
-                    "cat /data/local/tmp/scrcpy.log",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                log_stdout, _, _ = await execute_adb_shell(
+                    device_id=self.serial,
+                    shell_command="cat /data/local/tmp/scrcpy.log",
                 )
-                log_stdout, _ = await log_process.communicate()
                 if log_stdout:
-                    log_content = log_stdout.decode()
+                    log_content = log_stdout
                     if "ERROR" in log_content or "Exception" in log_content:
                         logger.error("Server error in log: %s", log_content)
                         result = None

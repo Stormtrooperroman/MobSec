@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from typing import Optional
 from app.dynamic.utils.adb_utils import get_adb_env
@@ -25,17 +24,14 @@ class DeviceInfoHelper:
             env = get_adb_env()
 
             # Method 1: Get IP via ip route
-            cmd = f"adb -s {device_id} shell ip route get 1.1.1.1"
-            process = await asyncio.create_subprocess_exec(
-                *cmd.split(),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, return_code = await execute_adb_shell(
+                device_id=device_id,
+                shell_command="ip route get 1.1.1.1",
                 env=env,
             )
-            stdout, _ = await process.communicate()
 
-            if process.returncode == 0:
-                output = stdout.decode().strip()
+            if return_code == 0:
+                output = stdout.strip()
                 if "src" in output:
                     parts = output.split()
                     src_index = parts.index("src")

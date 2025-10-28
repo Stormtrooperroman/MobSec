@@ -264,17 +264,14 @@ class PhysicalDeviceManager:
         try:
             properties = {}
 
-            prop_cmd = ["adb", "-s", device_id, "shell", "getprop"]
-            process = await asyncio.create_subprocess_exec(
-                *prop_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, return_code = await execute_adb_shell(
+                device_id=device_id,
+                shell_command="getprop",
                 env=self.adb_env,
             )
-            stdout, _ = await process.communicate()
 
-            if process.returncode == 0:
-                output = stdout.decode()
+            if return_code == 0:
+                output = stdout
                 for line in output.split("\n"):
                     if ":" in line:
                         key, value = line.split(":", 1)
@@ -283,17 +280,14 @@ class PhysicalDeviceManager:
                         if key and value:
                             properties[key] = value
 
-            info_cmd = ["adb", "-s", device_id, "shell", "cat", "/proc/cpuinfo"]
             try:
-                process = await asyncio.create_subprocess_exec(
-                    *info_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                stdout, _, return_code = await execute_adb_shell(
+                    device_id=device_id,
+                    shell_command="cat /proc/cpuinfo",
                     env=self.adb_env,
                 )
-                stdout, _ = await process.communicate()
-                if process.returncode == 0:
-                    cpu_info = stdout.decode()
+                if return_code == 0:
+                    cpu_info = stdout
                     if "ARM" in cpu_info:
                         properties["architecture"] = "ARM"
                     elif "x86" in cpu_info:
@@ -357,20 +351,17 @@ class PhysicalDeviceManager:
         try:
             self.logger.info("Enabling wireless debugging on %s", device_id)
 
-            ip_cmd = ["adb", "-s", device_id, "shell", "ip", "route", "get", "1.1.1.1"]
-            process = await asyncio.create_subprocess_exec(
-                *ip_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, stderr, return_code = await execute_adb_shell(
+                device_id=device_id,
+                shell_command="ip route get 1.1.1.1",
                 env=self.adb_env,
             )
-            stdout, stderr = await process.communicate()
 
-            if process.returncode != 0:
-                self.logger.error("Failed to get device IP: %s", stderr.decode())
+            if return_code != 0:
+                self.logger.error("Failed to get device IP: %s", stderr)
                 return False
 
-            output = stdout.decode().strip()
+            output = stdout.strip()
             if "src" not in output:
                 self.logger.error("Could not determine device IP address")
                 return False
@@ -384,20 +375,14 @@ class PhysicalDeviceManager:
             device_ip = parts[src_index + 1]
             self.logger.info("Device IP address: %s", device_ip)
 
-            enable_cmd = ["adb", "-s", device_id, "tcpip", "5555"]
-            process = await asyncio.create_subprocess_exec(
-                *enable_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            _, stderr, return_code = await execute_adb_shell(
+                device_id=device_id,
+                shell_command="tcpip 5555",
                 env=self.adb_env,
             )
-            stdout, stderr = await process.communicate()
 
-            if process.returncode != 0:
-                self.logger.error(
-                    "Failed to enable wireless debugging: %s",
-                    stderr.decode(),
-                )
+            if return_code != 0:
+                self.logger.error("Failed to enable wireless debugging: %s", stderr)
                 return False
 
             await asyncio.sleep(3)

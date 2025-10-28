@@ -62,6 +62,7 @@ class WebSocketManager:
                 self.active_connections[device_id].clear()
                 self.active_connections[device_id].add(websocket)
 
+            proxy = None
             try:
                 self.logger.info(
                     f"Creating WebSocket proxy for device '{device_id}' on port 8886"
@@ -76,6 +77,11 @@ class WebSocketManager:
                 self.logger.error(
                     f"Failed to create WebSocket proxy for device '{device_id}': {str(e)}"
                 )
+                if proxy:
+                    try:
+                        await proxy.cleanup()
+                    except Exception:
+                        pass
                 await self.disconnect(websocket, device_id)
                 raise
 
@@ -164,6 +170,7 @@ class WebSocketManager:
 
             self.active_connections[device_id].add(websocket)
 
+            proxy = None
             try:
                 proxy = await WebSocketProxy.create_proxy(websocket, device_id, 8886)
                 self.proxies[device_id][websocket] = proxy
@@ -175,6 +182,11 @@ class WebSocketManager:
                 self.logger.error(
                     f"Failed to create WebSocket proxy for multiplex connection: {str(e)}"
                 )
+                if proxy:
+                    try:
+                        await proxy.cleanup()
+                    except Exception:
+                        pass
                 await self.disconnect(websocket, device_id)
                 raise
 

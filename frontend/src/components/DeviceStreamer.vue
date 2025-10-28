@@ -408,8 +408,7 @@ export default {
         
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsHost = window.location.host;
-        const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-        const shellWsUrl = `${wsProtocol}//${window.location.hostname}:${port}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=shell`;
+        const shellWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=shell`;
         
         this.terminalInitializing = true;
         

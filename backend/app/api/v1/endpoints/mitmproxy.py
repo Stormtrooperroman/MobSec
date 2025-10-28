@@ -193,84 +193,6 @@ async def get_flow(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.put("/flows/{flow_id}", response_model=Dict[str, Any])
-async def update_flow(
-    flow_id: str,
-    request: Request,
-    manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency),
-):
-    """Update flow data"""
-    try:
-        flow = manager.get_flow_by_id(flow_id)
-        if not flow:
-            raise HTTPException(status_code=404, detail="Flow not found")
-
-        data = await request.json()
-        if not data:
-            raise HTTPException(status_code=400, detail="No JSON data provided")
-
-        # Backup flow before modification
-        flow.backup()
-
-        try:
-            _update_flow_data(flow, data)
-            manager.update_flow(flow)
-            return flow_to_json(flow)
-
-        except Exception as update_error:
-            flow.revert()
-            raise update_error
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error updating flow %s: %s", flow_id, e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-def _update_flow_data(flow, data: dict):
-    """Update flow data based on provided dictionary"""
-    for key, value in data.items():
-        if key == "request" and hasattr(flow, "request"):
-            _update_request_data(flow.request, value)
-        elif key == "response" and hasattr(flow, "response") and flow.response:
-            _update_response_data(flow.response, value)
-        elif key == "marked":
-            flow.marked = value
-        elif key == "comment":
-            flow.comment = value
-
-
-def _update_request_data(request_obj, data: dict):
-    """Update request data"""
-    for req_key, req_value in data.items():
-        if req_key in ["method", "scheme", "host", "path", "http_version"]:
-            setattr(request_obj, req_key, str(req_value))
-        elif req_key == "port":
-            request_obj.port = int(req_value)
-        elif req_key == "headers":
-            request_obj.headers.clear()
-            for header in req_value:
-                request_obj.headers.add(*header)
-        elif req_key == "content":
-            request_obj.text = req_value
-
-
-def _update_response_data(response_obj, data: dict):
-    """Update response data"""
-    for resp_key, resp_value in data.items():
-        if resp_key in ["http_version"]:
-            setattr(response_obj, resp_key, str(resp_value))
-        elif resp_key == "status_code":
-            response_obj.status_code = int(resp_value)
-        elif resp_key == "headers":
-            response_obj.headers.clear()
-            for header in resp_value:
-                response_obj.headers.add(*header)
-        elif resp_key == "content":
-            response_obj.text = resp_value
-
-
 @router.delete("/flows/{flow_id}")
 async def delete_flow(
     flow_id: str, manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency)
@@ -339,97 +261,37 @@ async def kill_flow(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/flows/{flow_id}/duplicate")
-async def duplicate_flow(
-    flow_id: str, manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency)
-):
-    """Duplicate a flow"""
-    try:
-        flow = manager.get_flow_by_id(flow_id)
-        if not flow:
-            raise HTTPException(status_code=404, detail="Flow not found")
-
-        new_flow = flow.copy()
-        success = manager.add_flow(new_flow)
-        if success:
-            return {"id": new_flow.id, "message": "Flow duplicated successfully"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to duplicate flow")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error duplicating flow %s: %s", flow_id, e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/flows/{flow_id}/replay")
-async def replay_flow(
-    flow_id: str, manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency)
-):
-    """Replay a flow"""
-    try:
-        flow = manager.get_flow_by_id(flow_id)
-        if not flow:
-            raise HTTPException(status_code=404, detail="Flow not found")
-
-        success = manager.replay_flow(flow)
-        if success:
-            return {"message": "Flow replay initiated"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to replay flow")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error replaying flow %s: %s", flow_id, e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/flows/{flow_id}/revert")
-async def revert_flow(
-    flow_id: str, manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency)
-):
-    """Revert flow modifications"""
-    try:
-        flow = manager.get_flow_by_id(flow_id)
-        if not flow:
-            raise HTTPException(status_code=404, detail="Flow not found")
-
-        if flow.modified():
-            flow.revert()
-            manager.update_flow(flow)
-            return {"message": "Flow reverted successfully"}
-        else:
-            return {"message": "Flow has no modifications to revert"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error reverting flow %s: %s", flow_id, e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
 
 def _get_content_by_view(msg_obj, content_view: str):
     """Get content from message object based on view type"""
-    if content_view == "auto":
-        # Try to get text content first, fallback to hex
-        try:
-            content = msg_obj.get_text(strict=False)
-            if content is None:
-                content = msg_obj.get_content(strict=False)
+    try:
+        if content_view == "auto":
+            # Try to get text content first, fallback to hex
+            try:
+                content = msg_obj.get_text(strict=False)
                 if content:
-                    content = content.hex()
-        except Exception:
+                    return content
+            except Exception:
+                pass
+            # Fallback to hex
             content = msg_obj.get_content(strict=False)
             if content:
-                content = content.hex()
-        return content
-    elif content_view == "text":
-        content = msg_obj.get_text(strict=False)
-        return content if content is not None else "Content is not text"
-    elif content_view == "hex":
-        content = msg_obj.get_content(strict=False)
-        return content.hex() if content else ""
-    else:  # raw
-        return msg_obj.get_content(strict=False)
+                return content.hex()
+            return ""
+        elif content_view == "text":
+            content = msg_obj.get_text(strict=False)
+            return content if content else "Content is not text"
+        elif content_view == "hex":
+            content = msg_obj.get_content(strict=False)
+            if content:
+                return content.hex()
+            return ""
+        else:  # raw
+            content = msg_obj.get_content(strict=False)
+            return content if content is not None else b""
+    except Exception as e:
+        logger.warning("Error getting content by view: %s", e)
+        return ""
 
 
 def _get_media_type(content_view: str) -> str:
@@ -444,36 +306,53 @@ async def get_flow_content(
     flow_id: str,
     message: str,
     content_view: str,
-    _request: Request,
     manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency),
 ):
     """Get flow content (request/response) with specified view"""
     try:
         flow = manager.get_flow_by_id(flow_id)
         if not flow:
+            logger.warning("Flow not found: %s", flow_id)
             raise HTTPException(status_code=404, detail="Flow not found")
 
         if message not in ["request", "response"]:
+            logger.warning("Invalid message type: %s", message)
             raise HTTPException(status_code=400, detail="Invalid message type")
 
         if content_view not in ["auto", "text", "hex", "raw"]:
+            logger.warning("Invalid content view: %s", content_view)
             raise HTTPException(status_code=400, detail="Invalid content view")
 
         msg_obj = getattr(flow, message, None)
         if not msg_obj:
+            logger.warning("Message object not found: flow_id=%s, message=%s", flow_id, message)
             raise HTTPException(status_code=404, detail=f"Flow has no {message}")
 
         # Get content based on view type
         content = _get_content_by_view(msg_obj, content_view)
         media_type = _get_media_type(content_view)
 
-        return Response(
-            content=content,
-            media_type=media_type,
-            headers={
-                "Content-Disposition": f"attachment; filename={message}_content_{content_view}"
-            },
-        )
+        # Handle different content types
+        if content is None:
+            content = b"" if content_view == "raw" else ""
+        
+        if content_view == "raw" and isinstance(content, bytes):
+            return Response(
+                content=content,
+                media_type=media_type,
+                headers={
+                    "Content-Disposition": f"attachment; filename={message}_content_{content_view}"
+                },
+            )
+        else:
+            # For string content (text, hex, auto)
+            return Response(
+                content=content or "",
+                media_type=media_type,
+                headers={
+                    "Content-Disposition": f"attachment; filename={message}_content_{content_view}"
+                },
+            )
     except HTTPException:
         raise
     except Exception as e:
@@ -560,85 +439,3 @@ async def set_flow_content(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/options", response_model=Dict[str, Any])
-async def get_options(
-    manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency),
-):
-    """Get mitmproxy options"""
-    try:
-        options = manager.get_options()
-        return options
-    except Exception as e:
-        logger.error("Error getting options: %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.put("/options")
-async def update_options(
-    request: Request,
-    manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency),
-):
-    """Update mitmproxy options"""
-    try:
-        data = await request.json()
-        if not data:
-            raise HTTPException(status_code=400, detail="No JSON data provided")
-
-        success = manager.update_options(data)
-        if success:
-            return {"message": "Options updated successfully"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to update options")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error updating options: %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.get("/state", response_model=Dict[str, Any])
-async def get_state(
-    manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency),
-):
-    """Get mitmproxy state information"""
-    try:
-        state = manager.get_state()
-        return state
-    except Exception as e:
-        logger.error("Error getting state: %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.get("/commands", response_model=Dict[str, Any])
-async def get_commands(
-    manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency),
-):
-    """Get available commands"""
-    try:
-        commands = manager.get_commands()
-        return commands
-    except Exception as e:
-        logger.error("Error getting commands: %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/commands/{cmd}")
-async def execute_command(
-    cmd: str,
-    request: Request,
-    manager: MitmproxyManager = Depends(get_mitmproxy_manager_dependency),
-):
-    """Execute a command"""
-    try:
-        try:
-            data = await request.json()
-        except Exception:
-            data = {}
-
-        args = data.get("arguments", [])
-
-        result = manager.execute_command(cmd, args)
-        return {"value": result}
-    except Exception as e:
-        logger.error("Error executing command %s: %s", cmd, e)
-        raise HTTPException(status_code=500, detail=str(e)) from e

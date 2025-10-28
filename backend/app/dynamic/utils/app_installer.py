@@ -1,9 +1,8 @@
-import asyncio
 import logging
 import os
 from typing import Tuple
 
-from app.dynamic.utils.adb_utils import get_adb_env
+from app.dynamic.utils.adb_utils import get_adb_env, execute_adb_command
 
 logger = logging.getLogger(__name__)
 
@@ -33,29 +32,25 @@ class AppInstaller:
             logger.info("Installing APK %s on device %s", apk_path, device_id)
 
             env = get_adb_env()
-            cmd = ["adb", "-s", device_id, "install"]
+            cmd = ["install"]
 
             if replace:
                 cmd.append("-r")
 
             cmd.append(apk_path)
 
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, return_code = await execute_adb_command(
+                device_id=device_id,
+                command=cmd,
                 env=env,
             )
-            stdout, stderr = await process.communicate()
 
-            if process.returncode == 0:
+            if return_code == 0:
                 success_msg = f"Successfully installed {os.path.basename(apk_path)}"
                 logger.info(success_msg)
                 return True, success_msg
 
-            error_output = (
-                stderr.decode().strip() if stderr else stdout.decode().strip()
-            )
+            error_output = stdout.strip()
             error_msg = (
                 f"Failed to install {os.path.basename(apk_path)}: {error_output}"
             )
@@ -83,24 +78,20 @@ class AppInstaller:
             logger.info("Uninstalling %s from device %s", package_name, device_id)
 
             env = get_adb_env()
-            cmd = ["adb", "-s", device_id, "uninstall", package_name]
+            cmd = ["uninstall", package_name]
 
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, _, return_code = await execute_adb_command(
+                device_id=device_id,
+                command=cmd,
                 env=env,
             )
-            stdout, stderr = await process.communicate()
 
-            if process.returncode == 0:
+            if return_code == 0:
                 success_msg = f"Successfully uninstalled {package_name}"
                 logger.info(success_msg)
                 return True, success_msg
 
-            error_output = (
-                stderr.decode().strip() if stderr else stdout.decode().strip()
-            )
+            error_output = stdout.strip()
             error_msg = f"Failed to uninstall {package_name}: {error_output}"
             logger.error(error_msg)
             return False, error_msg

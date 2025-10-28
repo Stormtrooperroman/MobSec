@@ -163,8 +163,7 @@ export default {
           fileManagerContent.addEventListener('wheel', this.fileManagerScrollHandler, { passive: false });
         }
         
-        const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-        const fileManagerWsUrl = `${wsProtocol}//${window.location.hostname}:${port}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=file_manager`;
+        const fileManagerWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=file_manager`;
         
         if (this.currentFileManagerClient) {
           this.currentFileManagerClient.close();

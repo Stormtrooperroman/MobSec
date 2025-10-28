@@ -108,11 +108,7 @@
               </button>
             </div>
           </div>
-          <pre class="content-block" v-if="localEntry.request_content">{{ localEntry.request_content }}</pre>
-          <div class="content-placeholder" v-else>
-            <font-awesome-icon icon="info-circle" />
-            <span>Request content unavailable or empty</span>
-          </div>
+          <pre class="content-block" v-if="localEntry.request_content !== null && localEntry.request_content !== undefined">{{ localEntry.request_content || '(empty body)' }}</pre>
         </div>
 
         <div class="detail-section">
@@ -159,38 +155,7 @@
               </button>
             </div>
           </div>
-          <pre class="content-block" v-if="localEntry.response_content">{{ localEntry.response_content }}</pre>
-          <div class="content-placeholder" v-else>
-            <font-awesome-icon icon="info-circle" />
-            <span>Response content unavailable or empty</span>
-          </div>
-        </div>
-
-        <!-- Additional flow information -->
-        <div class="detail-section" v-if="localEntry.detailed">
-          <h6>Additional Information</h6>
-          <div class="detail-grid">
-            <div class="detail-item" v-if="localEntry.intercepted">
-              <label>Intercepted:</label>
-              <span class="badge badge-warning">Yes</span>
-            </div>
-            <div class="detail-item" v-if="localEntry.is_replay">
-              <label>Replay:</label>
-              <span class="badge badge-info">Yes</span>
-            </div>
-            <div class="detail-item" v-if="localEntry.modified">
-              <label>Modified:</label>
-              <span class="badge badge-warning">Yes</span>
-            </div>
-            <div class="detail-item" v-if="localEntry.marked">
-              <label>Marked:</label>
-              <span>{{ localEntry.marked }}</span>
-            </div>
-            <div class="detail-item" v-if="localEntry.comment">
-              <label>Comment:</label>
-              <span>{{ localEntry.comment }}</span>
-            </div>
-          </div>
+          <pre class="content-block" v-if="localEntry.response_content !== null && localEntry.response_content !== undefined">{{ localEntry.response_content || '(empty body)' }}</pre>
         </div>
       </div>
     </div>
@@ -220,13 +185,17 @@ export default {
   data() {
     return {
       isLoading: false,
-      localEntry: null
+      localEntry: null,
+      requestContentLoaded: false,
+      responseContentLoaded: false
     };
   },
   watch: {
     async show(newVal) {
-      if (newVal && this.entry && this.entry.id) {
+      if (newVal && this.entry) {
         this.localEntry = { ...this.entry };
+        this.requestContentLoaded = false;
+        this.responseContentLoaded = false;
         await this.loadContent();
       }
     },
@@ -251,21 +220,26 @@ export default {
       try {
         this.isLoading = true;
         
-        const [requestContent, responseContent] = await Promise.allSettled([
-          this.getFlowContent(this.localEntry.id, 'request', 'auto'),
-          this.getFlowContent(this.localEntry.id, 'response', 'auto')
-        ]);
-        
-        if (requestContent.status === 'fulfilled' && requestContent.value) {
-          this.localEntry.request_content = requestContent.value;
-        } else {
-          this.localEntry.request_content = 'Request content unavailable';
+        if (!this.localEntry.request_view) {
+          this.localEntry.request_view = 'auto';
+        }
+        if (!this.localEntry.response_view) {
+          this.localEntry.response_view = 'auto';
         }
         
-        if (responseContent.status === 'fulfilled' && responseContent.value) {
-          this.localEntry.response_content = responseContent.value;
-        } else {
-          this.localEntry.response_content = 'Response content unavailable';
+        const [requestContent, responseContent] = await Promise.allSettled([
+          this.getFlowContent(this.localEntry.id, 'request', this.localEntry.request_view),
+          this.getFlowContent(this.localEntry.id, 'response', this.localEntry.response_view)
+        ]);
+        
+        if (requestContent.status === 'fulfilled') {
+          this.localEntry.request_content = requestContent.value || '';
+          this.requestContentLoaded = true;
+        }
+        
+        if (responseContent.status === 'fulfilled') {
+          this.localEntry.response_content = responseContent.value || '';
+          this.responseContentLoaded = true;
         }
       } catch (error) {
         console.error('Error loading content:', error);
@@ -294,14 +268,14 @@ export default {
         
         const content = await this.getFlowContent(this.localEntry.id, messageType, viewType);
         
-        if (content) {
-          if (messageType === 'request') {
-            this.localEntry.request_content = content;
-          } else if (messageType === 'response') {
-            this.localEntry.response_content = content;
-          }
-          this.$emit('content-changed', { messageType, content, viewType });
+        if (messageType === 'request') {
+          this.localEntry.request_content = content || '';
+          this.requestContentLoaded = true;
+        } else if (messageType === 'response') {
+          this.localEntry.response_content = content || '';
+          this.responseContentLoaded = true;
         }
+        this.$emit('content-changed', { messageType, content, viewType });
       } catch (error) {
         console.error('Error changing content view:', error);
         this.$emit('error', 'Error changing content view');

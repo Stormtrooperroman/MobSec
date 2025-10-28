@@ -29,7 +29,7 @@ class FridaManager(BaseWebSocketManager):
         self.frida_process = None
         self.frida_server_process = None
         self.device_arch = None
-        self.frida_version = "16.1.4"
+        self.frida_version = "17.3.2"
         self.active_sessions = {}
         self.frida_host = None
         self.frida_port = 27042
@@ -196,9 +196,9 @@ class FridaManager(BaseWebSocketManager):
 
             await self.remove_port_forwarding()
 
-            _, stderr, return_code = await execute_adb_shell(
+            _, stderr, return_code = await execute_adb_command(
                 device_id=self.device_id,
-                shell_command=f"forward tcp:{self.adb_forward_port} tcp:27042"
+                command=["forward", f"tcp:{self.adb_forward_port}", "tcp:27042"]
             )
 
             if return_code == 0:
@@ -390,9 +390,9 @@ class FridaManager(BaseWebSocketManager):
                     }
                 )
 
-                _, _, return_code = await execute_adb_shell(
+                _, _, return_code = await execute_adb_command(
                     device_id=self.device_id,
-                    shell_command=f"push {frida_path} /data/local/tmp/frida-server"
+                    command=["push", frida_path, "/data/local/tmp/frida-server"]
                 )
 
                 if return_code != 0:
@@ -1087,6 +1087,7 @@ class FridaManager(BaseWebSocketManager):
                     "frida_installed": frida_installed,
                     "frida_running": frida_running,
                     "device_arch": self.device_arch,
+                    "frida_version": self.frida_version,
                 }
             )
         else:

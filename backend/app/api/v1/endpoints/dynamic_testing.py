@@ -335,7 +335,8 @@ async def websocket_endpoint(
             finally:
                 # Remove WebSocket from registration
                 mitmproxy_manager.remove_websocket(websocket)
-                await mitmproxy_manager.stop()
+                # Don't stop the manager when WebSocket closes - preserve flows
+                # await mitmproxy_manager.stop()
 
         elif action == "multiplex":
             await websocket_manager.handle_multiplex(websocket, device_id)
@@ -702,12 +703,10 @@ async def start_mitmproxy_proxy(device_id: str):
                     },
                 }
 
-            # Clean up old manager
-            await manager.stop()
-            del _mitmproxy_managers[device_id]
-
-        # Create new manager
-        mitmproxy_manager = await get_mitmproxy_manager(device_id)
+            mitmproxy_manager = manager
+        else:
+            # Create new manager
+            mitmproxy_manager = await get_mitmproxy_manager(device_id)
 
         # Initialize manager
         if not await mitmproxy_manager.start():
@@ -719,8 +718,9 @@ async def start_mitmproxy_proxy(device_id: str):
         success = await mitmproxy_manager.start_proxy()
 
         if success:
-            # Save manager for further use
-            _mitmproxy_managers[device_id] = mitmproxy_manager
+            # Save manager for further use if not already in dictionary
+            if device_id not in _mitmproxy_managers:
+                _mitmproxy_managers[device_id] = mitmproxy_manager
 
             return {
                 "status": "success",
@@ -736,7 +736,7 @@ async def start_mitmproxy_proxy(device_id: str):
                 },
             }
 
-        await mitmproxy_manager.stop()
+        await mitmproxy_manager.stop(cleanup=True)
         raise HTTPException(status_code=500, detail="Failed to start mitmproxy")
 
     except Exception as e:
@@ -765,7 +765,7 @@ async def stop_mitmproxy_proxy(device_id: str):
         manager = _mitmproxy_managers[device_id]
 
         # Stop proxy (stop() already calls stop_proxy_threadsafe() internally)
-        await manager.stop()
+        await manager.stop(cleanup=True)
 
         # Remove from global state
         del _mitmproxy_managers[device_id]

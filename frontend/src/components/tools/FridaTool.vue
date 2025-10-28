@@ -9,6 +9,9 @@
           <font-awesome-icon v-else icon="circle" class="status-icon not-installed" />
           {{ fridaRunning ? 'Running' : fridaInstalled ? 'Installed' : 'Not Installed' }}
         </span>
+        <span v-if="fridaVersion" class="frida-version">
+          v{{ fridaVersion }}
+        </span>
       </span>
       <div class="frida-controls">
         <button @click="refreshFridaStatus" class="frida-refresh-btn" title="Refresh status" :disabled="fridaRefreshing">
@@ -173,6 +176,7 @@ export default {
     return {
       fridaInstalled: false,
       fridaRunning: false,
+      fridaVersion: '',
       fridaScripts: {},
       fridaProcesses: [],
       fridaOutput: [],
@@ -225,8 +229,7 @@ export default {
         
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsHost = window.location.host;
-        const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-        const fridaWsUrl = `${wsProtocol}//${window.location.hostname}:${port}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=frida`;
+        const fridaWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=frida`;
         
         const fridaWs = new WebSocket(fridaWsUrl);
         
@@ -299,6 +302,7 @@ export default {
         case 'status':
           this.fridaInstalled = message.frida_installed;
           this.fridaRunning = message.frida_running;
+          this.fridaVersion = message.frida_version || '';
           this.fridaRefreshing = false;
           break;
         case 'install_progress':
@@ -747,6 +751,13 @@ Java.perform(function() {
   margin-left: 10px;
   font-size: 14px;
   font-weight: 500;
+}
+
+.frida-version {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #aaa;
 }
 
 .status-icon {
