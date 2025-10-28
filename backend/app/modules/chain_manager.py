@@ -40,7 +40,7 @@ class ChainManager:
         self.chain_event_queue = asyncio.Queue()
 
         self.loop = asyncio.get_running_loop()
-        
+
         # Store config for lazy initialization
         self.redis_url = redis_url
         self.modules_path = os.getenv("MODULES_PATH", "/app/modules")

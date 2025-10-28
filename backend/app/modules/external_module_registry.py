@@ -118,7 +118,6 @@ class ExternalModuleRegistry:
         module = await self.get_module(module_id)
         if not module:
             return False
-
         return module["status"] == ModuleStatus.ACTIVE
 
     async def _check_module_health(self, health_url: str) -> bool:
@@ -138,14 +137,13 @@ class ExternalModuleRegistry:
                             response.status_code,
                         )
                         return True
-                    else:
-                        logger.warning(
-                            "Module health check failed %s. Status: %s, Response: %s",
-                            health_url,
-                            response.status_code,
-                            response.text,
-                        )
-                        return False
+                    logger.warning(
+                        "Module health check failed %s. Status: %s, Response: %s",
+                        health_url,
+                        response.status_code,
+                        response.text,
+                    )
+                    return False
                 except httpx.ConnectError as e:
                     logger.warning(
                         "Connection error to module %s: %s - %s",

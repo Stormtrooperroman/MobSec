@@ -219,11 +219,11 @@ class ReportGenerator:
         """Process a completed module in a chain"""
         current_index = chain_data.get("current_index", 0)
         file_hash = chain_data.get("file_hash", "")
-        
+
         chain_data["results"][module_name] = result_data
         chain_data["current_index"] = current_index + 1
         chain_task_id = chain_key.split(":")[-1]
-        
+
         self.redis_client.set(chain_key, json.dumps(chain_data), ex=86400)
 
         next_module_index = current_index + 1

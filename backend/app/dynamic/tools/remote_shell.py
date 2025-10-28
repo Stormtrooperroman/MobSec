@@ -166,7 +166,7 @@ class RemoteShell:
                                 None, os.write, self.master_fd, data.encode()
                             )
                     return
-                
+
                 logger.info(
                     "JSON parsed but not a shell command: %s, treating as raw data",
                     message
@@ -185,7 +185,7 @@ class RemoteShell:
                 except Exception as e:
                     logger.error("Error writing to PTY: %s", e)
                 return
-            
+
             logger.error(
                 "Cannot write data: running=%s, master_fd=%s",
                 self.is_running, self.master_fd

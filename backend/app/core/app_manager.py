@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional
 import aiofiles
 from fastapi import UploadFile
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database_manager import db_manager
 from app.core.settings_service import settings_service

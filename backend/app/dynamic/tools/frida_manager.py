@@ -9,7 +9,6 @@ from typing import Any, Dict, List
 
 from fastapi import WebSocket
 
-from app.core.app_manager import AsyncStorageService
 from app.dynamic.communication.base_websocket_manager import BaseWebSocketManager
 from app.dynamic.device_management.emulator_manager import EmulatorManager
 from app.dynamic.tools.frida_script_service import FridaScriptService
@@ -290,7 +289,7 @@ class FridaManager(BaseWebSocketManager):
     async def check_frida_server_status(self) -> bool:
         """Check if Frida server is running"""
         try:
-            stdout, _, return_code = await execute_adb_shell(
+            stdout, _, _ = await execute_adb_shell(
                 device_id=self.device_id,
                 shell_command="ps | grep frida-server"
             )
@@ -314,7 +313,9 @@ class FridaManager(BaseWebSocketManager):
                 device_id=self.device_id,
                 shell_command="su 0 pkill frida-server"
             )
-
+            if return_code != 0:
+                await self.send_error("Failed to kill Frida server")
+                return
             await asyncio.sleep(1)
 
         except Exception as e:
@@ -441,14 +442,11 @@ class FridaManager(BaseWebSocketManager):
 
             await self._kill_frida_server()
 
-            stdout, _, return_code = await execute_adb_shell(
+            stdout, _, _ = await execute_adb_shell(
                 device_id=self.device_id,
                 shell_command="nohup su 0 /data/local/tmp/frida-server -l 0.0.0.0:27042 > /dev/null 2>&1 &"
             )
 
-            if return_code != 0:
-                await self.send_error("Failed to start Frida server")
-                return
 
             self.frida_server_process = stdout
 
@@ -929,104 +927,6 @@ class FridaManager(BaseWebSocketManager):
             logger.error("Error getting script stats: %s", str(e))
             await self.send_error(f"Error getting script stats: {str(e)}")
 
-    async def install_app(self, file_hash: str, app_name: str):
-        """Install an APK file on the device"""
-        try:
-            logger.info("Installing app: %s (%s)", app_name, file_hash)
-
-            await self.send_response(
-                {
-                    "type": "frida",
-                    "action": "app_install_start",
-                    "app_name": app_name,
-                    "file_hash": file_hash,
-                }
-            )
-
-            storage = AsyncStorageService()
-
-            file_info = await storage.get_scan_status(file_hash)
-            if not file_info:
-                await self.send_response(
-                    {
-                        "type": "frida",
-                        "action": "app_install_error",
-                        "message": "File not found in storage",
-                    }
-                )
-                return
-
-            if file_info.get("file_type") != "apk":
-                await self.send_response(
-                    {
-                        "type": "frida",
-                        "action": "app_install_error",
-                        "message": "File is not an APK",
-                    }
-                )
-                return
-
-            storage_dir = "/shared_data"
-            folder_path = file_info.get("folder_path")
-            original_name = file_info.get("original_name")
-
-            apk_path = os.path.join(storage_dir, folder_path, original_name)
-
-            if not os.path.exists(apk_path):
-                await self.send_response(
-                    {
-                        "type": "frida",
-                        "action": "app_install_error",
-                        "message": f"APK file not found at: {apk_path}",
-                    }
-                )
-                return
-
-            await self.send_response(
-                {
-                    "type": "frida",
-                    "action": "app_install_progress",
-                    "message": f"Installing {app_name} to device...",
-                }
-            )
-
-            stdout, stderr, return_code = await execute_adb_command(
-                device_id=self.device_id,
-                command=["install", "-r", apk_path]
-            )
-
-            if return_code == 0:
-                success_msg = f"Successfully installed {app_name}"
-                logger.info(success_msg)
-                await self.send_response(
-                    {
-                        "type": "frida",
-                        "action": "app_install_success",
-                        "app_name": app_name,
-                        "message": success_msg,
-                    }
-                )
-            else:
-                error_output = (
-                    stderr.strip() if stderr else stdout.strip()
-                )
-                error_msg = f"Failed to install {app_name}: {error_output}"
-                logger.error(error_msg)
-                await self.send_response(
-                    {
-                        "type": "frida",
-                        "action": "app_install_error",
-                        "message": error_msg,
-                    }
-                )
-
-        except Exception as e:
-            error_msg = f"Error installing app: {str(e)}"
-            logger.error(error_msg)
-            await self.send_response(
-                {"type": "frida", "action": "app_install_error", "message": error_msg}
-            )
-
     async def handle_message(self, data: str):
         """Handle incoming messages from WebSocket"""
         try:
@@ -1075,8 +975,6 @@ class FridaManager(BaseWebSocketManager):
             await self.delete_script(message.get("script_name"))
         elif action == "get_script_stats":
             await self.get_script_stats()
-        elif action == "install_app":
-            await self.install_app(message.get("file_hash"), message.get("app_name"))
         elif action == "status":
             frida_installed = await self.check_frida_installation()
             frida_running = await self.check_frida_server_status()

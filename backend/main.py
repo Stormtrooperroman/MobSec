@@ -48,9 +48,6 @@ app.include_router(api_router)  # HTTP endpoints (includes WebSocket endpoints)
 async def initialize_background_services():
     """Initialize modules, chains, and emulators in the background."""
     try:
-        if settings.EXTERNAL_MODULES_ENABLED:
-            from app.modules.external_module_registry import module_registry
-
         await module_manager.start_modules()
         await chain_manager.start()
 

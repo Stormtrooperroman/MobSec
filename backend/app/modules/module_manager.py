@@ -8,7 +8,6 @@ from typing import Any, Dict, Optional
 import docker
 import yaml
 from redis import Redis
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.core.database_manager import db_manager

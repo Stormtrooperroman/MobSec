@@ -198,7 +198,7 @@ class WebSocketManager:
                             f"Multiplex connection closed for device {device_id}"
                         )
                         break
-                    elif message["type"] == "websocket.receive":
+                    if message["type"] == "websocket.receive":
                         if "bytes" in message:
                             data = message["bytes"]
                             await proxy.handle_client_binary(data)
@@ -234,7 +234,7 @@ class WebSocketManager:
                     if message["type"] == "websocket.disconnect":
                         self.logger.info("Simple multiplex connection closed")
                         break
-                    elif message["type"] == "websocket.receive":
+                    if message["type"] == "websocket.receive":
                         if "text" in message:
                             try:
                                 data = json.loads(message["text"])

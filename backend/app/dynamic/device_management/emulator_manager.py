@@ -83,10 +83,9 @@ class EmulatorManager:
                 logger.info("ADB server started on port 5037")
                 os.environ["ANDROID_ADB_SERVER_PORT"] = "5037"
                 return 5037
-            else:
-                logger.warning(
-                    "Failed to start ADB on standard port: %s", result.stderr
-                )
+            logger.warning(
+                "Failed to start ADB on standard port: %s", result.stderr
+            )
         except Exception as e:
             logger.warning("Failed to start ADB on standard port: %s", e)
 

@@ -72,7 +72,7 @@ async def dump_flows(
                     "Content-Disposition": f"attachment; filename=flows_{int(time.time())}.har"
                 },
             )
-        elif format_param == "json":
+        if format_param == "json":
             # Export as JSON format
             json_data = await manager.export_traffic("json")
             return JSONResponse(
@@ -82,28 +82,26 @@ async def dump_flows(
                     "Content-Disposition": f"attachment; filename=flows_{int(time.time())}.json"
                 },
             )
-        else:
-            # Create binary dump (default behavior)
-            dump_content = manager.export_flows_to_dump(flows)
+        dump_content = manager.export_flows_to_dump(flows)
 
-            # Create temporary file for response
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".dump") as tmp_file:
-                tmp_file.write(dump_content)
-                tmp_file_path = tmp_file.name
+        # Create temporary file for response
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".dump") as tmp_file:
+            tmp_file.write(dump_content)
+            tmp_file_path = tmp_file.name
 
-            # Return file response and schedule cleanup
-            def cleanup():
-                try:
-                    os.unlink(tmp_file_path)
-                except Exception:
-                    pass
+        # Return file response and schedule cleanup
+        def cleanup():
+            try:
+                os.unlink(tmp_file_path)
+            except Exception:
+                pass
 
-            return FileResponse(
-                path=tmp_file_path,
-                filename="flows.dump",
-                media_type="application/octet-stream",
-                background=cleanup,
-            )
+        return FileResponse(
+            path=tmp_file_path,
+            filename="flows.dump",
+            media_type="application/octet-stream",
+            background=cleanup,
+        )
     except Exception as e:
         logger.error("Error dumping flows: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -125,8 +123,7 @@ async def load_flows(
 
         if success:
             return {"message": "Flows loaded successfully"}
-        else:
-            raise HTTPException(status_code=400, detail="Failed to load flows")
+        raise HTTPException(status_code=400, detail="Failed to load flows")
     except HTTPException:
         raise
     except Exception as e:
@@ -143,8 +140,7 @@ async def clear_flows(
         success = manager.clear_flows()
         if success:
             return {"message": "Flows cleared successfully"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to clear flows")
+        raise HTTPException(status_code=500, detail="Failed to clear flows")
     except Exception as e:
         logger.error("Error clearing flows: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -209,8 +205,7 @@ async def delete_flow(
         success = manager.delete_flow(flow_id)
         if success:
             return {"message": "Flow deleted successfully"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to delete flow")
+        raise HTTPException(status_code=500, detail="Failed to delete flow")
     except HTTPException:
         raise
     except Exception as e:
@@ -252,8 +247,7 @@ async def kill_flow(
             flow.kill()
             manager.update_flow(flow)
             return {"message": "Flow killed successfully"}
-        else:
-            raise HTTPException(status_code=400, detail="Flow is not killable")
+        raise HTTPException(status_code=400, detail="Flow is not killable")
     except HTTPException:
         raise
     except Exception as e:
@@ -278,17 +272,17 @@ def _get_content_by_view(msg_obj, content_view: str):
             if content:
                 return content.hex()
             return ""
-        elif content_view == "text":
+        if content_view == "text":
             content = msg_obj.get_text(strict=False)
             return content if content else "Content is not text"
-        elif content_view == "hex":
+        if content_view == "hex":
             content = msg_obj.get_content(strict=False)
             if content:
                 return content.hex()
             return ""
-        else:  # raw
-            content = msg_obj.get_content(strict=False)
-            return content if content is not None else b""
+        # raw
+        content = msg_obj.get_content(strict=False)
+        return content if content is not None else b""
     except Exception as e:
         logger.warning("Error getting content by view: %s", e)
         return ""
@@ -335,7 +329,7 @@ async def get_flow_content(
         # Handle different content types
         if content is None:
             content = b"" if content_view == "raw" else ""
-        
+
         if content_view == "raw" and isinstance(content, bytes):
             return Response(
                 content=content,
@@ -344,15 +338,13 @@ async def get_flow_content(
                     "Content-Disposition": f"attachment; filename={message}_content_{content_view}"
                 },
             )
-        else:
-            # For string content (text, hex, auto)
-            return Response(
-                content=content or "",
-                media_type=media_type,
-                headers={
-                    "Content-Disposition": f"attachment; filename={message}_content_{content_view}"
-                },
-            )
+        return Response(
+            content=content or "",
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"attachment; filename={message}_content_{content_view}"
+            },
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -430,8 +422,7 @@ async def set_flow_content(
 
         if success:
             return {"message": f"Flow {message} content updated successfully"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to update flow content")
+        raise HTTPException(status_code=500, detail="Failed to update flow content")
     except HTTPException:
         raise
     except Exception as e:

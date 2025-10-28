@@ -45,7 +45,7 @@ class DeviceInfoHelper:
 
             for interface in interfaces:
                 try:
-                    
+
                     cmd = (
                         f"ip addr show {interface} | grep 'inet ' "
                         f"| head -1 | awk '{{print $2}}' | cut -d'/' -f1"

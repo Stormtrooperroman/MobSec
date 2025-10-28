@@ -177,7 +177,7 @@ class WebSocketProxy:
         """
         if self._cleanup_done:
             return
-        
+
         try:
             # Close device WebSocket
             if self.device_ws and not self.device_ws.closed:
@@ -213,7 +213,7 @@ class WebSocketProxy:
                         )
                 except Exception as e:
                     self.logger.error("Error removing port forwarding: %s", str(e))
-                    
+
         except Exception as e:
             self.logger.error("Error during cleanup: %s", str(e))
         finally:

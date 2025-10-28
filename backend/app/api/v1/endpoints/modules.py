@@ -163,13 +163,12 @@ async def toggle_module(module_id: str) -> Dict:
                     "message": f"Module {module_name} deactivated",
                     "active": False,
                 }
-            else:
-                await module_manager.start_module(module_name)
-                return {
-                    "status": "success",
-                    "message": f"Module {module_name} activated",
-                    "active": True,
-                }
+            await module_manager.start_module(module_name)
+            return {
+                "status": "success",
+                "message": f"Module {module_name} activated",
+                "active": True,
+            }
         except docker.errors.NotFound:
             logger.info("No existing container found with name: %s", container_name)
             await module_manager.start_module(module_name)
@@ -452,28 +451,27 @@ async def get_module_ui_component(module_name: str):
                     "component_content": component_data.get("component_content"),
                     "is_external": True,
                 }
-        else:
-            if not module_info.get("vue_file_path"):
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"UI component file path not found for module {module_name}",
-                )
+        if not module_info.get("vue_file_path"):
+            raise HTTPException(
+                status_code=404,
+                detail=f"UI component file path not found for module {module_name}",
+            )
 
-            if not os.path.exists(module_info["vue_file_path"]):
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"File not found: {module_info['vue_file_path']}",
-                )
+        if not os.path.exists(module_info["vue_file_path"]):
+            raise HTTPException(
+                status_code=404,
+                detail=f"File not found: {module_info['vue_file_path']}",
+            )
 
-            with open(module_info["vue_file_path"], "r", encoding="utf-8") as f:
-                vue_component_content = f.read()
+        with open(module_info["vue_file_path"], "r", encoding="utf-8") as f:
+            vue_component_content = f.read()
 
-            return {
-                "module_name": module_name,
-                "component_name": module_info["ui_component_name"],
-                "component_content": vue_component_content,
-                "is_external": False,
-            }
+        return {
+            "module_name": module_name,
+            "component_name": module_info["ui_component_name"],
+            "component_content": vue_component_content,
+            "is_external": False,
+        }
 
     except HTTPException:
         raise

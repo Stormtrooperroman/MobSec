@@ -6,28 +6,21 @@ import time
 import socket
 import hashlib
 import base64
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 from io import BytesIO
 from fastapi import WebSocket
 
-from mitmproxy import master, options, flow, io as mitmproxy_io, certs
-from mitmproxy.tools.web.master import WebMaster
-from mitmproxy import addons
-from mitmproxy import log
-from mitmproxy import optmanager
-from mitmproxy.addons import errorcheck
-from mitmproxy.addons import eventstore
-from mitmproxy.addons import intercept
-from mitmproxy.addons import readfile
-from mitmproxy.addons import view
+from mitmproxy import options, flow, io as mitmproxy_io, certs
+from mitmproxy import flowfilter
 from mitmproxy.http import HTTPFlow
 from mitmproxy.tcp import TCPFlow
 from mitmproxy.udp import UDPFlow
 from mitmproxy.dns import DNSFlow
-from mitmproxy import flowfilter
 from mitmproxy.utils.emoji import emoji
 from mitmproxy.utils.strutils import always_str
+
+from app.dynamic.tools.web_master import WebMaster
 from app.dynamic.utils.su_utils import check_su_availability
 
 logger = logging.getLogger(__name__)
@@ -247,163 +240,6 @@ def flow_to_json(flow_obj: flow.Flow) -> dict:
     return f
 
 
-class WebMaster(master.Master):
-
-    def __init__(self, opts: options.Options, with_termlog: bool = True):
-        super().__init__(opts, with_termlog=with_termlog)
-
-        # Initialize callback lists FIRST
-        self.flow_callbacks: List[Callable] = []
-        self.event_callbacks: List[Callable] = []
-        self.option_callbacks: List[Callable] = []
-
-        # Initialize view and events
-        self.view = view.View()
-        self.view.sig_view_add.connect(self._sig_view_add)
-        self.view.sig_view_remove.connect(self._sig_view_remove)
-        self.view.sig_view_update.connect(self._sig_view_update)
-        self.view.sig_view_refresh.connect(self._sig_view_refresh)
-
-        self.events = eventstore.EventStore()
-        self.events.sig_add.connect(self._sig_events_add)
-        self.events.sig_refresh.connect(self._sig_events_refresh)
-
-        self.options.changed.connect(self._sig_options_update)
-
-        # Add default addons
-        self.addons.add(*addons.default_addons())
-        self.addons.add(
-            intercept.Intercept(),
-            readfile.ReadFileStdin(),
-            self.view,
-            self.events,
-            errorcheck.ErrorCheck(),
-        )
-
-    def add_flow_callback(self, callback: Callable):
-        """Add callback for flow events"""
-        if not hasattr(self, "flow_callbacks"):
-            self.flow_callbacks = []
-        if callable(callback):
-            self.flow_callbacks.append(callback)
-        else:
-            logger.warning("Invalid flow callback: %s is not callable", type(callback))
-
-    def add_event_callback(self, callback: Callable):
-        """Add callback for log events"""
-        if not hasattr(self, "event_callbacks"):
-            self.event_callbacks = []
-        if callable(callback):
-            self.event_callbacks.append(callback)
-        else:
-            logger.warning("Invalid event callback: %s is not callable", type(callback))
-
-    def add_option_callback(self, callback: Callable):
-        """Add callback for option changes"""
-        if not hasattr(self, "option_callbacks"):
-            self.option_callbacks = []
-        if callable(callback):
-            self.option_callbacks.append(callback)
-        else:
-            logger.warning(
-                "Invalid option callback: %s is not callable", type(callback)
-            )
-
-    def _sig_view_add(self, **kwargs) -> None:
-        flow_obj = kwargs.get('flow')
-        if hasattr(self, "flow_callbacks") and flow_obj:
-            for callback in self.flow_callbacks:
-                try:
-                    if callable(callback):
-                        callback("flows/add", flow_obj)
-                    else:
-                        logger.warning(
-                            "Flow callback is not callable: %s", type(callback)
-                        )
-                except Exception as callback_error:
-                    logger.error("Error in flow callback: %s", callback_error)
-
-    def _sig_view_update(self, **kwargs) -> None:
-        flow_obj = kwargs.get('flow')
-        if hasattr(self, "flow_callbacks") and flow_obj:
-            for callback in self.flow_callbacks:
-                try:
-                    if callable(callback):
-                        callback("flows/update", flow_obj)
-                    else:
-                        logger.warning(
-                            "Flow callback is not callable: %s", type(callback)
-                        )
-                except Exception as callback_error:
-                    logger.error("Error in flow callback: %s", callback_error)
-
-    def _sig_view_remove(self, **kwargs) -> None:
-        flow_obj = kwargs.get('flow')
-        if hasattr(self, "flow_callbacks") and flow_obj:
-            for callback in self.flow_callbacks:
-                try:
-                    if callable(callback):
-                        callback("flows/remove", flow_obj)
-                    else:
-                        logger.warning(
-                            "Flow callback is not callable: %s", type(callback)
-                        )
-                except Exception as callback_error:
-                    logger.error("Error in flow callback: %s", callback_error)
-
-    def _sig_view_refresh(self) -> None:
-        if hasattr(self, "flow_callbacks"):
-            for callback in self.flow_callbacks:
-                try:
-                    if callable(callback):
-                        callback("flows/refresh", None)
-                    else:
-                        logger.warning(
-                            "Flow callback is not callable: %s", type(callback)
-                        )
-                except Exception as callback_error:
-                    logger.error("Error in flow callback: %s", callback_error)
-
-    def _sig_events_add(self, entry: log.LogEntry) -> None:
-        if hasattr(self, "event_callbacks"):
-            for callback in self.event_callbacks:
-                try:
-                    if callable(callback):
-                        callback("events/add", entry)
-                    else:
-                        logger.warning(
-                            "Event callback is not callable: %s", type(callback)
-                        )
-                except Exception as callback_error:
-                    logger.error("Error in event callback: %s", callback_error)
-
-    def _sig_events_refresh(self) -> None:
-        if hasattr(self, "event_callbacks"):
-            for callback in self.event_callbacks:
-                try:
-                    if callable(callback):
-                        callback("events/refresh", None)
-                    else:
-                        logger.warning(
-                            "Event callback is not callable: %s", type(callback)
-                        )
-                except Exception as callback_error:
-                    logger.error("Error in event callback: %s", callback_error)
-
-    def _sig_options_update(self, updated: set[str]) -> None:
-        if hasattr(self, "option_callbacks"):
-            for callback in self.option_callbacks:
-                try:
-                    if callable(callback):
-                        options_dict = optmanager.dump_dicts(self.options, updated)
-                        callback("options/update", options_dict)
-                    else:
-                        logger.warning(
-                            "Option callback is not callable: %s", type(callback)
-                        )
-                except Exception as callback_error:
-                    logger.error("Error in option callback: %s", callback_error)
-
 
 class MitmproxyManager:
     """Mitmproxy Manager"""
@@ -599,12 +435,10 @@ class MitmproxyManager:
             # Check if proxy is already running
             if self.proxy_task and not self.proxy_task.done():
                 return True
-            else:
-                # Start the proxy (will reuse master if it exists)
-                proxy_started = await self.start_proxy()
-                if not proxy_started:
-                    logger.error("Failed to start proxy")
-                    return False
+            proxy_started = await self.start_proxy()
+            if not proxy_started:
+                logger.error("Failed to start proxy")
+                return False
 
             # Initialize backend_ip if it's not set
             if not self.backend_ip or self.backend_ip == "172.19.0.1":
@@ -1310,7 +1144,7 @@ class MitmproxyManager:
                     )
 
                 elif action == "get_state":
-                    await self._check_su_availability()
+                    self.su_available = await check_su_availability(self.device_id)
 
                     if not self.backend_ip:
                         self.backend_ip = await self._get_backend_ip()
@@ -1549,28 +1383,6 @@ class MitmproxyManager:
                 websocket, {"type": "mitmproxy", "action": "error", "message": str(e)}
             )
 
-    # Options management
-    def get_options(self) -> dict:
-        """Get mitmproxy options"""
-        try:
-            if self.master_instance:
-                return optmanager.dump_dicts(self.master_instance.options)
-            return {}
-        except Exception as e:
-            logger.error("Error getting options: %s", e)
-            return {}
-
-    def update_options(self, options_dict: dict) -> bool:
-        """Update mitmproxy options"""
-        try:
-            if self.master_instance:
-                self.master_instance.options.update(**options_dict)
-                return True
-            return False
-        except Exception as e:
-            logger.error("Error updating options: %s", e)
-            return False
-
     # State management
     async def get_state(self) -> dict:
         """Get mitmproxy state"""
@@ -1624,33 +1436,6 @@ class MitmproxyManager:
         logger.warning("Port %s is not available", port)
         return False
 
-    # Commands management
-    def get_commands(self) -> dict:
-        """Get available commands"""
-        try:
-            if self.master_instance and hasattr(self.master_instance, "commands"):
-                commands = {}
-                for name, cmd in self.master_instance.commands.commands.items():
-                    commands[name] = {
-                        "help": getattr(cmd, "help", ""),
-                        "signature_help": getattr(cmd, "signature_help", lambda: "")(),
-                    }
-                return commands
-            return {}
-        except Exception as e:
-            logger.error("Error getting commands: %s", e)
-            return {}
-
-    def execute_command(self, cmd: str, args: List[str] = None) -> Any:
-        """Execute a command"""
-        try:
-            if self.master_instance and hasattr(self.master_instance, "commands"):
-                args = args or []
-                return self.master_instance.commands.call_strings(cmd, args)
-            return None
-        except Exception as e:
-            logger.error("Error executing command %s: %s", cmd, e)
-            raise
 
     # Certificate management methods (keep your existing implementation)
     async def generate_certificate(self) -> Optional[str]:
@@ -1793,7 +1578,7 @@ class MitmproxyManager:
             logger.info("Installing certificate on device %s", self.device_id)
 
             # Check su availability
-            await self._check_su_availability()
+            self.su_available = await check_su_availability(self.device_id)
 
             # Get backend container IP if not set
             if not self.backend_ip:
@@ -2132,7 +1917,7 @@ class MitmproxyManager:
             logger.info("Configuring proxy on device %s", self.device_id)
 
             # Check su availability
-            await self._check_su_availability()
+            self.su_available = await check_su_availability(self.device_id)
 
             # Get backend container IP if not set
             if not self.backend_ip:
@@ -2209,7 +1994,7 @@ class MitmproxyManager:
             logger.info("Disabling proxy on device %s", self.device_id)
 
             # Check su availability
-            await self._check_su_availability()
+            self.su_available = await check_su_availability(self.device_id)
 
             # Use command to disable proxy
             if self.su_available:
@@ -2265,43 +2050,6 @@ class MitmproxyManager:
         except Exception as e:
             logger.error("Error disabling proxy: %s", str(e))
             return False
-
-    async def _get_emulator_name_by_device_id(self) -> Optional[str]:
-        """Determines emulator name by device_id"""
-        try:
-            # Import EmulatorManager
-            from app.dynamic.emulator_manager import EmulatorManager
-
-            # Create emulator manager instance
-            redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
-            emulators_path = "/app/emulators"
-            emulator_manager = EmulatorManager(redis_url, emulators_path)
-
-            # Get list of emulators
-            emulators = await emulator_manager.list_emulators()
-
-            # Look for emulator with matching IP
-            for emulator in emulators:
-                if emulator["status"] == "running" and emulator.get("container_id"):
-                    # Get container IP
-                    container_ip = emulator_manager._get_container_ip(
-                        emulator["container_id"]
-                    )
-                    if container_ip and (
-                        container_ip in self.device_id
-                        or (self.device_ip and container_ip == self.device_ip)
-                    ):
-                        logger.info(
-                            "Found emulator %s for device %s", emulator['name'], self.device_id
-                        )
-                        return emulator["name"]
-
-            logger.info("Device %s is not a Docker emulator", self.device_id)
-            return None
-
-        except Exception as e:
-            logger.warning("Could not determine emulator name: %s", str(e))
-            return None
 
     async def _initialize_backend_ip(self) -> None:
         """Initialize backend container IP address"""
@@ -2369,150 +2117,6 @@ class MitmproxyManager:
         except Exception as e:
             logger.error("Error getting backend IP: %s", str(e))
             return None  # Fallback
-
-    async def _get_device_ip(self) -> None:
-        """Get device IP address"""
-        try:
-            # Try to get IP from ADB
-            cmd = f"adb -s {self.device_id} shell ip route get 1.1.1.1"
-            process = await asyncio.create_subprocess_shell(
-                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await process.communicate()
-
-            if process.returncode == 0:
-                output = stdout.decode().strip()
-                # Parse output to get IP
-                parts = output.split()
-                if "src" in parts:
-                    src_index = parts.index("src")
-                    if src_index + 1 < len(parts):
-                        self.device_ip = parts[src_index + 1]
-                        logger.info("Device IP: %s", self.device_ip)
-                        return
-
-            # Alternative method
-            cmd = f"adb -s {self.device_id} shell ifconfig | grep 'inet addr'"
-            process = await asyncio.create_subprocess_shell(
-                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await process.communicate()
-
-            if process.returncode == 0:
-                # Look for first non-localhost IP
-                lines = stdout.decode().split("\n")
-                for line in lines:
-                    if "inet addr:" in line and "127.0.0.1" not in line:
-                        ip_part = line.split("inet addr:")[1].split()[0]
-                        self.device_ip = ip_part
-                        logger.info("Device IP (alternative): %s", self.device_ip)
-                        return
-
-            logger.warning("Could not determine device IP")
-
-        except Exception as e:
-            logger.error("Error getting device IP: %s", str(e))
-
-    async def _check_su_availability(self) -> None:
-        """Check su availability on device"""
-        try:
-            self.su_available = await check_su_availability(self.device_id)
-            if self.su_available:
-                logger.info("su is available on device")
-            else:
-                logger.info("su is not available on device")
-        except Exception as e:
-            logger.error("Error checking su availability: %s", str(e))
-            self.su_available = False
-
-    async def _check_certificate_status(self) -> None:
-        """Check certificate installation status"""
-        try:
-            self.cert_installed = False  # By default consider not installed
-
-            # Check su availability
-            await self._check_su_availability()
-
-            if not self.su_available:
-                logger.info("Cannot check certificate status without root access")
-                return
-
-            # First check for local mitmproxy certificate
-            cert_path = os.path.join(self.certs_dir, "mitmproxy-ca-cert.pem")
-            if not os.path.exists(cert_path):
-                logger.info("Local mitmproxy certificate not found")
-                return
-
-            # Get local certificate hash
-            with open(cert_path, "rb") as f:
-                cert_content = f.read()
-
-            # Get correct hash
-            temp_cert_file = f"/tmp/temp_cert_check_{int(time.time())}.pem"
-            with open(temp_cert_file, "wb") as f:
-                f.write(cert_content)
-
-            hash_cmd = f"openssl x509 -inform PEM -subject_hash_old -in {temp_cert_file} | head -1"
-            process = await asyncio.create_subprocess_shell(
-                hash_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await process.communicate()
-
-            if process.returncode == 0:
-                cert_hash = stdout.decode().strip()
-                os.unlink(temp_cert_file)
-
-                # Check if certificate with this hash exists in system
-                system_cert_path = f"/system/etc/security/cacerts/{cert_hash}.0"
-                check_cmd = (
-                    f"adb -s {self.device_id} shell su 0 test -f "
-                    f"{system_cert_path} && echo 'exists'"
-                )
-                check_process = await asyncio.create_subprocess_shell(
-                    check_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                check_stdout, _ = await check_process.communicate()
-
-                if check_process.returncode == 0 and "exists" in check_stdout.decode():
-                    # Check that content matches
-                    read_cmd = (
-                        f"adb -s {self.device_id} shell su 0 cat {system_cert_path}"
-                    )
-                    read_process = await asyncio.create_subprocess_shell(
-                        read_cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    read_stdout, _ = await read_process.communicate()
-
-                    if read_process.returncode == 0:
-                        installed_cert = read_stdout.decode().strip()
-                        original_cert = cert_content.decode().strip()
-
-                        if installed_cert == original_cert:
-                            self.cert_installed = True
-                            logger.info(
-                                "✅ Mitmproxy certificate verified at %s", system_cert_path
-                            )
-                        else:
-                            logger.warning(
-                                "❌ Certificate content mismatch at %s", system_cert_path
-                            )
-                    else:
-                        logger.warning(
-                            "❌ Cannot read certificate at %s", system_cert_path
-                        )
-                else:
-                    logger.info("❌ Certificate not found at %s", system_cert_path)
-            else:
-                os.unlink(temp_cert_file)
-                logger.warning("Failed to get certificate hash: %s", stderr.decode())
-
-        except Exception as e:
-            logger.error("Error checking certificate status: %s", str(e))
-            self.cert_installed = False
 
 
 _mitmproxy_managers: Dict[str, MitmproxyManager] = {}

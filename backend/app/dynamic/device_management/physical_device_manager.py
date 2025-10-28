@@ -50,7 +50,7 @@ class PhysicalDeviceManager:
                 await self.ensure_adb_server()
                 self._adb_server_started = True
 
-            
+
             stdout, _, return_code = await execute_adb_devices(env=self.adb_env)
 
             if return_code != 0:
@@ -308,7 +308,7 @@ class PhysicalDeviceManager:
     async def check_device_connectivity(self, device_id: str) -> bool:
         """Check if a device is still connected and responsive"""
         try:
-            
+
             _, _, return_code = await execute_adb_shell(
                 device_id=device_id,
                 shell_command="echo test",

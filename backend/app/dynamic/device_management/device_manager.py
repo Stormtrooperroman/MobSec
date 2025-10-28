@@ -48,7 +48,7 @@ class DeviceManager:
         """Get all devices from ADB with proper type classification"""
         try:
             env = get_adb_env()
-            
+
             stdout, stderr, return_code = await execute_adb_devices(env=env)
 
             if return_code != 0:
