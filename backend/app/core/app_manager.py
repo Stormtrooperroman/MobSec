@@ -201,7 +201,7 @@ class AsyncStorageService:
                     from app.modules.module_manager import ModuleManager
 
                     file_info = await self.get_scan_status(file_hash)
-                    module_manager = ModuleManager(
+                    module_manager = ModuleManager.get_instance(
                         redis_url=os.getenv("REDIS_URL"),
                         modules_path=os.getenv("MODULES_PATH"),
                     )
@@ -217,7 +217,7 @@ class AsyncStorageService:
                 elif action_type == "chain":
                     from app.modules.chain_manager import ChainManager  # pylint: disable=import-outside-toplevel
 
-                    chain_manager = ChainManager()
+                    chain_manager = ChainManager.get_instance()
                     await chain_manager.run_chain(action, file_hash)
 
                 logger.info(

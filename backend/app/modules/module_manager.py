@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import uuid
 from typing import Any, Dict, Optional
 
@@ -21,13 +22,38 @@ logger = logging.getLogger(__name__)
 
 
 class ModuleManager:
+    _instance: "ModuleManager" = None
+    _instance_lock = threading.Lock()
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self, redis_url: str, modules_path: str):
+        if getattr(self, "_initialized", False):
+            return
+
+        if not redis_url or not modules_path:
+            raise ValueError("ModuleManager requires redis_url and modules_path")
+
         self.redis_url = redis_url
         self.modules_path = modules_path
         self.redis = Redis.from_url(redis_url, decode_responses=True)
         self.docker_client = docker.from_env()
         self.modules_config = self._load_modules_config()
         self.async_session = db_manager.session_factory
+        self._initialized = True
+
+    @classmethod
+    def get_instance(cls, redis_url: Optional[str] = None, modules_path: Optional[str] = None) -> "ModuleManager":
+        if cls._instance is None:
+            if redis_url is None or modules_path is None:
+                raise ValueError("ModuleManager.get_instance requires redis_url and modules_path on first call")
+            cls(redis_url=redis_url, modules_path=modules_path)
+        return cls._instance
 
     def _load_modules_config(self) -> Dict[str, Any]:
         """Load configuration for all modules"""
@@ -195,7 +221,8 @@ class ModuleManager:
 
         # Relink chain modules after all modules are started
         from app.modules.chain_manager import ChainManager
-        chain_manager = ChainManager()
+
+        chain_manager = ChainManager.get_instance()
         await chain_manager.relink_chain_modules()
 
     async def stop_module(self, module_name: str):

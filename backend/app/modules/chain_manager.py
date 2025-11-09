@@ -1,12 +1,13 @@
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import threading
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
-import httpx
 import yaml
 from redis import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -26,30 +27,98 @@ logger = logging.getLogger(__name__)
 
 
 class ChainManager:
+    _instance: "ChainManager" = None
+    _instance_lock = threading.Lock()
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        if getattr(self, "_initialized", False):
+            return
+
         database_url = os.getenv(
             "DATABASE_URL", "postgresql+asyncpg://postgres:password@db:5432/mobsec_db"
         )
         redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+
         self.engine = create_async_engine(database_url, echo=True)
         self.async_session = sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
         )
         self.redis = Redis.from_url(redis_url, decode_responses=True)
 
-        self.chain_event_queue = asyncio.Queue()
-
-        self.loop = asyncio.get_running_loop()
+        # Runtime members initialised lazily
+        self.chain_event_queue: Optional[asyncio.Queue] = None
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
+        self._queue_worker_task: Optional[asyncio.Task] = None
+        self._monitor_thread: Optional[threading.Thread] = None
+        self._monitor_stop_event = threading.Event()
+        self._pubsub = None
+        self._starting = False
+        self._started = False
 
         # Store config for lazy initialization
         self.redis_url = redis_url
         self.modules_path = os.getenv("MODULES_PATH", "/app/modules")
 
-        self._setup_chain_event_monitor()
+        self._initialized = True
 
-        asyncio.create_task(self._process_chain_event_queue())
+    @classmethod
+    def get_instance(cls) -> "ChainManager":
+        if cls._instance is None:
+            cls()
+        return cls._instance
 
-        self.http_client = httpx.AsyncClient(timeout=120.0)
+    async def startup(self):
+        if self._started:
+            return
+
+        while self._starting:
+            await asyncio.sleep(0.05)
+            if self._started:
+                return
+
+        self._starting = True
+        try:
+            self.loop = asyncio.get_running_loop()
+            if self.chain_event_queue is None:
+                self.chain_event_queue = asyncio.Queue()
+
+            self._setup_chain_event_monitor()
+
+            if not self._queue_worker_task or self._queue_worker_task.done():
+                self._queue_worker_task = asyncio.create_task(
+                    self._process_chain_event_queue()
+                )
+
+            self._started = True
+        finally:
+            self._starting = False
+
+    async def shutdown(self):
+        self._monitor_stop_event.set()
+
+        if self._pubsub is not None:
+            try:
+                self._pubsub.close()
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("Error closing pubsub: %s", exc)
+
+        if self._queue_worker_task and not self._queue_worker_task.done():
+            self._queue_worker_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._queue_worker_task
+
+        self._queue_worker_task = None
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            self._monitor_thread.join(timeout=1)
+        self._monitor_thread = None
+        self._started = False
 
     async def _handle_chain_event(self, chain_task_id, next_module_index, file_hash):
         """Handle a single chain event"""
@@ -92,6 +161,9 @@ class ChainManager:
         """Process chain events from the queue in the main event loop"""
         while True:
             try:
+                if not self.chain_event_queue:
+                    await asyncio.sleep(0.1)
+                    continue
                 event = await self.chain_event_queue.get()
                 chain_task_id = event.get("chain_task_id")
                 next_module_index = event.get("next_module_index")
@@ -123,24 +195,41 @@ class ChainManager:
 
     def _setup_chain_event_monitor(self):
         """Setup Redis subscription for chain events"""
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            return
+
         def monitor_chain_events():
             pubsub = self.redis.pubsub()
+            self._pubsub = pubsub
             pubsub.psubscribe("chain:module:completed:*")
 
             logger.info("Starting Redis chain event monitor")
-            for message in pubsub.listen():
-                if message["type"] == "pmessage":
-                    try:
-                        data = json.loads(message["data"])
+            try:
+                for message in pubsub.listen():
+                    if self._monitor_stop_event.is_set():
+                        break
+                    if message["type"] == "pmessage":
+                        try:
+                            data = json.loads(message["data"])
+                            if self.loop and self.chain_event_queue:
+                                asyncio.run_coroutine_threadsafe(
+                                    self.chain_event_queue.put(data), self.loop
+                                )
+                        except Exception as e:
+                            logger.error(
+                                "Error adding chain event to queue: %s", str(e)
+                            )
+            finally:
+                try:
+                    pubsub.close()
+                except Exception:  # pragma: no cover - defensive
+                    pass
 
-                        asyncio.run_coroutine_threadsafe(
-                            self.chain_event_queue.put(data), self.loop
-                        )
-                    except Exception as e:
-                        logger.error("Error adding chain event to queue: %s", str(e))
-
-        monitor_thread = threading.Thread(target=monitor_chain_events, daemon=True)
-        monitor_thread.start()
+        self._monitor_stop_event.clear()
+        self._monitor_thread = threading.Thread(
+            target=monitor_chain_events, daemon=True
+        )
+        self._monitor_thread.start()
 
     async def init_db(self):
         from app.core.settings_db import init_db
@@ -425,7 +514,8 @@ class ChainManager:
             else:
                 # Import here to avoid circular imports
                 from app.modules.module_manager import ModuleManager
-                module_manager = ModuleManager(
+
+                module_manager = ModuleManager.get_instance(
                     redis_url=self.redis_url, modules_path=self.modules_path
                 )
                 module_task_id = await module_manager.submit_task(
@@ -655,4 +745,5 @@ class ChainManager:
 
     async def start(self):
         """Initialize chain storage and create default chains"""
+        await self.startup()
         await self.create_default_chains()

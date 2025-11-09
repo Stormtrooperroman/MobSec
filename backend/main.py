@@ -15,8 +15,9 @@ from app.report_generator import start_report_generator, stop_report_generator
 
 logger = logging.getLogger(__name__)
 
-module_manager = ModuleManager(
-    redis_url=os.getenv("REDIS_URL"), modules_path=os.getenv("MODULES_PATH")
+module_manager = ModuleManager.get_instance(
+    redis_url=os.getenv("REDIS_URL"),
+    modules_path=os.getenv("MODULES_PATH", "/app/modules"),
 )
 
 emulator_manager = EmulatorManager(
@@ -30,7 +31,7 @@ app = FastAPI(
     version="0.1",
 )
 storage = AsyncStorageService()
-chain_manager = ChainManager()
+chain_manager = ChainManager.get_instance()
 
 # Configure CORS for both HTTP and WebSocket
 app.add_middleware(
@@ -48,6 +49,7 @@ app.include_router(api_router)  # HTTP endpoints (includes WebSocket endpoints)
 async def initialize_background_services():
     """Initialize modules, chains, and emulators in the background."""
     try:
+        await chain_manager.startup()
         await module_manager.start_modules()
         await chain_manager.start()
 
@@ -63,6 +65,8 @@ async def startup_event():
 
     await start_report_generator()
 
+    await chain_manager.startup()
+
     asyncio.create_task(initialize_background_services())
 
 
@@ -76,6 +80,8 @@ async def shutdown_event():
         await stop_report_generator()
 
         await module_manager.cleanup()
+
+        await chain_manager.shutdown()
 
         if settings.EXTERNAL_MODULES_ENABLED:
             from app.modules.external_module_registry import module_registry
