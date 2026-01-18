@@ -34,7 +34,6 @@ class JadxModule:
             sys.exit(1)
             
         self.module_name = "jadx_module"
-        self.jadx_timeout = int(os.getenv('JADX_TIMEOUT', 300))
 
     async def start(self):
         logger.info(f"Starting {self.module_name} module...")
@@ -175,7 +174,7 @@ class JadxModule:
             )
             
             try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self.jadx_timeout)
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=None)
                 success = process.returncode == 0
                 
                 if success:

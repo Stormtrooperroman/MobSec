@@ -4,7 +4,7 @@
       <div class="nav-content">
         <div class="logo-section">
           <div class="logo-container">
-            <span class="app-title">Mobile Scanner</span>
+            <span class="app-title">MobSec</span>
           </div>
         </div>
         <div class="navigation-buttons">

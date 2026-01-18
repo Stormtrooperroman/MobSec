@@ -68,6 +68,24 @@ Response:
 }
 ```
 
+### 3. UI Component (Optional)
+```
+GET /ui-component
+```
+This endpoint is optional and should be implemented if your module provides a custom Vue.js component for displaying results in the platform's UI.
+
+Response:
+```json
+{
+    "component_name": "YourModuleReport",
+    "component_content": "<template>...</template><script>...</script><style>...</style>"
+}
+```
+
+The `component_content` should contain the complete Vue.js component code (template, script, and style sections). The component will be dynamically loaded by the platform to display your module's results.
+
+**Note**: If you implement this endpoint, you must also include UI component information in your module registration (see Module Registration section below).
+
 ## Communication Flow
 
 1. **Module Registration**
@@ -81,11 +99,22 @@ Response:
        "module_id": "your-module-id",
        "base_url": "your-module-base-url",
        "config": {
-           // Contents of config.yaml
+           "name": "your-module-name",
+           "version": "1.0.0",
+           "description": "Clear description of what your module does",
+           "input_formats": ["apk", "ipa", "source"],
+           "has_custom_ui": true,
+           "ui_component": {
+               "name": "YourModuleReport",
+               "endpoint": "your-module-base-url/ui-component"
+           }
        },
-       "healthcheck_url": "your-module-base-url/health"
+       "healthcheck_url": "your-module-base-url/health",
+       "status": "active"
    }
    ```
+   
+   **Note on Custom UI**: If your module implements the `/ui-component` endpoint, include `has_custom_ui: true` and the `ui_component` object in the config. The `ui_component.name` should match the component name returned by your `/ui-component` endpoint, and `ui_component.endpoint` should be the full URL to your UI component endpoint. If your module doesn't have a custom UI, omit the `has_custom_ui` and `ui_component` fields (or set `has_custom_ui: false`).
 
 2. **File Access**
    - To access files for analysis:

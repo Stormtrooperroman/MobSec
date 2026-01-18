@@ -62,7 +62,7 @@ class NativeLibsModule:
                 import traceback
                 logger.error(f"Critical error in {self.module_name} module main loop: {str(e)}")
                 logger.error(f"Traceback: {traceback.format_exc()}")
-                await asyncio.sleep(5)  # Back off on critical errors
+                await asyncio.sleep(5)
 
     async def process(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
         file_path = os.path.join("/shared_data", task_data["folder_path"], task_data["file_name"])

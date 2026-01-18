@@ -1,0 +1,6 @@
+name: call_graph_module
+version: 0.1
+description: Generate call graph for Android APKs
+author: Stormtrooperroman
+active: True
+input_formats: ["apk"]

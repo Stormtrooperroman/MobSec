@@ -1999,10 +1999,10 @@ class MitmproxyManager:
             # Use command to disable proxy
             if self.su_available:
                 # Use su for global proxy configuration
-                cmd = f"adb -s {self.device_id} shell su 0 settings put global http_proxy 0"
+                cmd = f"adb -s {self.device_id} shell su 0 settings put global http_proxy :0"
             else:
                 # Try to disable without su
-                cmd = f"adb -s {self.device_id} shell settings put global http_proxy 0"
+                cmd = f"adb -s {self.device_id} shell settings put global http_proxy :0"
 
             process = await asyncio.create_subprocess_shell(
                 cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE

@@ -1,0 +1,3 @@
+redis
+androguard>=4.0.1 
+lmdb

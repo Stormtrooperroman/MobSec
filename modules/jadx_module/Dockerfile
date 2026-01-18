@@ -33,7 +33,6 @@ COPY config.yaml /module/
 
 # Set environment variables
 ENV REDIS_URL=redis://redis:6379
-ENV JADX_TIMEOUT=300
 
 # Run the module
 CMD ["python3", "decompile.py"]
