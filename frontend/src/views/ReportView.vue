@@ -120,155 +120,12 @@
               :module-name="moduleName"
               :file-info="reportData.file_info"
             />
-            <div v-else>
-              <div class="module-header">
-                <h3 class="module-title">{{ formatModuleName(moduleName) }} Results</h3>
-
-                <!-- Show summary if available -->
-                <div v-if="hasSummary(moduleData)" class="summary-section">
-                  <h4 class="section-title">Summary</h4>
-
-                  <!-- Severity counts with improved visualization -->
-                  <div v-if="hasSeverityCounts(moduleData)" class="summary-card">
-                    <div class="summary-label">Findings by Severity</div>
-                    <div class="severity-counts">
-                      <div
-                        v-for="(count, severity) in moduleData.results.summary.severity_counts"
-                        :key="severity"
-                        :class="['severity-badge', 'severity-' + severity.toLowerCase()]"
-                      >
-                        {{ severity }}: {{ count }}
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Category counts -->
-                  <div v-if="hasCategoryCounts(moduleData)" class="summary-card">
-                    <div class="summary-label">Findings by Category</div>
-                    <div class="category-counts">
-                      <div
-                        v-for="(count, category) in moduleData.results.summary.category_counts"
-                        :key="category"
-                        class="category-badge"
-                      >
-                        {{ category }}: {{ count }}
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Other summary metrics -->
-                  <div class="summary-metrics">
-                    <div v-for="(value, key) in filteredSummaryItems(moduleData)" :key="key" class="summary-card">
-                      <div class="summary-label">{{ formatKey(key) }}</div>
-                      <div class="summary-value">{{ value }}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <!-- Show findings section only for non-APKiD modules -->
-              <div v-if="moduleName !== 'apkid_module'" class="findings-section">
-                <div class="findings-header">
-                  <h4 class="section-title">Findings ({{ moduleData.results.findings.length }})</h4>
-
-                  <div class="findings-filters">
-                    <div class="filter-group">
-                      <label :for="`severity-filter-${moduleName}`">Severity:</label>
-                      <select
-                        :id="`severity-filter-${moduleName}`"
-                        v-model="filters[moduleName].severity"
-                        class="filter-select"
-                      >
-                        <option value="">All Severities</option>
-                        <option
-                          v-for="severity in getAvailableSeverities(moduleData)"
-                          :key="severity"
-                          :value="severity"
-                        >
-                          {{ severity }}
-                        </option>
-                      </select>
-                    </div>
-
-                    <div class="filter-group" v-if="getAvailableCategories(moduleData).length > 0">
-                      <label :for="`category-filter-${moduleName}`">Category:</label>
-                      <select
-                        :id="`category-filter-${moduleName}`"
-                        v-model="filters[moduleName].category"
-                        class="filter-select"
-                      >
-                        <option value="">All Categories</option>
-                        <option
-                          v-for="category in getAvailableCategories(moduleData)"
-                          :key="category"
-                          :value="category"
-                        >
-                          {{ category }}
-                        </option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="findings-list">
-                  <div
-                    v-for="(finding, index) in getFilteredFindings(moduleData, moduleName)"
-                    :key="index"
-                    class="finding-card"
-                  >
-                    <div class="finding-header">
-                      <div :class="['finding-severity', 'severity-' + finding.severity.toLowerCase()]">
-                        {{ finding.severity }}
-                      </div>
-                      <div class="finding-rule">{{ finding.rule_id || 'Unknown Rule' }}</div>
-                    </div>
-
-                    <div class="finding-message">{{ finding.message }}</div>
-
-                    <div v-if="finding.location" class="finding-location">
-                      <div class="location-details">
-                        <div class="location-file">
-                          <span class="detail-label">File:</span> {{ getShortFilePath(finding.location.file) }}
-                        </div>
-                        <div class="location-lines">
-                          <span class="detail-label">Lines:</span> {{ finding.location.start_line }} -
-                          {{ finding.location.end_line }}
-                        </div>
-                      </div>
-
-                      <div v-if="finding.location.code" class="location-code">
-                        <pre><code>{{ finding.location.code }}</code></pre>
-                      </div>
-                    </div>
-
-                    <div v-if="finding.metadata && hasMetadata(finding.metadata)" class="finding-metadata">
-                      <div v-for="(value, key) in finding.metadata" :key="key" class="metadata-item">
-                        <template v-if="Array.isArray(value) && value.length > 0">
-                          <span class="metadata-key">{{ formatKey(key) }}:</span> {{ value.join(', ') }}
-                        </template>
-                        <template v-else-if="value && !Array.isArray(value)">
-                          <span class="metadata-key">{{ formatKey(key) }}:</span> {{ value }}
-                        </template>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div v-if="getFilteredFindings(moduleData, moduleName).length === 0" class="no-findings">
-                    <div class="empty-state">
-                      <span class="empty-icon">🔍</span>
-                      <p>No findings match your current filters.</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Raw Results Section if no structured data is available -->
-              <div v-if="!hasFindings(moduleData) && !hasSummary(moduleData)" class="raw-results">
-                <h4 class="section-title">Raw Results</h4>
-                <div class="code-container">
-                  <pre><code>{{ JSON.stringify(moduleData.results, null, 2) }}</code></pre>
-                </div>
-              </div>
-            </div>
+            <GenericModule
+              v-else
+              :module-data="moduleData"
+              :module-name="moduleName"
+              :file-info="reportData.file_info"
+            />
           </div>
         </div>
 
@@ -284,9 +141,13 @@
 <script>
 import { defineComponent } from 'vue';
 import * as Vue from 'vue';
+import GenericModule from '../components/modules/GenericModule.vue';
 
 export default defineComponent({
   name: 'ReportView',
+  components: {
+    GenericModule,
+  },
   props: {
     fileHash: {
       type: String,

@@ -166,8 +166,8 @@ class JadxModule:
             # Run jadx decompilation asynchronously
             process = await asyncio.create_subprocess_exec(
                 jadx_path, 
-                '-ds', output_dir,
-                '-q', '-r', '--show-bad-code',
+                '-d', output_dir,
+                '-q', '--show-bad-code',
                 input_file,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
@@ -181,7 +181,8 @@ class JadxModule:
                     logger.info(f"Successfully decompiled {os.path.basename(input_file)}")
                 elif stderr.decode() == '':
                     success = True
-                    logger.info(f"Decompiled {os.path.basename(input_file)} with errors")
+                    logger.info(f"Decompiled {os.path.basename(input_file)}")
+                    logger.info(stdout)
                 else:
                     logger.info(stderr)
                     stderr_text = stderr.decode() if stderr else "Unknown error"
@@ -205,11 +206,8 @@ class JadxModule:
         if jadx_binary and os.path.isfile(jadx_binary):
             return jadx_binary
             
-        # Check in /opt/jadx/bin which is set in the Dockerfile
-        if platform.system() == 'Windows':
-            jadx_path = '/opt/jadx/bin/jadx.bat'
-        else:
-            jadx_path = '/opt/jadx/bin/jadx'
+
+        jadx_path = '/opt/jadx/bin/jadx'
             
         if os.path.isfile(jadx_path):
             return jadx_path

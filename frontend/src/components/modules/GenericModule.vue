@@ -59,24 +59,80 @@
           <h4 class="section-title">Findings ({{ moduleData.results.findings.length }})</h4>
 
           <div class="findings-filters">
-            <div class="filter-group">
-              <label for="severity-filter">Severity:</label>
-              <select id="severity-filter" v-model="severityFilter" class="filter-select">
-                <option value="">All Severities</option>
-                <option v-for="severity in availableSeverities" :key="severity" :value="severity">
-                  {{ severity }}
-                </option>
-              </select>
+            <div class="filter-group" ref="severityFilterGroup">
+              <button
+                type="button"
+                class="filter-toggle"
+                @click.stop="
+                  showSeverityDropdown = !showSeverityDropdown;
+                  if (showSeverityDropdown) showCategoryDropdown = false;
+                "
+              >
+                <span class="filter-label">Severity</span>
+                <span class="filter-toggle-summary">
+                  {{ severityFilter.length ? severityFilter.join(', ') : 'All' }}
+                </span>
+                <span class="filter-toggle-arrow">▾</span>
+              </button>
+              <div
+                v-if="showSeverityDropdown"
+                class="filter-dropdown"
+                @click.stop
+              >
+                <label
+                  v-for="severity in availableSeverities"
+                  :key="severity"
+                  class="filter-option"
+                >
+                  <input type="checkbox" :value="severity" v-model="severityFilter" />
+                  <span>{{ severity }}</span>
+                </label>
+                <button
+                  type="button"
+                  class="filter-clear"
+                  @click.stop="severityFilter = []"
+                >
+                  Clear
+                </button>
+              </div>
             </div>
 
-            <div class="filter-group" v-if="availableCategories.length > 0">
-              <label for="category-filter">Category:</label>
-              <select id="category-filter" v-model="categoryFilter" class="filter-select">
-                <option value="">All Categories</option>
-                <option v-for="category in availableCategories" :key="category" :value="category">
-                  {{ category }}
-                </option>
-              </select>
+            <div class="filter-group" v-if="availableCategories.length > 0" ref="categoryFilterGroup">
+              <button
+                type="button"
+                class="filter-toggle"
+                @click.stop="
+                  showCategoryDropdown = !showCategoryDropdown;
+                  if (showCategoryDropdown) showSeverityDropdown = false;
+                "
+              >
+                <span class="filter-label">Category</span>
+                <span class="filter-toggle-summary">
+                  {{ categoryFilter.length ? categoryFilter.join(', ') : 'All' }}
+                </span>
+                <span class="filter-toggle-arrow">▾</span>
+              </button>
+              <div
+                v-if="showCategoryDropdown"
+                class="filter-dropdown"
+                @click.stop
+              >
+                <label
+                  v-for="category in availableCategories"
+                  :key="category"
+                  class="filter-option"
+                >
+                  <input type="checkbox" :value="category" v-model="categoryFilter" />
+                  <span>{{ category }}</span>
+                </label>
+                <button
+                  type="button"
+                  class="filter-clear"
+                  @click.stop="categoryFilter = []"
+                >
+                  Clear
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -159,8 +215,10 @@ export default {
   },
   data() {
     return {
-      severityFilter: '',
-      categoryFilter: '',
+      severityFilter: [],
+      categoryFilter: [],
+      showSeverityDropdown: false,
+      showCategoryDropdown: false,
     };
   },
   computed: {
@@ -207,8 +265,9 @@ export default {
 
       const categories = new Set();
       this.moduleData.results.findings.forEach(finding => {
-        if (finding.rule_id) {
-          categories.add(finding.rule_id.split('-')[0]);
+        const fromRule = this.extractCategoryFromRuleId(finding.rule_id);
+        if (fromRule) {
+          categories.add(fromRule);
         }
         if (finding.metadata && finding.metadata.category) {
           categories.add(finding.metadata.category);
@@ -221,17 +280,20 @@ export default {
       if (!this.hasFindings) return [];
 
       return this.moduleData.results.findings.filter(finding => {
-        // Filter by severity if set
-        if (this.severityFilter && finding.severity !== this.severityFilter) {
+        if (this.severityFilter.length && !this.severityFilter.includes(finding.severity)) {
           return false;
         }
 
-        // Filter by category if set
-        if (this.categoryFilter) {
-          const ruleCategory = finding.rule_id ? finding.rule_id.split('-')[0] : null;
+        if (this.categoryFilter.length) {
+          const ruleCategory = this.extractCategoryFromRuleId(finding.rule_id);
           const metadataCategory = finding.metadata ? finding.metadata.category : null;
 
-          if (ruleCategory !== this.categoryFilter && metadataCategory !== this.categoryFilter) {
+          const matchesRuleCategory =
+            ruleCategory && this.categoryFilter.includes(ruleCategory);
+          const matchesMetadataCategory =
+            metadataCategory && this.categoryFilter.includes(metadataCategory);
+
+          if (!matchesRuleCategory && !matchesMetadataCategory) {
             return false;
           }
         }
@@ -240,7 +302,32 @@ export default {
       });
     },
   },
+  mounted() {
+    this._onClickOutside = event => {
+      const severityEl = this.$refs.severityFilterGroup;
+      const categoryEl = this.$refs.categoryFilterGroup;
+
+      if (
+        (!severityEl || !severityEl.contains(event.target)) &&
+        (!categoryEl || !categoryEl.contains(event.target))
+      ) {
+        this.showSeverityDropdown = false;
+        this.showCategoryDropdown = false;
+      }
+    };
+    document.addEventListener('click', this._onClickOutside);
+  },
+  beforeUnmount() {
+    if (this._onClickOutside) {
+      document.removeEventListener('click', this._onClickOutside);
+    }
+  },
   methods: {
+    extractCategoryFromRuleId(ruleId) {
+      if (!ruleId) return null;
+      const match = ruleId.match(/^[A-Z]+-[A-Z]+-\d+(?:\.\d+)?/);
+      return match ? match[0] : ruleId;
+    },
     formatModuleName(name) {
       return name
         .replace('_module', '')
@@ -417,24 +504,81 @@ export default {
 }
 
 .filter-group {
-  display: flex;
+  position: relative;
+  display: inline-block;
+}
+
+.filter-toggle {
+  display: inline-flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-}
-
-.filter-group label {
-  font-weight: 600;
-  color: #495057;
-  font-size: 0.9rem;
-}
-
-.filter-select {
-  padding: 6px 12px;
+  min-width: 220px;
+  padding: 6px 10px;
   border: 1px solid #ced4da;
   border-radius: 4px;
-  background-color: white;
+  background-color: #fff;
+  cursor: pointer;
   font-size: 0.9rem;
   color: #495057;
+}
+
+.filter-label {
+  font-weight: 600;
+}
+
+.filter-toggle-summary {
+  flex: 1;
+  text-align: right;
+  color: #6c757d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-toggle-arrow {
+  font-size: 0.7rem;
+}
+
+.filter-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  padding: 8px 10px;
+  background-color: #fff;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  min-width: 220px;
+}
+
+.filter-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.9rem;
+  color: #495057;
+}
+
+.filter-clear {
+  align-self: flex-end;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  color: #007bff;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.filter-clear:hover {
+  text-decoration: underline;
 }
 
 /* Finding card styling */

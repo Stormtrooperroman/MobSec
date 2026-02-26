@@ -2,10 +2,9 @@ from typing import Dict, Optional, List
 import asyncio
 import logging
 
-from app.dynamic.device_management.device import Device
+from app.dynamic.device_management.scrcpy_device import Device
 from app.dynamic.device_management.physical_device_manager import PhysicalDeviceManager
-from app.dynamic.utils.adb_utils import get_adb_env
-from app.dynamic.utils.adb_utils import execute_adb_devices, parse_devices_from_adb_output
+from app.dynamic.utils.adb_utils import get_adb_env, ensure_adb_server
 
 
 class DeviceManager:
@@ -45,26 +44,10 @@ class DeviceManager:
                 await asyncio.sleep(5)
 
     async def _get_all_devices(self) -> List[Dict[str, str]]:
-        """Get all devices from ADB with proper type classification"""
-        try:
-            env = get_adb_env()
-
-            stdout, stderr, return_code = await execute_adb_devices(env=env)
-
-            if return_code != 0:
-                self.logger.error("Failed to get devices: %s", stderr)
-                return []
-
-            devices = parse_devices_from_adb_output(
-                stdout=stdout,
-                parse_line_func=self.physical_device_manager._parse_device_line
-            )
-
-            return devices
-
-        except Exception as e:
-            self.logger.error("Error getting all devices: %s", str(e))
-            return []
+        """
+        Get all devices from ADB.
+        """
+        return await self.physical_device_manager.get_physical_devices()
 
     async def _update_device_list(self, current_devices: List[Dict[str, str]]):
         """Updates the list of devices"""
@@ -91,20 +74,7 @@ class DeviceManager:
         """
         try:
             env = get_adb_env()
-            start_process = await asyncio.create_subprocess_exec(
-                "adb",
-                "start-server",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-            _, stderr = await start_process.communicate()
-
-            if start_process.returncode != 0:
-                self.logger.error("Failed to start ADB server: %s", stderr.decode())
-                return False
-
-            return True
+            return await ensure_adb_server(env=env, all_interfaces=False)
 
         except Exception as e:
             self.logger.error("Error initializing ADB: %s", str(e))

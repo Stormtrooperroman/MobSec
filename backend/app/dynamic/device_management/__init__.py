@@ -6,7 +6,7 @@ including physical devices and emulators.
 """
 
 from .device_manager import DeviceManager
-from .device import Device
+from .scrcpy_device import Device
 from .emulator_manager import EmulatorManager
 from .physical_device_manager import PhysicalDeviceManager
 

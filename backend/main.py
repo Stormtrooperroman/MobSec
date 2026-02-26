@@ -50,10 +50,13 @@ async def initialize_background_services():
     """Initialize modules, chains, and emulators in the background."""
     try:
         await chain_manager.startup()
-        await module_manager.start_modules()
+        modules_task = asyncio.create_task(module_manager.start_modules())
+        emulators_task = asyncio.create_task(emulator_manager.start_active_emulators())
+
+        await modules_task
         await chain_manager.start()
 
-        await emulator_manager.start_active_emulators()
+        await emulators_task
 
     except Exception as e:
         logger.error("Error during background initialization: %s", e)

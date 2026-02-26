@@ -47,11 +47,34 @@ class EmulatorManager:
         sock.close()
         return port
 
+    def _start_adb_server(self) -> bool:
+        """Start ADB server listening on all interfaces"""
+        try:
+            env = get_adb_env()
+            result = subprocess.run(
+                ["adb", "-a", "server", "start"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+                env=env,
+            )
+
+            if result.returncode == 0:
+                logger.info("ADB server started successfully (all interfaces)")
+                return True
+
+            logger.error("Failed to start ADB server: %s", result.stderr)
+            return False
+
+        except Exception as e:
+            logger.error("Error starting ADB server: %s", e)
+            return False
+
     async def _ensure_adb_server(self) -> int:
         """Ensure ADB server is running and return port"""
         if self.adb_port:
             return self.adb_port
-
         # Check if ADB server is already running
         try:
             result = subprocess.run(
@@ -75,17 +98,12 @@ class EmulatorManager:
             pass
 
         try:
-            result = subprocess.run(
-                ["adb", "start-server"], capture_output=True, text=True, timeout=10, check=False
-            )
-            if result.returncode == 0:
+            if self._start_adb_server():
                 self.adb_port = 5037
                 logger.info("ADB server started on port 5037")
                 os.environ["ANDROID_ADB_SERVER_PORT"] = "5037"
                 return 5037
-            logger.warning(
-                "Failed to start ADB on standard port: %s", result.stderr
-            )
+            logger.warning("Failed to start ADB on standard port 5037")
         except Exception as e:
             logger.warning("Failed to start ADB on standard port: %s", e)
 
@@ -505,15 +523,17 @@ class EmulatorManager:
 
             if active_emulators:
                 logger.info("Starting %s active emulators", len(active_emulators))
+                tasks = [self.start_emulator(emulator_name) for emulator_name in active_emulators]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
                 started = 0
-                for emulator_name in active_emulators:
-                    try:
-                        await self.start_emulator(emulator_name)
-                        started += 1
-                    except Exception as e:
+                for emulator_name, result in zip(active_emulators, results):
+                    if isinstance(result, Exception):
                         logger.error(
-                            "Failed to start emulator %s: %s", emulator_name, e
+                            "Failed to start emulator %s: %s", emulator_name, result
                         )
+                    else:
+                        started += 1
 
                 logger.info(
                     "Started %s/%s emulators successfully",

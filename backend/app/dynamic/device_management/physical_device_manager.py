@@ -4,8 +4,13 @@ import logging
 import re
 from typing import Dict, List, Optional
 
-from app.dynamic.utils.adb_utils import get_adb_env
-from app.dynamic.utils.adb_utils import execute_adb_devices, execute_adb_shell, parse_devices_from_adb_output
+from app.dynamic.utils.adb_utils import (
+    get_adb_env,
+    execute_adb_devices,
+    execute_adb_shell,
+    parse_devices_from_adb_output,
+    ensure_adb_server,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,35 +26,15 @@ class PhysicalDeviceManager:
 
     async def ensure_adb_server(self) -> bool:
         """Ensure ADB server is running"""
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "adb",
-                "start-server",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=self.adb_env,
-            )
-            _, stderr = await process.communicate()
-
-            if process.returncode == 0:
-                self.logger.info("ADB server started successfully")
-                return True
-
-            self.logger.error("Failed to start ADB server: %s", stderr.decode())
-            return False
-
-        except Exception as e:
-            self.logger.error("Error starting ADB server: %s", str(e))
-            return False
+        return await ensure_adb_server(env=self.adb_env, all_interfaces=False)
 
     async def get_physical_devices(self) -> List[Dict[str, str]]:
         """Get list of connected physical devices"""
         try:
             # Ensure ADB server is running only once
-            if not hasattr(self, "_adb_server_started"):
+            if not self._adb_server_started:
                 await self.ensure_adb_server()
                 self._adb_server_started = True
-
 
             stdout, _, return_code = await execute_adb_devices(env=self.adb_env)
 

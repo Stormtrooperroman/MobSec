@@ -1,13 +1,12 @@
-FROM openjdk:11-slim
+FROM python:3.12-slim
 
 # Install required system packages
 RUN apt-get update && \
     apt-get install -y \
-    python3 \
-    python3-pip \
     wget \
     unzip \
     procps \
+    openjdk-21-jdk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /module

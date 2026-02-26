@@ -108,6 +108,49 @@ async def remove_all_port_forwarding(device_id: Optional[str] = None) -> tuple[s
     )
 
 
+async def ensure_adb_server(
+    env: Optional[Dict[str, str]] = None,
+    all_interfaces: bool = False,
+) -> bool:
+    """
+    Ensure ADB server is running, starting it if needed.
+
+    Args:
+        env: Optional environment variables for the ADB process.
+        all_interfaces: If True, start ADB with '-a' to listen on all interfaces.
+
+    Returns:
+        True if server started successfully (or is already running), False otherwise.
+    """
+    try:
+        if env is None:
+            env = get_adb_env()
+
+        cmd: List[str] = ["adb"]
+        if all_interfaces:
+            cmd.append("-a")
+        cmd.append("start-server")
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        _, stderr = await process.communicate()
+
+        if process.returncode == 0:
+            logger.info("ADB server started successfully")
+            return True
+
+        logger.error("Failed to start ADB server: %s", stderr.decode())
+        return False
+
+    except Exception as e:
+        logger.error("Error starting ADB server: %s", str(e))
+        return False
+
+
 def parse_devices_from_adb_output(stdout: str, parse_line_func) -> list:
     """
     Parse devices list from ADB 'devices -l' output

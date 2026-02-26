@@ -274,3 +274,4 @@ class Device:
         except Exception as e:
             logger.error("Error starting scrcpy server: %s", e)
             return None
+
