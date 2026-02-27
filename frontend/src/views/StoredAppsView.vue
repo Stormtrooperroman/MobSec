@@ -1,7 +1,7 @@
 <template>
-  <div class="apps-container">
-    <div class="apps-header">
-      <h2 class="apps-title">Stored Applications</h2>
+  <div class="apps-container page-card">
+    <div class="apps-header page-header">
+      <h2 class="apps-title page-title-main">Stored Applications</h2>
     </div>
 
     <div v-if="loading" class="loading-container">
@@ -97,6 +97,7 @@
 </template>
 
 <script>
+import '@/assets/app.css';
 import RunModuleModal from '@/components/modals/RunModuleModal.vue';
 
 export default {
@@ -205,28 +206,6 @@ export default {
 </script>
 
 <style>
-.apps-container {
-  background-color: #ffffff;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  border-radius: 12px;
-  padding: 28px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.apps-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.apps-title {
-  font-size: 24px;
-  font-weight: 700;
-  color: #1a202c;
-  margin: 0;
-}
 
 .upload-empty-button {
   margin-top: 20px;

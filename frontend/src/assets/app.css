@@ -57,6 +57,31 @@ html {
     font-size: var(--font-size);
 }
 
+.page-card {
+    background-color: #ffffff;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    border-radius: 12px;
+    padding: 32px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid #f3f4f6;
+}
+
+.page-title-main {
+    font-size: 24px;
+    font-weight: 700;
+    color: #1f2937;
+    margin: 16px 0 0;
+}
+
 .device-view {
     z-index: 1;
     float: right;

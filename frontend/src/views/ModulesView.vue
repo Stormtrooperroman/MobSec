@@ -1,7 +1,7 @@
 <template>
-  <div class="modules-container">
-    <div class="header">
-      <h2>Available Modules</h2>
+  <div class="modules-container page-card">
+    <div class="header page-header">
+      <h2 class="page-title-main">Available Modules</h2>
     </div>
 
     <div v-if="externalModules.length > 0" class="modules-section">
@@ -155,6 +155,8 @@
 </template>
 
 <script>
+import '@/assets/app.css';
+
 export default {
   name: 'ModulesView',
   data() {
@@ -271,30 +273,6 @@ export default {
 </script>
 
 <style>
-.modules-container {
-  background-color: white;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  border-radius: 12px;
-  padding: 32px;
-  max-width: 1400px;
-  margin: 0 auto;
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 32px;
-  padding-bottom: 16px;
-  border-bottom: 2px solid #f3f4f6;
-}
-
-.header h2 {
-  font-size: 28px;
-  font-weight: 700;
-  color: #1f2937;
-  margin: 0;
-}
 
 .modules-grid {
   display: grid;

@@ -1,7 +1,7 @@
 <template>
-  <div class="chains-container">
-    <div class="header">
-      <h2 class="page-title">Analysis Chains</h2>
+  <div class="chains-container page-card">
+    <div class="header page-header">
+      <h2 class="page-title page-title-main">Analysis Chains</h2>
       <button @click="openCreateModal" class="create-button">
         <span class="button-icon">+</span>
         Create Chain
@@ -63,6 +63,7 @@
 </template>
 
 <script>
+import '@/assets/app.css';
 import CreateChainModal from '@/components/modals/CreateChainModal.vue';
 
 export default {
@@ -163,25 +164,7 @@ export default {
 </script>
 
 <style scoped>
-.chains-container {
-  padding: 24px;
-  max-width: 1280px;
-  margin: 0 auto;
-}
 
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.page-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: #111827;
-  margin: 0;
-}
 
 .create-button {
   display: inline-flex;
