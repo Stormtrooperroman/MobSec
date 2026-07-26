@@ -3,7 +3,6 @@ import json
 import os
 import asyncio
 import logging
-import magic
 from typing import Dict, Any, List
 import zipfile
 
@@ -42,19 +41,15 @@ class TruffleHogModule:
             logger.info(f"TruffleHog output: {stdout.decode()}")
             
             if stdout:
-                # TruffleHog outputs one JSON object per line
                 for line in stdout.decode().splitlines():
                     try:
                         result = json.loads(line)
-                        # Get file path and line number from source metadata
                         source_data = result.get('SourceMetadata', {}).get('Data', {}).get('Filesystem', {})
                         file_name = source_data.get('file', '')
                         line_number = source_data.get('line', 0)
                         
-                        # Get the actual secret value
                         raw_secret = result.get('Raw', 'No raw value available')
                         
-                        # Convert TruffleHog result to our format
                         finding = {
                             "rule_id": "secret_detection",
                             "name": f"Found {result.get('DetectorName', 'Unknown')} Secret",

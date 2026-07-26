@@ -31,8 +31,6 @@ async def get_mitmproxy_manager_dependency(
         ) from e
 
 
-# API Routes
-
 
 @router.get("/flows", response_model=List[Dict[str, Any]])
 async def get_flows(

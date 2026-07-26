@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 import docker
 import httpx
+import yaml
 from fastapi import APIRouter, Body, HTTPException, status
 
 from app.core.app_manager import storage
@@ -326,25 +327,34 @@ def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
                 module_path = os.path.join(modules_base_path, module_dir)
 
                 try:
-                    vue_reports = [
-                        f for f in os.listdir(module_path) if f.endswith("Report.vue")
+                    config_path = os.path.join(module_path, "config.yaml")
+                    module_type = "static"
+                    if os.path.exists(config_path):
+                        with open(config_path, encoding="utf-8") as f:
+                            config = yaml.safe_load(f) or {}
+                            module_type = config.get("type", "static")
+
+                    vue_suffix = "Tool.vue" if module_type == "dynamic" else "Report.vue"
+                    vue_components = [
+                        f for f in os.listdir(module_path) if f.endswith(vue_suffix)
                     ]
 
                     module_ui_info[module_name] = {
-                        "has_custom_ui": len(vue_reports) > 0,
+                        "has_custom_ui": len(vue_components) > 0,
                         "ui_component_name": (
-                            f"{module_name.capitalize()}Report"
-                            if vue_reports
+                            vue_components[0].replace(".vue", "")
+                            if vue_components
                             else "GenericModule"
                         ),
                         "vue_file_path": (
-                            os.path.join(module_path, vue_reports[0])
-                            if vue_reports
+                            os.path.join(module_path, vue_components[0])
+                            if vue_components
                             else None
                         ),
+                        "module_type": module_type,
                     }
 
-                    module_ui = vue_reports[0] if vue_reports else "None"
+                    module_ui = vue_components[0] if vue_components else "None"
                     logger.debug(
                         "Found UI component for module %s: %s", module_name, module_ui
                     )
@@ -483,3 +493,27 @@ async def get_module_ui_component(module_name: str):
         raise HTTPException(
             status_code=500, detail=f"Error retrieving module UI component: {str(e)}"
         ) from e
+
+
+@router.get("/module-vue-file/{module_name}/{filename}")
+async def get_module_vue_file(module_name: str, filename: str):
+    """
+    Retrieve an additional Vue file from a module directory (e.g. sub-components).
+    """
+    if not filename.endswith(".vue") or "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    module_dir = f"{module_name}_module"
+    module_path = os.path.join(module_manager.modules_path, module_dir)
+
+    if not os.path.isdir(module_path):
+        raise HTTPException(status_code=404, detail=f"Module {module_name} not found")
+
+    file_path = os.path.join(module_path, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    return {"filename": filename, "content": content}

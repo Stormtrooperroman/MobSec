@@ -56,11 +56,19 @@
               <FileManager :device-id="deviceId" />
             </div>
             
-            <!-- Frida Tab -->
-            <div v-if="activeTab === 'frida'" class="tab-pane active">
-              <FridaTool :device-id="deviceId" />
+            <!-- Dynamic Module Tools -->
+            <div
+              v-for="tool in dynamicTools"
+              :key="tool.ACTION"
+              v-show="activeTab === tool.ACTION"
+              class="tab-pane active"
+            >
+              <component
+                v-if="toolComponents[tool.ACTION]"
+                :is="toolComponents[tool.ACTION]"
+                :device-id="deviceId"
+              />
             </div>
-            
             <!-- Traffic Monitor Tab -->
             <div v-if="activeTab === 'traffic_monitor'" class="tab-pane active">
               <TrafficMonitor 
@@ -80,6 +88,7 @@
 import '@/assets/app.css';
 import '@/assets/devicelist.css';
 import '@/ws-scrcpy/style/morebox.css';
+import * as Vue from 'vue';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
@@ -95,7 +104,6 @@ import { BroadwayPlayer } from '@/ws-scrcpy/app/player/BroadwayPlayer';
 import { FileListingClient } from '@/ws-scrcpy/app/googDevice/client/FileListingClient';
 
 import FileManager from './tools/FileManager.vue';
-import FridaTool from './tools/FridaTool.vue';
 import TrafficMonitor from './tools/TrafficMonitor.vue';
 
 // Register available players
@@ -108,7 +116,6 @@ export default {
   name: 'DeviceStreamer',
   components: {
     FileManager,
-    FridaTool,
     TrafficMonitor
   },
   props: {
@@ -133,7 +140,14 @@ export default {
       terminalConnected: false,
       deviceViewObserver: null,
       activeTab: 'file_manager',
+      toolComponents: {},
     };
+  },
+
+  computed: {
+    dynamicTools() {
+      return this.availableTools.filter(tool => tool.moduleName);
+    },
   },
 
   async mounted() {
@@ -208,6 +222,86 @@ export default {
 
     handleError(message) {
       this.$emit('error', message);
+    },
+
+    async loadDynamicToolComponents() {
+      const toolsWithModule = this.availableTools.filter(tool => tool.moduleName);
+      if (toolsWithModule.length === 0) {
+        return;
+      }
+
+      try {
+        const uiInfoResponse = await fetch('/api/v1/modules/module-ui-info');
+        if (!uiInfoResponse.ok) {
+          throw new Error('Failed to fetch module UI information');
+        }
+        const moduleUiInfo = await uiInfoResponse.json();
+
+        await Promise.all(
+          toolsWithModule.map(async (tool) => {
+            const moduleKey = tool.moduleName;
+            if (!moduleUiInfo[moduleKey]?.has_custom_ui) {
+              return;
+            }
+
+            try {
+              const response = await fetch(`/api/v1/modules/module-ui-component/${moduleKey}`);
+              if (!response.ok) {
+                console.debug(`Error fetching custom UI for module ${moduleKey}`);
+                return;
+              }
+
+              const { component_content, component_name } = await response.json();
+              const component = await this.loadVueModuleComponent(
+                moduleKey,
+                component_name,
+                component_content,
+              );
+              this.toolComponents[tool.ACTION] = component;
+            } catch (error) {
+              console.error(`Error loading custom UI for module ${moduleKey}:`, error);
+            }
+          }),
+        );
+      } catch (error) {
+        console.error('Error loading dynamic tool components:', error);
+      }
+    },
+
+    async loadVueModuleComponent(moduleName, componentName, mainContent) {
+      const { loadModule } = window['vue3-sfc-loader'];
+      const moduleBaseUrl = `/api/v1/modules/module-vue-file/${moduleName}`;
+
+      const options = {
+        moduleCache: {
+          vue: Vue,
+        },
+        async getFile(url) {
+          const filename = url.split('/').pop();
+          if (filename === `${componentName}.vue`) {
+            return {
+              getContentData: async () => mainContent,
+            };
+          }
+
+          const response = await fetch(`${moduleBaseUrl}/${filename}`);
+          if (!response.ok) {
+            throw new Error(`Failed to load ${filename}`);
+          }
+
+          const data = await response.json();
+          return {
+            getContentData: async () => data.content,
+          };
+        },
+        addStyle(textContent) {
+          const style = document.createElement('style');
+          style.textContent = textContent;
+          document.head.appendChild(style);
+        },
+      };
+
+      return loadModule(`/${componentName}.vue`, options);
     },
     
     async initializeComponents() {
@@ -322,7 +416,8 @@ export default {
           {
             title: 'Frida',
             ACTION: 'frida',
-            client: null
+            client: null,
+            moduleName: 'frida',
           },
           {
             title: 'Traffic Monitor',
@@ -333,6 +428,8 @@ export default {
 
         this.isConnected = true;
         console.log('StreamClientScrcpy started successfully');
+
+        await this.loadDynamicToolComponents();
 
         await this.$nextTick();
         this.initializeTerminal();

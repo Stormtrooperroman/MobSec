@@ -54,12 +54,17 @@ class Chain(Base):
     executions = relationship("ChainExecution", back_populates="chain")
 
 
+class ModuleType(str, enum.Enum):
+    STATIC = "static"
+    DYNAMIC = "dynamic"
+
 class Module(Base):
     __tablename__ = "modules"
     name = Column(String, nullable=False, primary_key=True)
     version = Column(String)
     description = Column(String)
     config = Column(JSON)
+    module_type = Column(Enum(ModuleType), default=ModuleType.STATIC)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

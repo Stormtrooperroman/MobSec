@@ -26,6 +26,8 @@ services:
       - "8082:8082"
       - "27184:27184"
     restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - app_network
 

@@ -1,0 +1,8 @@
+name: frida_module
+version: 0.1
+description: Dynamic instrumentation with Frida
+author: Stormtrooperroman
+active: True
+type: dynamic
+port: 8090
+map_name: frida

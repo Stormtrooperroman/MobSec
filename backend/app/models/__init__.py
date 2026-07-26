@@ -9,7 +9,6 @@ from app.models.chain import (
 from app.models.settings import Base as SettingsBase, Settings
 from app.models.external_module import Base as ExternalModuleBase, ExternalModule
 from app.models.emulator import Base as EmulatorBase, Emulator
-from app.models.frida_script import Base as FridaScriptBase, FridaScript
 
 __all_bases__ = [
     AppBase,
@@ -17,5 +16,4 @@ __all_bases__ = [
     SettingsBase,
     ExternalModuleBase,
     EmulatorBase,
-    FridaScriptBase,
 ]

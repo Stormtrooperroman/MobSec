@@ -31,6 +31,8 @@ class EmulatorManager:
         self.base_ports = {"adb": 5555, "frida": 27042, "scrcpy": 8886}
         self.adb_port = None
 
+        self._start_adb_server()
+
         database_url = os.getenv(
             "DATABASE_URL", "postgresql+asyncpg://postgres:password@db:5432/mobsec_db"
         )
@@ -113,7 +115,7 @@ class EmulatorManager:
             env["ANDROID_ADB_SERVER_PORT"] = str(dynamic_port)
 
             result = subprocess.run(
-                ["adb", "start-server"],
+                ["adb", "-a", "server", "start"],
                 capture_output=True,
                 text=True,
                 timeout=10,

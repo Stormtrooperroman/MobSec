@@ -11,9 +11,13 @@ import yaml
 from redis import Redis
 from sqlalchemy.future import select
 
+import websockets
+from fastapi import WebSocket
+from urllib.parse import urlencode
+
 from app.core.database_manager import db_manager
 from app.models.app import ScanStatus
-from app.models.chain import Module
+from app.models.chain import Module, ModuleType
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -46,6 +50,7 @@ class ModuleManager:
         self.modules_config = self._load_modules_config()
         self.async_session = db_manager.session_factory
         self._initialized = True
+        self.ACTION_MODULE_MAP = {}
 
     @classmethod
     def get_instance(cls, redis_url: Optional[str] = None, modules_path: Optional[str] = None) -> "ModuleManager":
@@ -96,10 +101,21 @@ class ModuleManager:
             if version is not None:
                 version = str(version)
 
+            module_type = (
+                ModuleType.DYNAMIC
+                if config.get("type") == "dynamic"
+                else ModuleType.STATIC
+            )
+            
+            if  config.get("map_name", None) != None:
+                map_name = config.get("map_name")
+                self.ACTION_MODULE_MAP[map_name] = module_name
+
             if existing_module:
                 existing_module.version = version
                 existing_module.description = config.get("description")
                 existing_module.config = config.get("config", {})
+                existing_module.module_type = module_type
                 module = existing_module
             else:
                 module = Module(
@@ -107,6 +123,7 @@ class ModuleManager:
                     version=version,
                     description=config.get("description"),
                     config=config.get("config", {}),
+                    module_type=module_type,
                 )
                 session.add(module)
 
@@ -144,23 +161,34 @@ class ModuleManager:
     async def _start_container_async(self, module_name: str, image_name: str) -> None:
         """Start Docker container asynchronously"""
         logger.info("Starting module: %s", module_name)
+        module_config = self.modules_config.get(module_name, {})
+        is_dynamic = module_config.get("type") == "dynamic"
+
         try:
+            run_kwargs = {
+                "image": image_name,
+                "detach": True,
+                "environment": {
+                    "REDIS_URL": self.redis_url,
+                    "MODULE_NAME": module_name,
+                },
+                "volumes": {
+                    "mobsec_shared_data": {"bind": "/shared_data", "mode": "rw"}
+                },
+                "name": image_name,
+            }
+
+            if is_dynamic:
+                run_kwargs["network"] = "mobsec_app_network"
+                run_kwargs["environment"]["DATABASE_URL"] = os.getenv("DATABASE_URL", "")
+                run_kwargs["environment"]["PORT"] = str(module_config.get("port", 8090))
+            else:
+                run_kwargs["network"] = "mobsec_app_network"
+
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 None,
-                lambda: self.docker_client.containers.run(
-                    image_name,
-                    detach=True,
-                    network="mobsec_app_network",
-                    environment={
-                        "REDIS_URL": self.redis_url,
-                        "MODULE_NAME": module_name,
-                    },
-                    volumes={
-                        "mobsec_shared_data": {"bind": "/shared_data", "mode": "rw"}
-                    },
-                    name=image_name,
-                ),
+                lambda: self.docker_client.containers.run(**run_kwargs),
             )
             logger.info("Successfully started container %s", image_name)
         except Exception as e:
@@ -250,8 +278,8 @@ class ModuleManager:
             task_data = {
                 "task_id": task_id,
                 "file_hash": file_hash,
-                "file_name": data.get("file_name", ""),  # Changed from apk_name
-                "file_type": data.get("file_type", "unknown"),  # Added file type
+                "file_name": data.get("file_name", ""),
+                "file_type": data.get("file_type", "unknown"),
                 "folder_path": data.get("folder_path", ""),
                 "chain_task_id": chain_task_id,
                 "module_name": module_name,
@@ -259,7 +287,7 @@ class ModuleManager:
 
             # Store task data in Redis
             self.redis.set(
-                f"task:{task_id}", json.dumps(task_data), ex=3600  # Expire after 1 hour
+                f"task:{task_id}", json.dumps(task_data), ex=3600
             )
 
             # Add task to module's queue
@@ -347,3 +375,77 @@ class ModuleManager:
             result = await session.execute(stmt)
             module = result.scalar_one_or_none()
             return module is not None
+
+    def get_module_ws_url(
+        self, module_name: str, device_id: str, query_params: dict = None
+    ) -> str:
+        module_config = self.modules_config.get(module_name)
+
+        if not module_config:
+            raise ValueError(f"Module {module_name} not found")
+
+        port = module_config.get("port")
+
+        if not port:
+            raise ValueError(f"Port not configured for module {module_name}")
+
+        query_string = ""
+        if query_params:
+            query_string = f"?{urlencode(query_params)}"
+
+        return f"ws://mobsec_{module_name}:{port}/ws/{device_id}{query_string}"
+
+    async def proxy_websocket(
+        self,
+        websocket: WebSocket,
+        module_name: str,
+        device_id: str,
+        query_params: dict = None,
+    ) -> None:
+        """Proxy a client WebSocket connection to a module WebSocket endpoint."""
+        module_url = self.get_module_ws_url(module_name, device_id, query_params)
+        await websocket.accept()
+        logger.info("Proxying WebSocket for device %s to %s", device_id, module_url)
+
+        try:
+            async with websockets.connect(module_url) as module_ws:
+
+                async def forward_to_module():
+                    while True:
+                        message = await websocket.receive()
+                        if message["type"] == "websocket.disconnect":
+                            break
+                        if message["type"] == "websocket.receive":
+                            if "text" in message:
+                                await module_ws.send(message["text"])
+                            elif "bytes" in message:
+                                await module_ws.send(message["bytes"])
+
+                async def forward_to_client():
+                    async for data in module_ws:
+                        if isinstance(data, str):
+                            await websocket.send_text(data)
+                        else:
+                            await websocket.send_bytes(data)
+
+                forward_tasks = [
+                    asyncio.create_task(forward_to_module()),
+                    asyncio.create_task(forward_to_client()),
+                ]
+                done, pending = await asyncio.wait(
+                    forward_tasks, return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in pending:
+                    task.cancel()
+                for task in done:
+                    if task.exception():
+                        raise task.exception()
+        except WebSocketDisconnect:
+            logger.info("Client WebSocket disconnected for device %s", device_id)
+        except Exception as e:
+            logger.error("WebSocket proxy error for %s: %s", module_name, str(e))
+            try:
+                await websocket.close(code=4000, reason=str(e))
+            except Exception:
+                pass
+

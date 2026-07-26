@@ -153,6 +153,11 @@ class PermissionsModule:
             "android.permission.RECEIVE_MMS",
             "android.permission.READ_EXTERNAL_STORAGE",
             "android.permission.WRITE_EXTERNAL_STORAGE"
+            'android.permission.ACCEPT_HANDOVER',
+            'android.permission.ACCESS_NETWORK_STATE',
+            'android.permission.ACCESS_WIFI_STATE',
+            'android.permission.RECEIVE_BOOT_COMPLETED',
+            'android.permission.REQUEST_INSTALL_PACKAGES'
         ]
         return [p for p in permissions if p in dangerous_permissions]
 

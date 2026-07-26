@@ -79,7 +79,7 @@
               <font-awesome-icon icon="plus" />
               New Script
             </button>
-            <button @click="loadScriptsFromAPI" :disabled="scriptsLoading" class="script-btn">
+            <button @click="loadScriptsFromWS" :disabled="scriptsLoading" class="script-btn">
               <font-awesome-icon v-if="scriptsLoading" icon="spinner" spin />
               <font-awesome-icon v-else icon="refresh" />
               Refresh Scripts
@@ -159,7 +159,7 @@
 </template>
 
 <script>
-import ScriptEditorModal from '@/components/modals/ScriptEditorModal.vue'
+import ScriptEditorModal from './ScriptEditorModal.vue'
 
 export default {
   name: 'FridaTool',
@@ -215,64 +215,70 @@ export default {
   },
   async mounted() {
     await this.openFridaTool();
-    await this.loadScriptsFromAPI();
   },
   beforeUnmount() {
     this.closeFridaTool();
   },
   methods: {
-    async openFridaTool() {
-      try {
-        if (this.currentFridaClient) {
-          return;
-        }
-        
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = window.location.host;
-        const fridaWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=frida`;
-        
-        const fridaWs = new WebSocket(fridaWsUrl);
-        
-        fridaWs.addEventListener('open', () => {
-          console.log('Frida WebSocket connected');
-          
-          // Request status
-          fridaWs.send(JSON.stringify({
-            type: 'frida',
-            action: 'status'
-          }));
-        });
-        
-        fridaWs.addEventListener('message', (event) => {
-          try {
-            const message = JSON.parse(event.data);
-            if (message.type === 'frida') {
-              this.handleFridaMessage(message);
-            }
-          } catch (e) {
-            console.error('Error parsing Frida message:', e);
+    openFridaTool() {
+      return new Promise((resolve, reject) => {
+        try {
+          if (this.currentFridaClient) {
+            resolve();
+            return;
           }
-        });
-        
-        fridaWs.addEventListener('close', (event) => {
-          console.log('Frida WebSocket closed:', event.code, event.reason);
-          
-          if (event.code !== 1000) {
-            setTimeout(() => {
-              this.openFridaTool();
-            }, 3000);
-          }
-        });
-        
-        fridaWs.addEventListener('error', (error) => {
-          console.error('Frida WebSocket error:', error);
-        });
-        
-        this.currentFridaClient = fridaWs;
 
-      } catch (error) {
-        console.error('Error opening Frida tool:', error);
-      }
+          const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const wsHost = window.location.host;
+          const fridaWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=frida`;
+
+          const fridaWs = new WebSocket(fridaWsUrl);
+
+          fridaWs.addEventListener('open', () => {
+            console.log('Frida WebSocket connected');
+
+            fridaWs.send(JSON.stringify({
+              type: 'frida',
+              action: 'status'
+            }));
+
+            this.loadScriptsFromWS();
+            resolve();
+          });
+
+          fridaWs.addEventListener('message', (event) => {
+            try {
+              const message = JSON.parse(event.data);
+              if (message.type === 'frida') {
+                this.handleFridaMessage(message);
+              }
+            } catch (e) {
+              console.error('Error parsing Frida message:', e);
+            }
+          });
+
+          fridaWs.addEventListener('close', (event) => {
+            console.log('Frida WebSocket closed:', event.code, event.reason);
+            this.currentFridaClient = null;
+
+            if (event.code !== 1000) {
+              setTimeout(() => {
+                this.openFridaTool();
+              }, 3000);
+            }
+          });
+
+          fridaWs.addEventListener('error', (error) => {
+            console.error('Frida WebSocket error:', error);
+            reject(error);
+          });
+
+          this.currentFridaClient = fridaWs;
+        } catch (error) {
+          console.error('Error opening Frida tool:', error);
+          reject(error);
+        }
+      });
     },
 
     closeFridaTool() {
@@ -318,6 +324,22 @@ export default {
           this.fridaStopping = false;
           break;
         case 'script_loaded':
+          if (message.script_name && this._pendingScriptContent !== undefined) {
+            this.fridaScripts[message.script_name] = this._pendingScriptContent;
+            this._pendingScriptContent = undefined;
+          }
+          break;
+        case 'scripts_list':
+          this.fridaScripts = {};
+          for (const script of message.scripts || []) {
+            this.fridaScripts[script.name] = script.content || '';
+          }
+          this.scriptsLoading = false;
+          break;
+        case 'script_deleted':
+          if (message.script_name) {
+            delete this.fridaScripts[message.script_name];
+          }
           break;
         case 'script_started':
           this.updateScriptState(true, message.script_name);
@@ -352,6 +374,8 @@ export default {
           this.fridaStopping = false;
           this.fridaRefreshing = false;
           this.fridaProcessesLoading = false;
+          this.scriptsLoading = false;
+          this._pendingScriptContent = undefined;
           alert('Frida error: ' + message.message);
           break;
       }
@@ -408,16 +432,16 @@ export default {
       }
     },
 
-    async loadScriptFile(event) {
+    loadScriptFile(event) {
       const file = event.target.files[0];
       if (file) {
         const reader = new FileReader();
-        reader.onload = async (e) => {
+        reader.onload = (e) => {
           const scriptContent = e.target.result;
           const scriptName = file.name.replace('.js', '');
-          
+
           try {
-            await this.createScriptAPI(scriptName, scriptContent);
+            this.saveScriptViaWS(scriptName, scriptContent);
           } catch (error) {
             this.fridaOutput.push({
               timestamp: new Date().toLocaleTimeString(),
@@ -435,13 +459,15 @@ export default {
       this.newScriptName = prompt('Enter script name:');
       if (this.newScriptName) {
         this.editingScriptName = null;
-        this.scriptContent = `// ${this.newScriptName}
+        this.scriptContent = `import Java from "frida-java-bridge";
+// ${this.newScriptName}
 console.log('Script ${this.newScriptName} started');
 
-Java.perform(function() {
-    // Your code here
-    console.log('Java.perform called');
-});`;
+if (Java.available) {
+  Java.perform(function() {
+    console.log(\`Android version: \${Java.androidVersion}\`)
+  })
+}`;
         this.showScriptEditor = true;
       }
     },
@@ -535,17 +561,11 @@ Java.perform(function() {
       }
     },
 
-    async saveScript() {
+    saveScript() {
       const scriptName = this.editingScriptName || this.newScriptName;
       if (scriptName && this.scriptContent) {
         try {
-          if (this.editingScriptName) {
-            // Update existing script
-            await this.updateScriptAPI(scriptName, this.scriptContent);
-          } else {
-            // Create new script
-            await this.createScriptAPI(scriptName, this.scriptContent);
-          }
+          this.saveScriptViaWS(scriptName, this.scriptContent);
           this.scrollToFridaOutput();
         } catch (error) {
           this.fridaOutput.push({
@@ -555,7 +575,7 @@ Java.perform(function() {
           });
           this.scrollToFridaOutput();
         }
-        
+
         this.closeScriptEditor();
       }
     },
@@ -591,16 +611,14 @@ Java.perform(function() {
       this.fridaOutput = [];
     },
 
-    async deleteScript(scriptName) {
+    deleteScript(scriptName) {
       if (confirm(`Are you sure you want to delete script "${scriptName}"?`)) {
-        try {
-          await this.deleteScriptAPI(scriptName);
-        } catch (error) {
-          this.fridaOutput.push({
-            timestamp: new Date().toLocaleTimeString(),
-            text: `Error deleting script '${scriptName}': ${error.message}`,
-            stream: 'stderr'
-          });
+        if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
+          this.currentFridaClient.send(JSON.stringify({
+            type: 'frida',
+            action: 'delete_script',
+            script_name: scriptName
+          }));
         }
         this.scrollToFridaOutput();
       }
@@ -626,98 +644,29 @@ Java.perform(function() {
       });
     },
 
-    // API methods for script management
-    async loadScriptsFromAPI() {
-      try {
+    loadScriptsFromWS() {
+      if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
         this.scriptsLoading = true;
-        const response = await fetch('/api/v1/frida/scripts');
-        if (response.ok) {
-          const scripts = await response.json();
-          this.fridaScripts = {};
-          for (const script of scripts) {
-            // Load script content
-            const contentResponse = await fetch(`/api/v1/frida/scripts/${script.name}/content`);
-            if (contentResponse.ok) {
-              const contentData = await contentResponse.json();
-              this.fridaScripts[script.name] = contentData.content;
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error loading scripts from API:', error);
-      } finally {
-        this.scriptsLoading = false;
+        this.currentFridaClient.send(JSON.stringify({
+          type: 'frida',
+          action: 'list_scripts',
+          include_content: true
+        }));
       }
     },
 
-    async createScriptAPI(name, content) {
-      try {
-        const response = await fetch('/api/v1/frida/scripts', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            name: name,
-            content: content
-          })
-        });
-        
-        if (response.ok) {
-          this.fridaScripts[name] = content;
-          return true;
-        } else {
-          const error = await response.json();
-          throw new Error(error.detail || 'Failed to create script');
-        }
-      } catch (error) {
-        console.error('Error creating script:', error);
-        throw error;
+    saveScriptViaWS(name, content) {
+      if (!this.currentFridaClient || this.currentFridaClient.readyState !== WebSocket.OPEN) {
+        throw new Error('Frida WebSocket is not connected');
       }
-    },
 
-    async updateScriptAPI(name, content) {
-      try {
-        const response = await fetch(`/api/v1/frida/scripts/${name}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            content: content
-          })
-        });
-        
-        if (response.ok) {
-          this.fridaScripts[name] = content;
-          return true;
-        } else {
-          const error = await response.json();
-          throw new Error(error.detail || 'Failed to update script');
-        }
-      } catch (error) {
-        console.error('Error updating script:', error);
-        throw error;
-      }
-    },
-
-    async deleteScriptAPI(name) {
-      try {
-        const response = await fetch(`/api/v1/frida/scripts/${name}`, {
-          method: 'DELETE'
-        });
-        
-        if (response.ok) {
-          delete this.fridaScripts[name];
-          return true;
-        } else {
-          const error = await response.json();
-          throw new Error(error.detail || 'Failed to delete script');
-        }
-      } catch (error) {
-        console.error('Error deleting script:', error);
-        throw error;
-      }
+      this._pendingScriptContent = content;
+      this.currentFridaClient.send(JSON.stringify({
+        type: 'frida',
+        action: 'load_script',
+        script_name: name,
+        script_content: content
+      }));
     }
   }
 };

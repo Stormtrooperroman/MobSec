@@ -17,9 +17,9 @@ from fastapi import (
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.core.app_manager import AsyncStorageService
+from app.modules.module_manager import ModuleManager
 from app.dynamic.communication.websocket_manager import WebSocketManager
 from app.dynamic.device_management.device_manager import DeviceManager
-from app.dynamic.tools.frida_manager import FridaManager
 from app.dynamic.tools.file_manager import FileManager
 from app.dynamic.tools.mitmproxy_manager import get_mitmproxy_manager
 from app.dynamic.tools.remote_shell import RemoteShell
@@ -73,6 +73,25 @@ async def websocket_endpoint(
     """
     Main WebSocket endpoint for interacting with the device
     """
+    module_manager = ModuleManager.get_instance()
+    if action in module_manager.ACTION_MODULE_MAP:
+        module_name = module_manager.ACTION_MODULE_MAP[action]
+        
+        exists = await module_manager.check_module_exists(module_name)
+
+        if not exists:
+            await websocket.close(code=4004, reason="Module not found")
+            return
+
+        query_params = dict(websocket.query_params)
+        await module_manager.proxy_websocket(
+            websocket=websocket,
+            module_name=module_name,
+            device_id=device_id,
+            query_params=query_params,
+        )
+        return
+
     try:
         device_manager = DeviceManager()
         device = await device_manager.get_device(device_id)
@@ -140,7 +159,6 @@ async def websocket_endpoint(
                                     "Received bytes message: %s bytes", len(message['bytes'])
                                 )
                                 try:
-                                    # Decode with explicit encoding and error handling
                                     decoded_data = message["bytes"].decode(
                                         "utf-8", errors="replace"
                                     )
@@ -212,55 +230,10 @@ async def websocket_endpoint(
             finally:
                 await file_manager.stop()
 
-        elif action == "frida":
-            logger.info("Starting Frida session for device %s", device_id)
-            frida_manager = FridaManager(websocket, device_id)
-            if not await frida_manager.start():
-                logger.error("Failed to start Frida manager for device %s", device_id)
-                await websocket.close(code=4000, reason="Failed to start Frida manager")
-                return
-
-            logger.info(
-                "Frida manager started successfully for device %s, waiting for messages...",
-                device_id,
-            )
-
-            try:
-                while True:
-                    try:
-                        message = await websocket.receive()
-                        logger.info("Received WebSocket message: %s", message)
-
-                        if message["type"] == "websocket.disconnect":
-                            logger.info("WebSocket disconnect received")
-                            break
-                        if message["type"] == "websocket.receive":
-                            if "text" in message:
-                                logger.info(
-                                    "Received text message: %s", message["text"]
-                                )
-                                await frida_manager.handle_message(message["text"])
-                            elif "bytes" in message:
-                                logger.info(
-                                    "Received bytes message: %s bytes", len(message["bytes"])
-                                )
-                        else:
-                            logger.info("Unknown message type: %s", message["type"])
-                    except Exception as e:
-                        logger.error("Error processing WebSocket message: %s", str(e))
-                        break
-            except WebSocketDisconnect:
-                logger.info("Frida WebSocket disconnected for device %s", device_id)
-            except Exception as e:
-                logger.error("Error in Frida session: %s", str(e))
-            finally:
-                await frida_manager.stop()
-
         elif action == "mitmproxy":
             logger.info("Starting Mitmproxy session for device %s", device_id)
             mitmproxy_manager = await get_mitmproxy_manager(device_id)
 
-            # Register WebSocket for real-time events
             mitmproxy_manager.add_websocket(websocket)
 
             if not await mitmproxy_manager.start():
@@ -293,14 +266,11 @@ async def websocket_endpoint(
                                     "Received text message: %s", message["text"]
                                 )
                                 try:
-                                    # Parse JSON message
                                     data = json.loads(message["text"])
 
-                                    # Add device_id to message if not present
                                     if "device_id" not in data:
                                         data["device_id"] = device_id
 
-                                    # Pass updated message to mitmproxy_manager
                                     await mitmproxy_manager.handle_message(
                                         websocket, json.dumps(data)
                                     )
@@ -331,10 +301,7 @@ async def websocket_endpoint(
             except Exception as e:
                 logger.error("Error in Mitmproxy session: %s", str(e))
             finally:
-                # Remove WebSocket from registration
                 mitmproxy_manager.remove_websocket(websocket)
-                # Don't stop the manager when WebSocket closes - preserve flows
-                # await mitmproxy_manager.stop()
 
         elif action == "multiplex":
             await websocket_manager.handle_multiplex(websocket, device_id)

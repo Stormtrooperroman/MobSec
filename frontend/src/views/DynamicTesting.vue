@@ -301,12 +301,12 @@ export default {
           });
 
           console.log('APK installed successfully:', response.data);
-          
+          this.addNotification('success', 'Success', 'APK installed successfully')
 
           
         } catch (error) {
           console.error('Error uploading and installing APK:', error);
-
+          this.addNotification('error', 'Error', 'Error installing app.')
         }
       }
       
@@ -328,17 +328,16 @@ export default {
         
         console.log(`Installation started for ${appName}:`, response.data);
         
-        device.error = `Installing ${appName}...`;
-        device.showError = true;
         
         setTimeout(() => {
           device.showError = false;
         }, 3000);
+
+        this.addNotification('success', 'Success', 'APK installed successfully')
         
       } catch (error) {
         console.error('Error installing app:', error);
-        device.error = `Failed to install ${appName}: ${error.response?.data?.detail || 'Unknown error'}`;
-        device.showError = true;
+        this.addNotification('error', 'Error', `Error installing app. ${error.response?.data?.detail || 'Unknown error'}`)
       }
     },
 
