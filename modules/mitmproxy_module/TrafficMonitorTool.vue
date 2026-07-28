@@ -128,8 +128,6 @@
             </button>
             <div class="dropdown-menu" v-show="showExportMenu">
               <a @click="exportTraffic('json')" class="dropdown-item">JSON</a>
-              <a @click="exportTraffic('csv')" class="dropdown-item">CSV</a>
-              <a @click="exportTraffic('har')" class="dropdown-item">HAR</a>
             </div>
           </div>
         </div>
@@ -336,45 +334,6 @@
       </div>
     </div>
 
-    <!-- Security Report Section -->
-    <div class="security-section" v-if="securityReport.issues && securityReport.issues.length > 0">
-      <h4>Security Analysis</h4>
-      
-      <div class="security-stats">
-        <div class="security-stat high">
-          <span class="count">{{ securityReport.summary.high }}</span>
-          <span class="label">High Risk</span>
-        </div>
-        <div class="security-stat medium">
-          <span class="count">{{ securityReport.summary.medium }}</span>
-          <span class="label">Medium Risk</span>
-        </div>
-        <div class="security-stat low">
-          <span class="count">{{ securityReport.summary.low }}</span>
-          <span class="label">Low Risk</span>
-        </div>
-      </div>
-
-      <div class="security-issues">
-        <div 
-          v-for="(issue, index) in securityReport.issues" 
-          :key="index"
-          class="security-issue"
-          :class="'severity-' + issue.severity"
-        >
-          <div class="issue-header">
-            <span class="severity-badge" :class="'severity-' + issue.severity">
-              {{ issue.severity.toUpperCase() }}
-            </span>
-            <span class="issue-type">{{ issue.type }}</span>
-          </div>
-          <div class="issue-description">{{ issue.description }}</div>
-          <div class="issue-url">{{ issue.url }}</div>
-          <div class="issue-evidence">{{ issue.evidence }}</div>
-        </div>
-      </div>
-    </div>
-
     <!-- Traffic Details Modal -->
     <TrafficDetailsModal
       :show="showDetailsModal"
@@ -394,11 +353,10 @@
 </template>
 
 <script>
-import axios from 'axios'
-import TrafficDetailsModal from '@/components/modals/TrafficDetailsModal.vue'
+import TrafficDetailsModal from './TrafficDetailsModal.vue'
 
 export default {
-  name: 'TrafficMonitor',
+  name: 'TrafficMonitorTool',
   components: {
     TrafficDetailsModal
   },
@@ -427,10 +385,6 @@ export default {
       },
       trafficData: [],
       filteredTraffic: [],
-      securityReport: {
-        issues: [],
-        summary: { total: 0, high: 0, medium: 0, low: 0 }
-      },
       selectedEntry: null,
       showDetailsModal: false,
       currentPage: 1,
@@ -438,6 +392,8 @@ export default {
       autoRefresh: true,
       refreshInterval: null,
       mitmproxyWebSocket: null,
+      closingWebSocket: false,
+      reconnectTimer: null,
       filters: {
         host: '',
         method: '',
@@ -498,61 +454,66 @@ export default {
   },
 
   mounted() {
-    this.checkStatus()
     this.openMitmproxyWebSocket()
     this.startAutoRefresh()
     this.applyFilters()
     
-    // Ensure arrays are properly initialized
     this.selectedMethods = []
     this.selectedStatuses = []
     
-    // Add click outside listener to close dropdowns
     document.addEventListener('click', this.handleClickOutside)
   },
 
   beforeUnmount() {
+    this.closingWebSocket = true
     this.closeMitmproxyWebSocket()
     this.stopAutoRefresh()
     
-    // Remove click outside listener
     document.removeEventListener('click', this.handleClickOutside)
   },
 
   methods: {
+    sendMitmproxyAction(action, payload = {}) {
+      if (!this.mitmproxyWebSocket || this.mitmproxyWebSocket.readyState !== WebSocket.OPEN) {
+        this.$emit('error', 'Mitmproxy WebSocket is disconnected')
+        return false
+      }
+
+      this.mitmproxyWebSocket.send(JSON.stringify({
+        type: 'mitmproxy',
+        action,
+        device_id: this.deviceId,
+        ...payload
+      }))
+      return true
+    },
+
     applyFilters() {
       let filtered = [...this.trafficData]
       
-      // Apply host filter
       if (this.filters.host) {
         filtered = filtered.filter(entry => 
           entry.host.toLowerCase().includes(this.filters.host.toLowerCase())
         )
       }
       
-      // Apply method filter
       if (this.filters.method) {
         if (this.filters.method.includes(',')) {
-          // Multiple methods selected
           const methods = this.filters.method.split(',')
           filtered = filtered.filter(entry => methods.includes(entry.method))
         } else {
-          // Single method selected
           filtered = filtered.filter(entry => entry.method === this.filters.method)
         }
       }
       
-      // Apply status filter
       if (this.filters.status) {
         if (this.filters.status.includes(',')) {
-          // Multiple statuses selected
           const statuses = this.filters.status.split(',')
           filtered = filtered.filter(entry => {
             const statusCode = Math.floor(entry.status_code / 100)
             return statuses.some(status => parseInt(status.charAt(0)) === statusCode)
           })
         } else {
-          // Single status selected
           const statusCode = parseInt(this.filters.status.charAt(0))
           filtered = filtered.filter(entry => 
             Math.floor(entry.status_code / 100) === statusCode
@@ -560,10 +521,8 @@ export default {
         }
       }
       
-      // Apply sorting
       this.applySorting(filtered)
       
-      // Reset to first page when filters change
       this.currentPage = 1
     },
 
@@ -634,10 +593,8 @@ export default {
       const [currentField, currentDirection] = this.sortBy.split('_')
       
       if (currentField === field) {
-        // Toggle direction if same field
         this.sortBy = currentDirection === 'asc' ? `${field}_desc` : `${field}_asc`
       } else {
-        // Set new field with default direction
         this.sortBy = `${field}_desc`
       }
       
@@ -734,7 +691,6 @@ export default {
     },
 
     handleClickOutside(event) {
-      // Close dropdowns if clicking outside
       if (!event.target.closest('.filterable-header')) {
         this.showMethodDropdown = false
         this.showStatusDropdown = false
@@ -742,401 +698,89 @@ export default {
       }
     },
 
-    async checkStatus() {
-      try {
-        this.isLoading = true
-        
-        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "get_state",
-            device_id: this.deviceId
-          }))
-        } else {
-          const response = await axios.get(`/api/v1/dynamic-testing/device/${encodeURIComponent(this.deviceId)}/mitmproxy/status`)
-          this.status = response.data.data
-        }
-      } catch (error) {
-        console.error('Error checking status:', error)
-        this.$emit('error', 'Error getting proxy status')
-      } finally {
-        this.isLoading = false
+    sendWebSocketAction(action, payload = {}) {
+      if (!this.mitmproxyWebSocket || this.mitmproxyWebSocket.readyState !== WebSocket.OPEN) {
+        this.$emit('error', 'Mitmproxy WebSocket is not connected')
+        return false
       }
+
+      this.mitmproxyWebSocket.send(JSON.stringify({
+        type: 'mitmproxy',
+        action,
+        device_id: this.deviceId,
+        ...payload
+      }))
+      return true
     },
 
-    async startProxy() {
-      try {
-        this.isLoading = true
-        
-        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "start_proxy",
-            device_id: this.deviceId
-          }))
-        } else {
-          const response = await axios.post(`/api/v1/dynamic-testing/device/${encodeURIComponent(this.deviceId)}/mitmproxy/start`)
-          
-          if (response.data.status === 'success') {
-            this.status.proxy_running = true
-            this.$emit('success', 'Proxy started successfully')
-            await this.checkStatus()
-          }
-        }
-      } catch (error) {
-        console.error('Error starting proxy:', error)
-        this.$emit('error', 'Error starting proxy: ' + (error.response?.data?.detail || error.message))
-      } finally {
-        this.isLoading = false
-      }
+    checkStatus() {
+      this.sendWebSocketAction('get_state')
     },
 
-    async stopProxy() {
-      try {
-        this.isLoading = true
-        
-        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "stop_proxy",
-            device_id: this.deviceId
-          }))
-        } else {
-          const response = await axios.post(`/api/v1/dynamic-testing/device/${encodeURIComponent(this.deviceId)}/mitmproxy/stop`)
-          
-          if (response.data.status === 'success') {
-            this.status.proxy_running = false
-            this.$emit('success', 'Proxy stopped successfully')
-            await this.checkStatus()
-          }
-        }
-      } catch (error) {
-        console.error('Error stopping proxy:', error)
-        this.$emit('error', 'Error stopping proxy: ' + (error.response?.data?.detail || error.message))
-      } finally {
-        this.isLoading = false
-      }
+    startProxy() {
+      this.isLoading = this.sendWebSocketAction('start_proxy')
     },
 
-    async configureProxy() {
-      try {
-        this.isLoading = true
-        
-        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "configure_proxy",
-            device_id: this.deviceId
-          }))
-        } else {
-          const response = await axios.post(`/api/v1/dynamic-testing/device/${encodeURIComponent(this.deviceId)}/mitmproxy/configure-proxy`)
-          
-          if (response.data.status === 'success') {
-            this.status.proxy_configured = true
-            this.$emit('success', 'Proxy configured on device')
-          }
-        }
-      } catch (error) {
-        console.error('Error configuring proxy:', error)
-        this.$emit('error', 'Error configuring proxy: ' + (error.response?.data?.detail || error.message))
-      } finally {
-        this.isLoading = false
-      }
+    stopProxy() {
+      this.isLoading = this.sendWebSocketAction('stop_proxy')
     },
 
-    async disableProxy() {
-      try {
-        this.isLoading = true
-        
-        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "disable_proxy",
-            device_id: this.deviceId
-          }))
-        } else {
-          const response = await axios.post(`/api/v1/dynamic-testing/device/${encodeURIComponent(this.deviceId)}/mitmproxy/disable-proxy`)
-          
-          if (response.data.status === 'success') {
-            this.status.proxy_configured = false
-            this.$emit('success', 'Proxy disabled on device')
-          }
-        }
-      } catch (error) {
-        console.error('Error disabling proxy:', error)
-        this.$emit('error', 'Error disabling proxy: ' + (error.response?.data?.detail || error.message))
-      } finally {
-        this.isLoading = false
-      }
+    configureProxy() {
+      this.isLoading = this.sendWebSocketAction('configure_proxy')
     },
 
-    async generateCertificate() {
-      try {
-        this.isLoading = true
-        
-        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "generate_certificate",
-            device_id: this.deviceId
-          }))
-        } else {
-          const response = await axios.post(`/api/v1/dynamic-testing/device/${encodeURIComponent(this.deviceId)}/mitmproxy/generate-certificate`)
-          
-          if (response.data.status === 'success') {
-            this.$emit('success', 'Certificate generated successfully')
-          }
-        }
-      } catch (error) {
-        console.error('Error generating certificate:', error)
-        this.$emit('error', 'Error generating certificate: ' + (error.response?.data?.detail || error.message))
-      } finally {
-        this.isLoading = false
-      }
+    disableProxy() {
+      this.isLoading = this.sendWebSocketAction('disable_proxy')
     },
 
-    async installCertificate() {
-      try {
-        this.isLoading = true
-        
-        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "install_certificate",
-            device_id: this.deviceId
-          }))
-        } else {
-          const response = await axios.post(`/api/v1/dynamic-testing/device/${encodeURIComponent(this.deviceId)}/mitmproxy/install-certificate`)
-          
-          if (response.data.status === 'success') {
-            this.status.cert_installed = true
-            this.$emit('success', 'Certificate installed on device')
-          }
-        }
-      } catch (error) {
-        console.error('Error installing certificate:', error)
-        this.$emit('error', 'Error installing certificate: ' + (error.response?.data?.detail || error.message))
-      } finally {
-        this.isLoading = false
-      }
+    generateCertificate() {
+      this.isLoading = this.sendWebSocketAction('generate_certificate')
     },
 
-    async downloadCertificate() {
-      try {
-        const url = `/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/download-certificate`
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `mitmproxy-cert-${this.deviceId.replace(':', '_')}.pem`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        
-        this.$emit('success', 'Certificate downloaded')
-      } catch (error) {
-        console.error('Error downloading certificate:', error)
-        this.$emit('error', 'Error downloading certificate')
-      }
+    installCertificate() {
+      this.isLoading = this.sendWebSocketAction('install_certificate')
     },
 
-    async rebootDevice() {
-      try {
-        this.isLoading = true
-        
-        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "reboot_device",
-            device_id: this.deviceId
-          }))
-        } else {
-          const response = await axios.post(`/api/v1/dynamic-testing/device/${encodeURIComponent(this.deviceId)}/mitmproxy/reboot-device`)
-          
-          if (response.data.status === 'success') {
-            this.$emit('success', response.data.message)
-            
-            setTimeout(() => {
-              this.checkStatus()
-            }, 5000)
-          }
-        }
-      } catch (error) {
-        console.error('Error rebooting device:', error)
-        this.$emit('error', 'Error rebooting device: ' + (error.response?.data?.detail || error.message))
-      } finally {
-        this.isLoading = false
-      }
+    downloadCertificate() {
+      this.sendWebSocketAction('download_certificate')
     },
 
-    async refreshTraffic() {
-      try {
-        this.isLoading = true
-        
-        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "get_flows",
-            device_id: this.deviceId
-          }))
-        } else {
-          try {
-            const response = await axios.get(`/api/v1/mitmproxy/flows`, {
-              params: {
-                device_id: this.deviceId,
-                detailed: true,
-                limit: 200,
-                offset: 0
-              }
-            })
-            
-            if (response.data && Array.isArray(response.data)) {
-              this.trafficData = response.data.map(flow => this.convertFlowToTrafficEntry(flow))
-            } else if (response.data.flows && Array.isArray(response.data.flows)) {
-              this.trafficData = response.data.flows.map(flow => this.convertFlowToTrafficEntry(flow))
-            } else {
-              console.warn('Unexpected response format:', response.data)
-              this.trafficData = []
-            }
-            this.applyFilters()
-          } catch (error) {
-            const fallbackResponse = await axios.get(`/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/traffic?detailed=true`)
-            if (fallbackResponse.data.status === 'success') {
-              this.trafficData = fallbackResponse.data.data.traffic || []
-              this.applyFilters()
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error refreshing traffic:', error)
-        this.$emit('error', 'Error refreshing traffic')
-      } finally {
-        this.isLoading = false
-      }
+    rebootDevice() {
+      this.isLoading = this.sendWebSocketAction('reboot_device')
     },
 
-    async clearTraffic() {
-      try {
-        this.isLoading = true
-        
-        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "clear_flows",
-            device_id: this.deviceId
-          }))
-        } else {
-          try {
-            await axios.delete(`/api/v1/mitmproxy/flows`, {
-              params: { device_id: this.deviceId }
-            })
-          } catch (error) {
-            await axios.post(`/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/clear-traffic`)
-          }
-        }
-        
-        this.trafficData = []
-        this.filteredTraffic = []
-        this.securityReport = { issues: [], summary: { total: 0, high: 0, medium: 0, low: 0 } }
-        this.$emit('success', 'Traffic cleared')
-      } catch (error) {
-        console.error('Error clearing traffic:', error)
-        this.$emit('error', 'Error clearing traffic')
-      } finally {
-        this.isLoading = false
-      }
+    refreshTraffic() {
+      this.isLoading = this.sendWebSocketAction('get_flows')
     },
 
-    async exportTraffic(format) {
-      try {
-        this.showExportMenu = false
-        
-        let response
-        let useBlobResponse = false
-        
-        try {
-          // Try primary endpoint with blob response
-          response = await axios.get(`/api/v1/mitmproxy/flows/dump`, {
-            params: {
-              device_id: this.deviceId,
-              format: format
-            },
-            responseType: 'blob'
-          })
-          useBlobResponse = true
-        } catch (error) {
-          // Fallback to alternative endpoint
-          try {
-            response = await axios.get(`/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/export?format=${format}`, {
-              responseType: 'blob'
-            })
-            useBlobResponse = true
-          } catch (fallbackError) {
-            // Last resort: try without blob response
-            response = await axios.get(`/api/v1/mitmproxy/flows/dump`, {
-              params: {
-                device_id: this.deviceId,
-                format: format
-              }
-            })
-            useBlobResponse = false
-          }
-        }
-        
-        // Determine filename and mime type
-        let filename, mimeType
-        
-        if (format === 'json') {
-          filename = `flows_${this.deviceId.replace(':', '_')}_${Date.now()}.json`
-          mimeType = 'application/json'
-        } else if (format === 'har') {
-          filename = `flows_${this.deviceId.replace(':', '_')}_${Date.now()}.har`
-          mimeType = 'application/json'
-        } else {
-          filename = `flows_${this.deviceId.replace(':', '_')}_${Date.now()}.${format}`
-          mimeType = format === 'csv' ? 'text/csv' : 'application/octet-stream'
-        }
-        
-        // Handle different response types
-        let blob
-        
-        if (useBlobResponse && response.data instanceof Blob) {
-          // Check if Blob contains JSON
-          if (mimeType === 'application/json') {
-            // Read blob as text for JSON data
-            const text = await response.data.text()
-            blob = new Blob([text], { type: mimeType })
-          } else {
-            // Binary data - use blob as is
-            blob = response.data
-          }
-        } else if (useBlobResponse && typeof response.data === 'string') {
-          // String from blob response
-          blob = new Blob([response.data], { type: mimeType })
-        } else if (typeof response.data === 'string') {
-          // Direct string response
-          blob = new Blob([response.data], { type: mimeType })
-        } else if (typeof response.data === 'object') {
-          // JSON object - stringify it
-          const content = JSON.stringify(response.data, null, 2)
-          blob = new Blob([content], { type: mimeType })
-        } else {
-          // Fallback: wrap in Blob
-          blob = new Blob([response.data], { type: mimeType })
-        }
-        
-        const url = window.URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = filename
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        window.URL.revokeObjectURL(url)
-        
-        this.$emit('success', `Traffic exported in ${format.toUpperCase()} format`)
-      } catch (error) {
-        console.error('Error exporting traffic:', error)
-        this.$emit('error', 'Error exporting traffic: ' + (error.response?.data?.detail || error.message))
+    clearTraffic() {
+      this.isLoading = this.sendWebSocketAction('clear_flows')
+    },
+
+    exportTraffic(format) {
+      this.showExportMenu = false
+      this.isLoading = this.sendWebSocketAction('export_flows', { format })
+    },
+
+    killFlow(flowId) {
+      this.isLoading = this.sendWebSocketAction('kill_flow', { flow_id: flowId })
+    },
+
+    downloadBase64File(data) {
+      const binary = window.atob(data.content || '')
+      const bytes = new Uint8Array(binary.length)
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index)
       }
+      const blob = new Blob([bytes], { type: data.mime_type || 'application/octet-stream' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = data.filename || 'mitmproxy-download'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
     },
 
     selectEntry(entry) {
@@ -1147,15 +791,9 @@ export default {
       try {
         this.isLoading = true
         
-        // Use local entry data instead of fetching (flows might be cleared)
         this.selectedEntry = { ...entry }
         this.selectedEntry.request_view = 'auto'
         this.selectedEntry.response_view = 'auto'
-        
-        // Content will be loaded in the modal component
-        this.selectedEntry.request_content = null
-        this.selectedEntry.response_content = null
-        
         this.showDetailsModal = true
       } catch (error) {
         console.error('Error opening flow details:', error)
@@ -1168,32 +806,8 @@ export default {
 
 
 
-    async killFlow(flowId) {
-      try {
-        if (this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: "mitmproxy",
-            action: "kill_flow",
-            device_id: this.deviceId,
-            flow_id: flowId
-          }))
-        } else {
-          const response = await axios.post(`/api/v1/mitmproxy/flows/${flowId}/kill`, {
-            device_id: this.deviceId
-          })
-          
-          if (response.data.status === 'success') {
-            this.$emit('success', 'Flow stopped')
-            const index = this.trafficData.findIndex(entry => entry.id === flowId)
-            if (index !== -1) {
-              this.trafficData.splice(index, 1)
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error killing flow:', error)
-        this.$emit('error', 'Error stopping flow: ' + (error.response?.data?.detail || error.message))
-      }
+    killFlow(flowId) {
+      this.isLoading = this.sendWebSocketAction('kill_flow', { flow_id: flowId })
     },
 
 
@@ -1253,6 +867,7 @@ export default {
           break
           
         case 'state':
+          this.isLoading = false
           if (data.data) {
             this.status = {
               proxy_running: data.data.is_running || false,
@@ -1268,6 +883,7 @@ export default {
           break
           
         case 'flows':
+          this.isLoading = false
           if (data.data && Array.isArray(data.data)) {
             // Don't replace if empty array received (might be temporary)
             if (data.data.length > 0 || this.trafficData.length === 0) {
@@ -1278,15 +894,16 @@ export default {
           break
           
         case 'clear_flows':
+          this.isLoading = false
           if (data.success) {
             this.trafficData = []
             this.filteredTraffic = []
-            this.securityReport = { issues: [], summary: { total: 0, high: 0, medium: 0, low: 0 } }
             this.$emit('success', 'Traffic cleared')
           }
           break
           
         case 'proxy_start_result':
+          this.isLoading = false
           this.status.proxy_running = data.success
           if (data.success) {
             this.$emit('success', 'Proxy started successfully')
@@ -1297,6 +914,7 @@ export default {
           break
           
         case 'proxy_stop_result':
+          this.isLoading = false
           this.status.proxy_running = !data.success
           if (!this.status.proxy_running) {
             this.$emit('success', 'Proxy stopped successfully')
@@ -1307,6 +925,7 @@ export default {
           break
           
         case 'certificate_generated':
+          this.isLoading = false
           if (data.success) {
             this.$emit('success', 'Certificate generated successfully')
           } else {
@@ -1315,6 +934,7 @@ export default {
           break
           
         case 'certificate_installed':
+          this.isLoading = false
           this.status.cert_installed = data.success
           if (data.success) {
             this.$emit('success', 'Certificate installed on device')
@@ -1337,6 +957,7 @@ export default {
           break
           
         case 'proxy_configured':
+          this.isLoading = false
           this.status.proxy_configured = data.success
           if (data.success) {
             this.$emit('success', 'Proxy configured on device')
@@ -1346,6 +967,7 @@ export default {
           break
           
         case 'proxy_disabled':
+          this.isLoading = false
           this.status.proxy_configured = !data.success
           if (data.success) {
             this.$emit('success', 'Proxy disabled on device')
@@ -1366,6 +988,7 @@ export default {
           break
           
         case 'device_rebooted':
+          this.isLoading = false
           if (data.success) {
             this.$emit('success', data.message)
             setTimeout(() => {
@@ -1376,7 +999,19 @@ export default {
           }
           break
           
+        case 'certificate_download':
+        case 'flows_export':
+          this.isLoading = false
+          if (data.success && data.content) {
+            this.downloadBase64File(data)
+            this.$emit('success', data.message || 'Download ready')
+          } else {
+            this.$emit('error', data.message || 'Download failed')
+          }
+          break
+
         case 'flow_killed':
+          this.isLoading = false
           if (data.success) {
             this.$emit('success', 'Flow stopped')
             const index = this.trafficData.findIndex(entry => entry.id === data.flow_id)
@@ -1426,7 +1061,6 @@ export default {
               this.trafficData.splice(index, 1)
               console.log(`Removed flow: ${data.flow.id}`)
             }
-            // Reapply filters after removal
             this.applyFilters()
           }
           break
@@ -1466,8 +1100,8 @@ export default {
           port: request.port || 80,
           request_headers: Object.fromEntries(request.headers || []),
           response_headers: Object.fromEntries(response.headers || []),
-          request_content: '', 
-          response_content: '', 
+          request_content: request.content || '',
+          response_content: response.content || '',
           request_view: 'auto', 
           response_view: 'auto', 
           type: flow.type || 'http',
@@ -1479,9 +1113,6 @@ export default {
 
     startAutoRefresh() {
       this.stopAutoRefresh()
-      
-      // Don't periodically request flows - rely on WebSocket events (flow_add, flow_update)
-      // Only request initial state once
       if (this.status.proxy_running && this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
         this.mitmproxyWebSocket.send(JSON.stringify({
           type: "mitmproxy",
@@ -1569,8 +1200,8 @@ export default {
         this.mitmproxyWebSocket.addEventListener('close', (event) => {
           console.log('Mitmproxy WebSocket closed:', event.code, event.reason)
           
-          if (event.code !== 1000) {
-            setTimeout(() => {
+          if (event.code !== 1000 && !this.closingWebSocket) {
+            this.reconnectTimer = setTimeout(() => {
               this.openMitmproxyWebSocket()
             }, 3000)
           }
@@ -1586,6 +1217,10 @@ export default {
     },
 
     closeMitmproxyWebSocket() {
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer)
+        this.reconnectTimer = null
+      }
       if (this.mitmproxyWebSocket) {
         this.mitmproxyWebSocket.close()
         this.mitmproxyWebSocket = null
@@ -2167,139 +1802,6 @@ td.no-traffic small {
   font-size: 12px;
   color: #999;
   margin-left: 8px;
-}
-
-.security-section {
-  background: white;
-  border-radius: 8px;
-  padding: 20px;
-  margin-top: 20px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.security-section h4 {
-  margin: 0 0 20px 0;
-  color: #333;
-}
-
-.security-stats {
-  display: flex;
-  gap: 20px;
-  margin-bottom: 20px;
-}
-
-.security-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 15px;
-  border-radius: 6px;
-  min-width: 80px;
-}
-
-.security-stat.high {
-  background: #f8d7da;
-  color: #721c24;
-}
-
-.security-stat.medium {
-  background: #fff3cd;
-  color: #856404;
-}
-
-.security-stat.low {
-  background: #d4edda;
-  color: #155724;
-}
-
-.security-stat .count {
-  font-size: 24px;
-  font-weight: 700;
-  margin-bottom: 4px;
-}
-
-.security-stat .label {
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.security-issues {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.security-issue {
-  padding: 15px;
-  border-radius: 6px;
-  border-left: 4px solid;
-}
-
-.security-issue.severity-high {
-  background: #f8d7da;
-  border-left-color: #dc3545;
-}
-
-.security-issue.severity-medium {
-  background: #fff3cd;
-  border-left-color: #ffc107;
-}
-
-.security-issue.severity-low {
-  background: #d4edda;
-  border-left-color: #28a745;
-}
-
-.issue-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.severity-badge {
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.severity-badge.severity-high {
-  background: #dc3545;
-  color: white;
-}
-
-.severity-badge.severity-medium {
-  background: #ffc107;
-  color: #212529;
-}
-
-.severity-badge.severity-low {
-  background: #28a745;
-  color: white;
-}
-
-.issue-type {
-  font-weight: 600;
-  color: #333;
-}
-
-.issue-description {
-  margin-bottom: 6px;
-  color: #555;
-}
-
-.issue-url {
-  font-size: 12px;
-  color: #007bff;
-  margin-bottom: 4px;
-  word-break: break-all;
-}
-
-.issue-evidence {
-  font-size: 11px;
-  color: #6c757d;
-  font-style: italic;
 }
 
 .action-buttons {

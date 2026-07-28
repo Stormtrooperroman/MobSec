@@ -163,179 +163,89 @@
 </template>
 
 <script>
-import axios from 'axios';
-
 export default {
   name: 'TrafficDetailsModal',
   props: {
-    show: {
-      type: Boolean,
-      default: false
-    },
-    entry: {
-      type: Object,
-      default: null
-    },
-    deviceId: {
-      type: String,
-      required: true
-    }
+    show: { type: Boolean, default: false },
+    entry: { type: Object, default: null },
+    deviceId: { type: String, required: true }
   },
-  emits: ['close', 'content-changed'],
+  emits: ['close', 'content-changed', 'success', 'error'],
   data() {
     return {
       isLoading: false,
       localEntry: null,
-      requestContentLoaded: false,
-      responseContentLoaded: false
-    };
+      rawRequestContent: '',
+      rawResponseContent: ''
+    }
   },
   watch: {
-    async show(newVal) {
-      if (newVal && this.entry) {
-        this.localEntry = { ...this.entry };
-        this.requestContentLoaded = false;
-        this.responseContentLoaded = false;
-        await this.loadContent();
-      }
+    show(newValue) {
+      if (newValue && this.entry) this.setEntry(this.entry)
     },
     entry: {
-      handler(newVal) {
-        if (newVal) {
-          this.localEntry = { ...newVal };
-        }
+      handler(newValue) {
+        if (newValue) this.setEntry(newValue)
       },
       immediate: true,
       deep: true
     }
   },
   methods: {
+    setEntry(entry) {
+      this.localEntry = { ...entry }
+      this.rawRequestContent = entry.request_content || ''
+      this.rawResponseContent = entry.response_content || ''
+      this.localEntry.request_view = this.localEntry.request_view || 'auto'
+      this.localEntry.response_view = this.localEntry.response_view || 'auto'
+    },
     closeModal() {
-      this.$emit('close');
+      this.$emit('close')
     },
-
     async loadContent() {
-      if (!this.localEntry || !this.localEntry.id) return;
-      
-      try {
-        this.isLoading = true;
-        
-        if (!this.localEntry.request_view) {
-          this.localEntry.request_view = 'auto';
-        }
-        if (!this.localEntry.response_view) {
-          this.localEntry.response_view = 'auto';
-        }
-        
-        const [requestContent, responseContent] = await Promise.allSettled([
-          this.getFlowContent(this.localEntry.id, 'request', this.localEntry.request_view),
-          this.getFlowContent(this.localEntry.id, 'response', this.localEntry.response_view)
-        ]);
-        
-        if (requestContent.status === 'fulfilled') {
-          this.localEntry.request_content = requestContent.value || '';
-          this.requestContentLoaded = true;
-        }
-        
-        if (responseContent.status === 'fulfilled') {
-          this.localEntry.response_content = responseContent.value || '';
-          this.responseContentLoaded = true;
-        }
-      } catch (error) {
-        console.error('Error loading content:', error);
-      } finally {
-        this.isLoading = false;
-      }
+      // Flow bodies arrive with get_flows/flow_add/flow_update WebSocket messages.
+      return Promise.resolve()
     },
-
     formatTime(timestamp) {
-      return new Date(timestamp * 1000).toLocaleString('ru-RU');
+      return new Date(timestamp * 1000).toLocaleString('ru-RU')
     },
-
-    async changeContentView(messageType, viewType) {
-      if (!this.localEntry || !this.localEntry.id) {
-        return;
+    formatContent(content, viewType) {
+      const text = typeof content === 'string' ? content : JSON.stringify(content ?? '', null, 2)
+      if (viewType === 'hex') {
+        return Array.from(new TextEncoder().encode(text))
+          .map(byte => byte.toString(16).padStart(2, '0'))
+          .join(' ')
       }
-
-      try {
-        this.isLoading = true;
-        
-        if (messageType === 'request') {
-          this.localEntry.request_view = viewType;
-        } else if (messageType === 'response') {
-          this.localEntry.response_view = viewType;
-        }
-        
-        const content = await this.getFlowContent(this.localEntry.id, messageType, viewType);
-        
-        if (messageType === 'request') {
-          this.localEntry.request_content = content || '';
-          this.requestContentLoaded = true;
-        } else if (messageType === 'response') {
-          this.localEntry.response_content = content || '';
-          this.responseContentLoaded = true;
-        }
-        this.$emit('content-changed', { messageType, content, viewType });
-      } catch (error) {
-        console.error('Error changing content view:', error);
-        this.$emit('error', 'Error changing content view');
-      } finally {
-        this.isLoading = false;
-      }
+      return text
     },
-
-    async getFlowContent(flowId, messageType, contentView = 'auto') {
-      try {
-        const response = await axios.get(`/api/v1/mitmproxy/flows/${flowId}/${messageType}/content/${contentView}`, {
-          params: { 
-            device_id: this.deviceId,
-            lines: 1000 
-          },
-          responseType: contentView === 'raw' ? 'arraybuffer' : 'text'
-        });
-        
-        if (typeof response.data === 'string') {
-          return response.data;
-        } else if (response.data instanceof ArrayBuffer) {
-          try {
-            const decoder = new TextDecoder('utf-8');
-            return decoder.decode(response.data);
-          } catch (e) {
-            return `[Binary data, size: ${response.data.byteLength} bytes]`;
-          }
-        } else {
-          return JSON.stringify(response.data, null, 2);
-        }
-      } catch (error) {
-        console.error('Error getting flow content:', error);
-        if (error.response?.status === 404) {
-          return 'Content unavailable (404)';
-        } else if (error.response?.status === 400) {
-          return 'Bad request (400)';
-        } else {
-          return `Loading error: ${error.message}`;
-        }
-      }
+    changeContentView(messageType, viewType) {
+      if (!this.localEntry) return
+      const rawContent = messageType === 'request'
+        ? this.rawRequestContent
+        : this.rawResponseContent
+      const content = this.formatContent(rawContent, viewType)
+      this.localEntry[`${messageType}_view`] = viewType
+      this.localEntry[`${messageType}_content`] = content
+      this.$emit('content-changed', { messageType, content, viewType })
     },
-
-    async downloadFlowContent(flowId, messageType) {
-      try {
-        const url = `/api/v1/mitmproxy/flows/${flowId}/${messageType}/content.data?device_id=${encodeURIComponent(this.deviceId)}`;
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${flowId}_${messageType}.data`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        this.$emit('success', `${messageType} content downloaded`);
-      } catch (error) {
-        console.error('Error downloading flow content:', error);
-        this.$emit('error', 'Error downloading content');
-      }
+    downloadFlowContent(flowId, messageType) {
+      if (!this.localEntry) return
+      const content = messageType === 'request'
+        ? this.rawRequestContent
+        : this.rawResponseContent
+      const blob = new Blob([content || ''], { type: 'application/octet-stream' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${flowId}_${messageType}.data`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      this.$emit('success', `${messageType} content downloaded`)
     }
   }
-};
+}
 </script>
 
 <style scoped>

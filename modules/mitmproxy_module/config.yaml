@@ -1,0 +1,8 @@
+name: mitmproxy_module
+version: 0.1
+description: Dynamic instrumentation with Mitmproxy
+author: Stormtrooperroman
+active: True
+type: dynamic
+port: 8091
+map_name: mitmproxy

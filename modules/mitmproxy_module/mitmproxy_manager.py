@@ -20,8 +20,8 @@ from mitmproxy.dns import DNSFlow
 from mitmproxy.utils.emoji import emoji
 from mitmproxy.utils.strutils import always_str
 
-from app.dynamic.tools.web_master import WebMaster
-from app.dynamic.utils.su_utils import check_su_availability
+from web_master import WebMaster
+from adb_utils import check_su_availability, execute_adb_command, execute_adb_shell
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +246,7 @@ class MitmproxyManager:
 
     def __init__(self, device_id: str):
         self.device_id = device_id
+        self.proxy_configured = False
 
         self.is_running = False
 
@@ -273,19 +274,6 @@ class MitmproxyManager:
         # Create necessary directories
         os.makedirs(self.certs_dir, exist_ok=True)
         os.makedirs(self.data_dir, exist_ok=True)
-
-    async def _get_device(self):
-        """Get Device instance for this device_id"""
-        try:
-            from app.dynamic.device_management.device_manager import (
-                DeviceManager
-            )
-
-            device_manager = DeviceManager()
-            return await device_manager.get_device(self.device_id)
-        except Exception as device_error:
-            logger.error("Error getting device %s: %s", self.device_id, device_error)
-            return None
 
     async def _initialize_master(self):
         """Initialize mitmproxy master"""
@@ -773,16 +761,6 @@ class MitmproxyManager:
             logger.error("Error clearing flows: %s", e)
             return False
 
-    def update_flow(self, flow_obj: flow.Flow) -> bool:
-        """Update a flow"""
-        try:
-            if self.master_instance and self.master_instance.view:
-                self.master_instance.view.update([flow_obj])
-                return True
-            return False
-        except Exception as e:
-            logger.error("Error updating flow: %s", e)
-            return False
 
     def delete_flow(self, flow_id: str) -> bool:
         """Delete a flow"""
@@ -799,43 +777,6 @@ class MitmproxyManager:
             logger.error("Error deleting flow: %s", e)
             return False
 
-    def add_flow(self, flow_obj: flow.Flow) -> bool:
-        """Add a flow"""
-        try:
-            if self.master_instance and self.master_instance.view:
-                self.master_instance.view.add([flow_obj])
-                return True
-            return False
-        except Exception as e:
-            logger.error("Error adding flow: %s", e)
-            return False
-
-    def resume_all_flows(self) -> int:
-        """Resume all intercepted flows"""
-        try:
-            count = 0
-            for flow_obj in self.get_flows():
-                if flow_obj.intercepted:
-                    flow_obj.resume()
-                    count += 1
-            return count
-        except Exception as e:
-            logger.error("Error resuming flows: %s", e)
-            return 0
-
-    def kill_all_flows(self) -> int:
-        """Kill all killable flows"""
-        try:
-            count = 0
-            for flow_obj in self.get_flows():
-                if hasattr(flow_obj, "killable") and flow_obj.killable:
-                    flow_obj.kill()
-                    count += 1
-            return count
-        except Exception as e:
-            logger.error("Error killing flows: %s", e)
-            return 0
-
     def replay_flow(self, flow_obj: flow.Flow) -> bool:
         """Replay a flow"""
         try:
@@ -846,43 +787,6 @@ class MitmproxyManager:
         except Exception as e:
             logger.error("Error replaying flow: %s", e)
             return False
-
-    def load_flows_from_dump(self, dump_content: bytes) -> bool:
-        """Load flows from dump content"""
-        try:
-            if not self.master_instance:
-                return False
-
-            bio = BytesIO(dump_content)
-            reader = mitmproxy_io.FlowReader(bio)
-
-            flows_loaded = 0
-            for flow_obj in reader.stream():
-                self.add_flow(flow_obj)
-                flows_loaded += 1
-
-            logger.info("Loaded %s flows from dump", flows_loaded)
-            return True
-
-        except Exception as e:
-            logger.error("Error loading flows from dump: %s", e)
-            return False
-
-    def export_flows_to_dump(self, flows: List[flow.Flow]) -> bytes:
-        """Export flows to dump format"""
-        try:
-            bio = BytesIO()
-            writer = mitmproxy_io.FlowWriter(bio)
-
-            for flow_obj in flows:
-                writer.add(flow_obj)
-
-            bio.seek(0)
-            return bio.getvalue()
-
-        except Exception as e:
-            logger.error("Error exporting flows to dump: %s", e)
-            return b""
 
     async def export_traffic(self, export_format: str = "json") -> Any:
         """Export captured traffic in specified format"""
@@ -895,213 +799,12 @@ class MitmproxyManager:
                     flows_data.append(flow_to_json(flow_obj))
                 return flows_data
 
-            if export_format == "har":
-                har_data = self._convert_flows_to_har(flows)
-                return har_data
-
-            if export_format == "dump":
-                return self.export_flows_to_dump(flows)
-
             raise ValueError(f"Unsupported export format: {export_format}")
 
         except Exception as e:
             logger.error("Error exporting traffic: %s", e)
             raise
 
-    def _convert_flows_to_har(self, flows: List[flow.Flow]) -> dict:
-        """Convert mitmproxy flows to HAR format"""
-        try:
-            har_data = {
-                "log": {
-                    "version": "1.2",
-                    "creator": {"name": "MobSec Mitmproxy", "version": "1.0"},
-                    "browser": {"name": "MobSec", "version": "1.0"},
-                    "pages": [],
-                    "entries": [],
-                }
-            }
-
-            for flow_obj in flows:
-                if hasattr(flow_obj, "request") and hasattr(flow_obj, "response"):
-                    entry = self._convert_flow_to_har_entry(flow_obj)
-                    if entry:
-                        har_data["log"]["entries"].append(entry)
-
-            return har_data
-
-        except Exception as e:
-            logger.error("Error converting flows to HAR: %s", e)
-            return {"log": {"version": "1.2", "entries": []}}
-
-    def _convert_flow_to_har_entry(self, flow_obj) -> Optional[dict]:
-        """Convert a single flow to HAR entry format"""
-        try:
-            if not hasattr(flow_obj, "request") or not flow_obj.request:
-                return None
-
-            start_time = flow_obj.timestamp_created
-            end_time = getattr(flow_obj, "timestamp_end", start_time)
-            duration = (end_time - start_time) * 1000
-
-            entry = {
-                "startedDateTime": datetime.fromtimestamp(start_time).isoformat() + "Z",
-                "time": duration,
-                "request": self._convert_request_to_har(flow_obj.request),
-                "response": (
-                    self._convert_response_to_har(flow_obj.response)
-                    if hasattr(flow_obj, "response") and flow_obj.response
-                    else None
-                ),
-                "cache": {},
-                "timings": {
-                    "dns": -1,
-                    "connect": -1,
-                    "ssl": -1,
-                    "send": 0,
-                    "wait": duration,
-                    "receive": 0,
-                },
-                "serverIPAddress": None,
-                "connection": None,
-            }
-
-            if (
-                hasattr(flow_obj, "server_conn")
-                and flow_obj.server_conn
-                and flow_obj.server_conn.peername
-            ):
-                entry["serverIPAddress"] = flow_obj.server_conn.peername[0]
-
-            return entry
-
-        except Exception as e:
-            logger.error("Error converting flow to HAR entry: %s", e)
-            return None
-
-    def _convert_request_to_har(self, request) -> dict:
-        """Convert mitmproxy request to HAR request format"""
-        try:
-            headers = []
-            for name, value in request.headers.items(True):
-                headers.append({"name": name, "value": str(value)})
-
-            query_string = []
-            if hasattr(request, "query") and request.query:
-                for name, value in request.query.items():
-                    query_string.append({"name": name, "value": str(value)})
-
-            har_request = {
-                "method": request.method,
-                "url": f"{request.scheme}://{request.pretty_host}:{request.port}{request.path}",
-                "httpVersion": request.http_version,
-                "headers": headers,
-                "queryString": query_string,
-                "cookies": [],
-                "headersSize": -1,
-                "bodySize": len(request.raw_content) if request.raw_content else 0,
-            }
-
-            if request.raw_content:
-                try:
-                    content = request.get_text(strict=False)
-                    if content is None:
-                        content = request.get_content(strict=False)
-                        if content:
-                            content = content.hex()
-                except:
-                    content = request.get_content(strict=False)
-                    if content:
-                        content = content.hex()
-
-                if content:
-                    har_request["postData"] = {
-                        "mimeType": request.headers.get("content-type", "text/plain"),
-                        "text": content,
-                        "params": [],
-                    }
-
-            return har_request
-
-        except Exception as e:
-            logger.error("Error converting request to HAR: %s", e)
-            return {
-                "method": "GET",
-                "url": "",
-                "httpVersion": "HTTP/1.1",
-                "headers": [],
-                "queryString": [],
-                "cookies": [],
-                "headersSize": -1,
-                "bodySize": 0,
-            }
-
-    def _convert_response_to_har(self, response) -> dict:
-        """Convert mitmproxy response to HAR response format"""
-        try:
-            headers = []
-            for name, value in response.headers.items(True):
-                headers.append({"name": name, "value": str(value)})
-
-            har_response = {
-                "status": response.status_code,
-                "statusText": response.reason,
-                "httpVersion": response.http_version,
-                "headers": headers,
-                "cookies": [],
-                "content": {
-                    "size": len(response.raw_content) if response.raw_content else 0,
-                    "mimeType": response.headers.get("content-type", "text/plain"),
-                    "text": None,
-                    "encoding": None,
-                },
-                "redirectURL": "",
-                "headersSize": -1,
-                "bodySize": len(response.raw_content) if response.raw_content else 0,
-            }
-
-            if response.raw_content:
-                try:
-                    content = response.get_text(strict=False)
-                    if content is None:
-                        content = response.get_content(strict=False)
-                        if content:
-                            content = content.hex()
-                except:
-                    content = response.get_content(strict=False)
-                    if content:
-                        content = content.hex()
-
-                if content:
-                    har_response["content"]["text"] = content
-
-            return har_response
-
-        except Exception as e:
-            logger.error("Error converting response to HAR: %s", e)
-            return {
-                "status": 200,
-                "statusText": "OK",
-                "httpVersion": "HTTP/1.1",
-                "headers": [],
-                "cookies": [],
-                "content": {
-                    "size": 0,
-                    "mimeType": "text/plain",
-                    "text": "",
-                    "encoding": None,
-                },
-                "redirectURL": "",
-                "headersSize": -1,
-                "bodySize": 0,
-            }
-
-    async def clear_traffic(self) -> bool:
-        """Clear all captured traffic"""
-        try:
-            return self.clear_flows()
-        except Exception as e:
-            logger.error("Error clearing traffic: %s", e)
-            return False
 
     async def handle_message(self, websocket: WebSocket, data: str):
         """Handle WebSocket message"""
@@ -1263,18 +966,76 @@ class MitmproxyManager:
                         },
                     )
 
+                elif action == "download_certificate":
+                    cert_path = await self.generate_certificate()
+                    if cert_path and os.path.exists(cert_path):
+                        with open(cert_path, "rb") as cert_file:
+                            cert_content = base64.b64encode(cert_file.read()).decode("ascii")
+                        await self.send_response(
+                            websocket,
+                            {
+                                "type": "mitmproxy",
+                                "action": "certificate_download",
+                                "success": True,
+                                "content": cert_content,
+                                "filename": f"mitmproxy-cert-{self.device_id.replace(':', '_')}.pem",
+                                "mime_type": "application/x-pem-file",
+                                "message": "Certificate downloaded",
+                            },
+                        )
+                    else:
+                        await self.send_response(
+                            websocket,
+                            {
+                                "type": "mitmproxy",
+                                "action": "certificate_download",
+                                "success": False,
+                                "message": "Certificate could not be generated",
+                            },
+                        )
+
+                elif action == "export_flows":
+                    export_format = message.get("format", "json")
+                    try:
+                        exported = await self.export_traffic(export_format)
+                        if isinstance(exported, bytes):
+                            payload = exported
+                            mime_type = "application/octet-stream"
+                        else:
+                            payload = json.dumps(exported, indent=2).encode("utf-8")
+                            mime_type = "application/json"
+                        await self.send_response(
+                            websocket,
+                            {
+                                "type": "mitmproxy",
+                                "action": "flows_export",
+                                "success": True,
+                                "content": base64.b64encode(payload).decode("ascii"),
+                                "filename": f"flows_{int(time.time())}.{export_format}",
+                                "mime_type": mime_type,
+                                "message": f"Traffic exported in {export_format.upper()} format",
+                            },
+                        )
+                    except ValueError as export_error:
+                        await self.send_response(
+                            websocket,
+                            {
+                                "type": "mitmproxy",
+                                "action": "flows_export",
+                                "success": False,
+                                "message": str(export_error),
+                            },
+                        )
+
                 elif action == "reboot_device":
                     # Simple device reboot implementation
                     try:
-                        cmd = f"adb -s {self.device_id} reboot"
-                        process = await asyncio.create_subprocess_shell(
-                            cmd,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE,
-                        )
-                        _, stderr = await process.communicate()
+                        
+                        _, stderr, returncode = await execute_adb_command(
+                            device_id=self.device_id,
+                            command=["reboot"])
 
-                        success = process.returncode == 0
+                        success = returncode == 0
                         await self.send_response(
                             websocket,
                             {
@@ -1284,7 +1045,7 @@ class MitmproxyManager:
                                 "message": (
                                     "Device rebooted"
                                     if success
-                                    else f"Reboot failed: {stderr.decode()}"
+                                    else f"Reboot failed: {stderr}"
                                 ),
                             },
                         )
@@ -1387,9 +1148,6 @@ class MitmproxyManager:
     async def get_state(self) -> dict:
         """Get mitmproxy state"""
         try:
-            # Get proxy_configured from Device
-            device = await self._get_device()
-            proxy_configured = device.proxy_configured if device else False
 
             state = {
                 "version": "mitmproxy",
@@ -1401,18 +1159,10 @@ class MitmproxyManager:
                 "flows_count": len(self.get_flows()) if self.master_instance else 0,
                 "su_available": self.su_available,
                 "cert_installed": self.cert_installed,
-                "proxy_configured": proxy_configured,
+                "proxy_configured": self.proxy_configured,
                 "port_available": await self._check_port_available(self.proxy_port),
                 "port_listening": self._check_port_listening(self.proxy_port),
             }
-
-            if self.master_instance:
-                state.update(
-                    {
-                        "contentViews": ["auto", "json", "xml", "html", "text"],
-                        "platform": "linux",
-                    }
-                )
 
             return state
         except Exception as e:
@@ -1620,15 +1370,12 @@ class MitmproxyManager:
 
             device_cert_path = f"/data/local/tmp/mitmproxy-ca-cert-{cert_hash}.pem"
 
-            # Copy certificate to device
-            push_cmd = f"adb -s {self.device_id} push {cert_path} {device_cert_path}"
-            process = await asyncio.create_subprocess_shell(
-                push_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await process.communicate()
+            stdout, stderr, returncode = await execute_adb_command(
+                            device_id=self.device_id,
+                            command=["push", cert_path, device_cert_path])
 
-            if process.returncode != 0:
-                logger.error("Failed to push certificate: %s", stderr.decode())
+            if returncode != 0:
+                logger.error("Failed to push certificate: %s", stderr)
                 return False
 
             # Check su availability
@@ -1649,42 +1396,16 @@ class MitmproxyManager:
                 )
                 return True  # Technically successful, but without system store installation
 
-            # Additional su access verification before installation
-            test_su_cmd = f"adb -s {self.device_id} shell su 0 id"
-            test_process = await asyncio.create_subprocess_shell(
-                test_su_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            test_stdout, test_stderr = await test_process.communicate()
-
-            if test_process.returncode != 0 or "root" not in test_stdout.decode():
-                logger.error("su access verification failed: %s", test_stderr.decode())
-                await self.send_response(
-                    websocket,
-                    {
-                        "type": "mitmproxy",
-                        "action": "certificate_error",
-                        "message": "Root access required but not available",
-                    },
-                )
-                return False
-
             system_cert_path = f"/system/etc/security/cacerts/{cert_hash}.0"
 
             # Check Android version for path selection
-            version_cmd = (
-                f"adb -s {self.device_id} shell getprop ro.build.version.sdk_int"
+            version_stdout, _, _ = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command="getprop ro.build.version.sdk_int",
             )
-            version_process = await asyncio.create_subprocess_shell(
-                version_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            version_stdout, _ = await version_process.communicate()
-
+            
             try:
-                sdk_version = int(version_stdout.decode().strip())
+                sdk_version = int(version_stdout.strip())
                 logger.info("Android SDK version: %s", sdk_version)
 
                 # Android 14 (API 34) and above use APEX container
@@ -1716,33 +1437,25 @@ class MitmproxyManager:
                 )
 
             # Check existing certificates in system
-            list_certs_cmd = (
-                f"adb -s {self.device_id} shell su 0 ls -la "
-                "/system/etc/security/cacerts/ | head -10"
+            list_stdout, list_stderr, returncode = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command="su 0 ls -la "
+                "system/etc/security/cacerts/ | head -10",
             )
-            list_process = await asyncio.create_subprocess_shell(
-                list_certs_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            list_stdout, list_stderr = await list_process.communicate()
 
-            if list_process.returncode == 0:
-                existing_certs = list_stdout.decode().strip()
+            if returncode == 0:
+                existing_certs = list_stdout.strip()
                 logger.info("Existing system certificates: %s", existing_certs)
             else:
                 logger.warning(
-                    "Failed to list existing certificates: %s", list_stderr.decode()
+                    "Failed to list existing certificates: %s", list_stderr
                 )
 
             # Mount system as RW if needed
-            mount_rw_cmd = f"adb -s {self.device_id} shell su 0 mount -o rw,remount /"
-            mount_process = await asyncio.create_subprocess_shell(
-                mount_rw_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await mount_process.communicate()
+            _, _, _ = await execute_adb_shell(
+                device_id=self.device_id,
+                shell_command="su 0 mount -o rw,remount /"
+            )            
 
             # Detailed diagnostics before installation
             logger.info("Installing certificate:")
@@ -1751,71 +1464,63 @@ class MitmproxyManager:
             logger.info("  - Certificate hash: %s", cert_hash)
 
             install_commands = [
-                f"adb -s {self.device_id} shell su 0 cp {device_cert_path} {system_cert_path}",
-                f"adb -s {self.device_id} shell su 0 chmod 644 {system_cert_path}",
-                f"adb -s {self.device_id} shell su 0 chown root:root {system_cert_path}",
+                f"su 0 cp {device_cert_path} {system_cert_path}",
+                f"su 0 chmod 644 {system_cert_path}",
+                f"su 0 chown root:root {system_cert_path}",
             ]
 
             success_count = 0
             for i, cmd in enumerate(install_commands):
                 logger.info("Executing install command %s/3: %s", i + 1, cmd)
-                process = await asyncio.create_subprocess_shell(
-                    cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await process.communicate()
 
-                if process.returncode == 0:
+                stdout, stderr, returncode = await execute_adb_shell(
+                    device_id=self.device_id,
+                    shell_command=cmd
+                )
+            
+                if returncode == 0:
                     success_count += 1
                     logger.info(
-                        "Command %s succeeded: %s", i + 1, stdout.decode().strip()
+                        "Command %s succeeded: %s", i + 1, stdout.strip()
                     )
                 else:
-                    logger.error("Command %s failed: %s", i + 1, stderr.decode())
+                    logger.error("Command %s failed: %s", i + 1, stderr)
 
             logger.info("Install commands: %s/3 successful", success_count)
 
+
             # Mount system back as RO
-            mount_ro_cmd = f"adb -s {self.device_id} shell su 0 mount -o ro,remount /"
-            mount_ro_process = await asyncio.create_subprocess_shell(
-                mount_ro_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await mount_ro_process.communicate()
+            _, _, _ = await execute_adb_shell(
+                    device_id=self.device_id,
+                    shell_command="su 0 mount -o ro,remount /"
+                )
 
             # Verify that certificate is actually installed
-            verify_cmd = f"adb -s {self.device_id} shell su 0 ls -la {system_cert_path}"
-            verify_process = await asyncio.create_subprocess_shell(
-                verify_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            verify_stdout, verify_stderr = await verify_process.communicate()
+            verify_stdout, verify_stderr, returncode = await execute_adb_shell(
+                    device_id=self.device_id,
+                    shell_command=f"su 0 ls -la {system_cert_path}"
+                )
 
-            if verify_process.returncode == 0:
-                file_info = verify_stdout.decode().strip()
+            if returncode == 0:
+                file_info = verify_stdout.strip()
                 logger.info("Certificate verification: %s", file_info)
 
                 # Check that certificate exactly matches original
-                compare_cmd = (
-                    f"adb -s {self.device_id} shell su 0 cat {system_cert_path}"
+                compare_stdout, compare_stderr, returncode = await execute_adb_shell(
+                    device_id=self.device_id,
+                    shell_command=f"su 0 cat {system_cert_path}"
                 )
-                compare_process = await asyncio.create_subprocess_shell(
-                    compare_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                compare_stdout, compare_stderr = await compare_process.communicate()
+                
 
-                if compare_process.returncode == 0:
-                    installed_cert = compare_stdout.decode().strip()
+                if returncode == 0:
+                    installed_cert = compare_stdout.strip()
                     original_cert = cert_content.decode().strip()
 
                     if installed_cert == original_cert:
-                        logger.info("✅ Certificate content matches original")
+                        logger.info("Certificate content matches original")
                         self.cert_installed = True
                     else:
-                        logger.error("❌ Certificate content does not match original!")
+                        logger.error("Certificate content does not match original!")
                         logger.error("Original length: %s", len(original_cert))
                         logger.error("Installed length: %s", len(installed_cert))
                         logger.error(
@@ -1824,34 +1529,19 @@ class MitmproxyManager:
                         self.cert_installed = False
                 else:
                     logger.error(
-                        "Failed to read installed certificate: %s", compare_stderr.decode()
+                        "Failed to read installed certificate: %s", compare_stderr
                     )
                     self.cert_installed = False
 
-                # Additionally check owner and permissions
-                if self.cert_installed:
-                    stat_cmd = (
-                        f"adb -s {self.device_id} shell su 0 stat {system_cert_path}"
-                    )
-                    stat_process = await asyncio.create_subprocess_shell(
-                        stat_cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    stat_stdout, _ = await stat_process.communicate()
-                    if stat_process.returncode == 0:
-                        logger.info(
-                            "Certificate file stats: %s", stat_stdout.decode().strip()
-                        )
 
                 if self.cert_installed:
                     logger.info(
-                        "✅ Certificate successfully installed and verified at %s", system_cert_path
+                        "Certificate successfully installed and verified at %s", system_cert_path
                     )
 
             else:
                 logger.error(
-                    "❌ Certificate verification failed: %s", verify_stderr.decode()
+                    "Certificate verification failed: %s", verify_stderr
                 )
                 self.cert_installed = False
 
@@ -1930,41 +1620,30 @@ class MitmproxyManager:
             if self.su_available:
                 # Use su for global proxy configuration
                 cmd = (
-                    f"adb -s {self.device_id} shell su 0 "
-                    f"settings put global http_proxy {proxy_setting}"
+                    f"su 0 settings put global http_proxy {proxy_setting}"
                 )
             else:
                 # Try to configure without su
                 cmd = (
-                    f"adb -s {self.device_id} shell "
                     f"settings put global http_proxy {proxy_setting}"
                 )
+            _, stderr, returncode = await execute_adb_shell(
+                    device_id=self.device_id,
+                    shell_command=cmd
+                )
+            
 
-            process = await asyncio.create_subprocess_shell(
-                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr = await process.communicate()
-
-            if process.returncode == 0:
+            if returncode == 0:
                 logger.info("Proxy configured successfully: %s", proxy_setting)
 
-                # Mark proxy as configured in Device
-                device = await self._get_device()
-                if device:
-                    device.proxy_configured = True
+                self.proxy_configured = True
 
                 # Check that setting was applied
-                check_cmd = (
-                    f"adb -s {self.device_id} shell settings get global http_proxy"
+                check_stdout, _, _ = await execute_adb_shell(
+                    device_id=self.device_id,
+                    shell_command="settings get global http_proxy"
                 )
-                check_process = await asyncio.create_subprocess_shell(
-                    check_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                check_stdout, _ = await check_process.communicate()
-
-                current_proxy = check_stdout.decode().strip()
+                current_proxy = check_stdout.strip()
                 logger.info("Current proxy setting: %s", current_proxy)
 
                 # Send updated port information
@@ -1981,7 +1660,7 @@ class MitmproxyManager:
 
                 return True
 
-            logger.error("Failed to configure proxy: %s", stderr.decode())
+            logger.error("Failed to configure proxy: %s", stderr)
             return False
 
         except Exception as e:
@@ -1999,36 +1678,29 @@ class MitmproxyManager:
             # Use command to disable proxy
             if self.su_available:
                 # Use su for global proxy configuration
-                cmd = f"adb -s {self.device_id} shell su 0 settings put global http_proxy :0"
+                cmd = f"su 0 settings put global http_proxy :0"
             else:
                 # Try to disable without su
-                cmd = f"adb -s {self.device_id} shell settings put global http_proxy :0"
+                cmd = f"settings put global http_proxy :0"
 
-            process = await asyncio.create_subprocess_shell(
-                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr = await process.communicate()
+            _, stderr, returncode = await execute_adb_shell(
+                    device_id=self.device_id,
+                    shell_command=cmd
+                )
 
-            if process.returncode == 0:
+            if returncode == 0:
                 logger.info("Proxy disabled successfully")
 
-                # Mark proxy as not configured in Device
-                device = await self._get_device()
-                if device:
-                    device.proxy_configured = False
+
+                self.proxy_configured = False
 
                 # Check that setting was applied
-                check_cmd = (
-                    f"adb -s {self.device_id} shell settings get global http_proxy"
+                check_stdout, _, _ = await execute_adb_shell(
+                    device_id=self.device_id,
+                    shell_command="settings get global http_proxy"
                 )
-                check_process = await asyncio.create_subprocess_shell(
-                    check_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                check_stdout, _ = await check_process.communicate()
 
-                current_proxy = check_stdout.decode().strip()
+                current_proxy = check_stdout.strip()
                 logger.info("Current proxy setting: %s", current_proxy)
 
                 # Send response
@@ -2044,7 +1716,7 @@ class MitmproxyManager:
 
                 return True
 
-            logger.error("Failed to disable proxy: %s", stderr.decode())
+            logger.error("Failed to disable proxy: %s", stderr)
             return False
 
         except Exception as e:
@@ -2141,7 +1813,7 @@ async def cleanup_mitmproxy_manager(device_id: str):
             manager = _mitmproxy_managers[device_id]
             logger.info("Cleaning up mitmproxy manager for device %s", device_id)
             try:
-                await manager.stop(cleanup=True)
+                await manager.stop()
             except Exception as e:
                 logger.error("Error stopping manager during cleanup: %s", e)
             del _mitmproxy_managers[device_id]

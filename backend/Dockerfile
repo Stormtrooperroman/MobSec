@@ -15,7 +15,6 @@ RUN apt update -y && \
     libswresample-dev \
     libsdl2-dev \
     xz-utils \
-    lsof \
     wget \
     && apt clean
 

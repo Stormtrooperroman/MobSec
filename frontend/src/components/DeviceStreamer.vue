@@ -67,12 +67,6 @@
                 v-if="toolComponents[tool.ACTION]"
                 :is="toolComponents[tool.ACTION]"
                 :device-id="deviceId"
-              />
-            </div>
-            <!-- Traffic Monitor Tab -->
-            <div v-if="activeTab === 'traffic_monitor'" class="tab-pane active">
-              <TrafficMonitor 
-                :device-id="deviceId" 
                 @success="handleSuccess"
                 @error="handleError"
               />
@@ -104,7 +98,6 @@ import { BroadwayPlayer } from '@/ws-scrcpy/app/player/BroadwayPlayer';
 import { FileListingClient } from '@/ws-scrcpy/app/googDevice/client/FileListingClient';
 
 import FileManager from './tools/FileManager.vue';
-import TrafficMonitor from './tools/TrafficMonitor.vue';
 
 // Register available players
 StreamClientScrcpy.registerPlayer(TinyH264Player);
@@ -115,8 +108,7 @@ StreamClientScrcpy.registerPlayer(BroadwayPlayer);
 export default {
   name: 'DeviceStreamer',
   components: {
-    FileManager,
-    TrafficMonitor
+    FileManager
   },
   props: {
     deviceId: {
@@ -190,31 +182,11 @@ export default {
       const icons = {
         'file_manager': 'folder',
         'frida': 'bug',
-        'traffic_monitor': 'network-wired'
+        'mitmproxy': 'network-wired'
       };
       return icons[action] || 'tool';
     },
 
-    async initializeMitmproxy() {
-      try {
-        const statusResponse = await fetch(`/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/status`);
-        const statusData = await statusResponse.json();
-        
-        if (statusData.status === 'success') {
-          if (!statusData.data.proxy_running) {
-            const startResponse = await fetch(`/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/start`, {
-              method: 'POST'
-            });
-            
-            if (startResponse.ok) {
-              console.log('Mitmproxy started successfully');
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error initializing mitmproxy:', error);
-      }
-    },
 
     handleSuccess(message) {
       this.$emit('success', message);
@@ -306,8 +278,6 @@ export default {
     
     async initializeComponents() {
       try {
-        await this.initializeMitmproxy();
-        
         let retries = 3;
         let response;
         
@@ -421,8 +391,9 @@ export default {
           },
           {
             title: 'Traffic Monitor',
-            ACTION: 'traffic_monitor',
-            client: null
+            ACTION: 'mitmproxy',
+            client: null,
+            moduleName: 'mitmproxy',
           }
         ];
 
@@ -701,11 +672,6 @@ export default {
       }
     },
 
-
-
-
-
-
     closeTerminal() {
       if (this.currentShellClient) {
         this.currentShellClient.close();
@@ -761,10 +727,6 @@ export default {
         console.error('Error restarting terminal:', error);
       }
     },
-
-
-
-
     
     cleanupStreamElements() {
       const container = this.$el || document.querySelector('.dynamic-testing');

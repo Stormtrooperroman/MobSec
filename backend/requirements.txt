@@ -14,14 +14,4 @@ python-multipart>=0.0.5
 PyYAML>=6.0
 python-dotenv>=0.19.0
 
-adb-shell==0.4.3
 websockets>=11.0.3
-Pillow>=9.0.0
-
-mitmproxy>=11.0.0
-
-# Enhanced traffic analysis dependencies
-dataclasses-json>=0.5.7
-urllib3>=1.26.0
-cryptography>=3.4.0
-scapy>=2.5.0
