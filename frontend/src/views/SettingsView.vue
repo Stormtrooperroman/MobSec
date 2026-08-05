@@ -26,7 +26,7 @@
             <div class="setting-action" v-if="formData.apkActionType === 'module'">
               <label>Select Module:</label>
               <select v-model="formData.apkAction">
-                <option value="">Select a module</option>
+                <option :value="null">Select a module</option>
                 <option v-for="module in modules" :key="module.id" :value="module.id">
                   {{ module.name }}
                 </option>
@@ -64,7 +64,7 @@
             <div class="setting-action" v-if="formData.ipaActionType === 'module'">
               <label>Select Module:</label>
               <select v-model="formData.ipaAction">
-                <option value="">Select a module</option>
+                <option :value="null">Select a module</option>
                 <option v-for="module in modules" :key="module.id" :value="module.id">
                   {{ module.name }}
                 </option>
@@ -102,7 +102,7 @@
             <div class="setting-action" v-if="formData.zipActionType === 'module'">
               <label>Select Module:</label>
               <select v-model="formData.zipAction">
-                <option value="">Select a module</option>
+                <option :value="null">Select a module</option>
                 <option v-for="module in modules" :key="module.id" :value="module.id">
                   {{ module.name }}
                 </option>
@@ -288,7 +288,6 @@ export default {
 <style scoped>
 .settings-container {
   padding: 20px;
-  max-width: 800px;
   margin: 0 auto;
 }
 

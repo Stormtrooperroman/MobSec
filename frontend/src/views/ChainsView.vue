@@ -164,8 +164,6 @@ export default {
 </script>
 
 <style scoped>
-
-
 .create-button {
   display: inline-flex;
   align-items: center;

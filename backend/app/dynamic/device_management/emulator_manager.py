@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select
 from redis import Redis
 
-from app.dynamic.utils.adb_utils import get_adb_env
+from app.dynamic.utils.adb_utils import get_adb_env, ensure_adb_server
 from app.models.emulator import Base, Emulator
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,6 @@ class EmulatorManager:
         self.base_ports = {"adb": 5555, "frida": 27042, "scrcpy": 8886}
         self.adb_port = None
 
-        self._start_adb_server()
 
         database_url = os.getenv(
             "DATABASE_URL", "postgresql+asyncpg://postgres:password@db:5432/mobsec_db"
@@ -49,91 +48,31 @@ class EmulatorManager:
         sock.close()
         return port
 
-    def _start_adb_server(self) -> bool:
-        """Start ADB server listening on all interfaces"""
-        try:
-            env = get_adb_env()
-            result = subprocess.run(
-                ["adb", "-a", "server", "start"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-                env=env,
-            )
+    # def _start_adb_server(self) -> bool:
+    #     """Start ADB server listening on all interfaces"""
+    #     try:
+    #         env = get_adb_env()
+    #         result = subprocess.run(
+    #             ["adb", "-a", "server", "start"],
+    #             capture_output=True,
+    #             text=True,
+    #             timeout=10,
+    #             check=False,
+    #             env=env,
+    #         )
 
-            if result.returncode == 0:
-                logger.info("ADB server started successfully (all interfaces)")
-                return True
+    #         if result.returncode == 0:
+    #             logger.info("ADB server started successfully (all interfaces)")
+    #             return True
 
-            logger.error("Failed to start ADB server: %s", result.stderr)
-            return False
+    #         logger.error("Failed to start ADB server emulator manager: %s", result.stderr)
+    #         return False
 
-        except Exception as e:
-            logger.error("Error starting ADB server: %s", e)
-            return False
+    #     except Exception as e:
+    #         logger.error("Error starting ADB server: %s", e)
+    #         return False
 
-    async def _ensure_adb_server(self) -> int:
-        """Ensure ADB server is running and return port"""
-        if self.adb_port:
-            return self.adb_port
-        # Check if ADB server is already running
-        try:
-            result = subprocess.run(
-                ["adb", "devices"], capture_output=True, text=True, timeout=5, check=False
-            )
-            if result.returncode == 0:
-                self.adb_port = 5037
-                logger.info("ADB server already running on port 5037")
-                os.environ["ANDROID_ADB_SERVER_PORT"] = "5037"
-                return 5037
-        except Exception:
-            pass
-
-        try:
-            result = subprocess.run(
-                ["adb", "kill-server"], capture_output=True, text=True, timeout=10, check=False
-            )
-            logger.info("Killed existing ADB server")
-            await asyncio.sleep(1)
-        except Exception:
-            pass
-
-        try:
-            if self._start_adb_server():
-                self.adb_port = 5037
-                logger.info("ADB server started on port 5037")
-                os.environ["ANDROID_ADB_SERVER_PORT"] = "5037"
-                return 5037
-            logger.warning("Failed to start ADB on standard port 5037")
-        except Exception as e:
-            logger.warning("Failed to start ADB on standard port: %s", e)
-
-        dynamic_port = self._find_free_port()
-        try:
-            env = os.environ.copy()
-            env["ANDROID_ADB_SERVER_PORT"] = str(dynamic_port)
-
-            result = subprocess.run(
-                ["adb", "-a", "server", "start"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                env=env,
-                check=False,
-            )
-            if result.returncode == 0:
-                self.adb_port = dynamic_port
-                logger.info("ADB server started on port %s", dynamic_port)
-                os.environ["ANDROID_ADB_SERVER_PORT"] = str(dynamic_port)
-                return dynamic_port
-        except Exception as e:
-            logger.warning("Failed to start ADB on dynamic port: %s", e)
-
-        logger.warning("Could not start ADB server, using default port 5037")
-        self.adb_port = 5037
-        os.environ["ANDROID_ADB_SERVER_PORT"] = "5037"
-        return 5037
+    
 
     async def _wait_for_android_boot(
         self, host: str, port: int, timeout: int = 120
@@ -203,7 +142,7 @@ class EmulatorManager:
     async def _adb_connect(self, host: str, port: int) -> bool:
         """Connect to emulator via ADB"""
         try:
-            await self._ensure_adb_server()
+            await ensure_adb_server()
 
             env = get_adb_env()
 

@@ -8,10 +8,7 @@
         @click="removeNotification(notification.id)"
       >
         <div class="notification-icon">
-          <font-awesome-icon 
-            :icon="getIcon(notification.type)" 
-            v-if="getIcon(notification.type)"
-          />
+          <font-awesome-icon :icon="getIcon(notification.type)" v-if="getIcon(notification.type)" />
         </div>
         <div class="notification-content">
           <div class="notification-title">{{ notification.title }}</div>
@@ -31,24 +28,24 @@ export default {
   props: {
     notifications: {
       type: Array,
-      default: () => []
-    }
+      default: () => [],
+    },
   },
   methods: {
     removeNotification(id) {
-      this.$emit('remove', id)
+      this.$emit('remove', id);
     },
     getIcon(type) {
       const icons = {
         success: 'check-circle',
         error: 'times-circle',
         warning: 'exclamation-circle',
-        info: 'info-circle'
-      }
-      return icons[type] || 'info-circle'
-    }
-  }
-}
+        info: 'info-circle',
+      };
+      return icons[type] || 'info-circle';
+    },
+  },
+};
 </script>
 
 <style scoped>
@@ -176,10 +173,10 @@ export default {
     left: 10px;
     max-width: none;
   }
-  
+
   .notification {
     margin-bottom: 8px;
     padding: 10px 12px;
   }
 }
-</style> 
+</style>

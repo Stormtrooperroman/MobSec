@@ -248,7 +248,7 @@ export default {
           },
           body: JSON.stringify({ name: emulator.name }),
         });
-        
+
         if (response.ok) {
           await this.fetchEmulators();
         } else {
@@ -266,14 +266,11 @@ export default {
     this.fetchModules();
     this.fetchExternalModules();
     this.fetchEmulators();
-    
-
   },
 };
 </script>
 
 <style>
-
 .modules-grid {
   display: grid;
   gap: 24px;
@@ -475,6 +472,4 @@ export default {
   border-radius: 4px;
   font-weight: 500;
 }
-
-
 </style>

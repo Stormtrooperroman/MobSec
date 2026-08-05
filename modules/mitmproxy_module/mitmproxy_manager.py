@@ -52,6 +52,22 @@ __all__ = [
 ]
 
 
+def _extract_content(message) -> tuple[str | None, str | None]:
+    try:
+        raw_data = message.get_content(strict=False)
+    except Exception as e:
+        logger.warning("Error getting content: %s", e)
+        return None, None
+
+    if raw_data is None:
+        return None, None
+
+    try:
+        return raw_data.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        return base64.b64encode(raw_data).decode("ascii"), "base64"
+
+
 def flow_to_json(flow_obj: flow.Flow) -> dict:
     """
     Convert flow to JSON format
@@ -115,31 +131,7 @@ def flow_to_json(flow_obj: flow.Flow) -> dict:
             content_length = None
             content_hash = None
 
-        # Get request content (decrypted for HTTPS)
-        request_content = None
-        try:
-            # Try to get text content first
-            request_content = flow_obj.request.get_text(strict=False)
-            # If None or empty string, try to get content and decode
-            if not request_content or request_content == "":
-                # Get raw content
-                raw_data = flow_obj.request.get_content(strict=False)
-                if raw_data:
-                    try:
-                        # Try to decode as UTF-8
-                        request_content = raw_data.decode("utf-8")
-                    except (UnicodeDecodeError, AttributeError):
-                        # If not UTF-8 text, encode as base64
-                        request_content = base64.b64encode(raw_data).decode("utf-8")
-        except Exception as e:
-            logger.warning("Error getting request content: %s", e)
-            try:
-                # Fallback: try to get content
-                raw_data = flow_obj.request.get_content(strict=False)
-                if raw_data:
-                    request_content = raw_data.decode("utf-8", errors="replace")
-            except Exception:
-                request_content = None
+        request_content, request_content_encoding = _extract_content(flow_obj.request)
 
         f["request"] = {
             "method": flow_obj.request.method,
@@ -152,6 +144,7 @@ def flow_to_json(flow_obj: flow.Flow) -> dict:
             "contentLength": content_length,
             "contentHash": content_hash,
             "content": request_content,
+            "content_encoding": request_content_encoding,
             "timestamp_start": flow_obj.request.timestamp_start,
             "timestamp_end": flow_obj.request.timestamp_end,
             "pretty_host": flow_obj.request.pretty_host,
@@ -164,33 +157,7 @@ def flow_to_json(flow_obj: flow.Flow) -> dict:
                 content_length = None
                 content_hash = None
 
-            # Get response content (decrypted for HTTPS)
-            response_content = None
-            try:
-                # Try to get text content first
-                response_content = flow_obj.response.get_text(strict=False)
-                # If None or empty string, try to get content and decode
-                if not response_content or response_content == "":
-                    # Get raw content
-                    raw_data = flow_obj.response.get_content(strict=False)
-                    if raw_data:
-                        try:
-                            # Try to decode as UTF-8
-                            response_content = raw_data.decode("utf-8")
-                        except (UnicodeDecodeError, AttributeError):
-                            # If not UTF-8 text, encode as base64
-                            response_content = base64.b64encode(raw_data).decode(
-                                "utf-8"
-                            )
-            except Exception as e:
-                logger.warning("Error getting response content: %s", e)
-                try:
-                    # Fallback: try to get content
-                    raw_data = flow_obj.response.get_content(strict=False)
-                    if raw_data:
-                        response_content = raw_data.decode("utf-8", errors="replace")
-                except Exception:
-                    response_content = None
+            response_content, response_content_encoding = _extract_content(flow_obj.response)
 
             f["response"] = {
                 "http_version": flow_obj.response.http_version,
@@ -200,6 +167,7 @@ def flow_to_json(flow_obj: flow.Flow) -> dict:
                 "contentLength": content_length,
                 "contentHash": content_hash,
                 "content": response_content,
+                "content_encoding": response_content_encoding,
                 "timestamp_start": flow_obj.response.timestamp_start,
                 "timestamp_end": flow_obj.response.timestamp_end,
             }
@@ -865,7 +833,7 @@ class MitmproxyManager:
                         {
                             "type": "mitmproxy",
                             "action": "port",
-                            "port": self.get_proxy_port(),
+                            "port": self.proxy_port,
                             "available": await self._check_port_available(
                                 self.proxy_port
                             ),
@@ -882,12 +850,11 @@ class MitmproxyManager:
                             "type": "mitmproxy",
                             "action": "set_port",
                             "success": success,
-                            "port": self.get_proxy_port(),
+                            "port": self.proxy_port,
                         },
                     )
 
                 elif action == "force_cleanup":
-                    self._cleanup_all_mitmproxy_processes()
                     await self._safe_release_port()
                     await self.send_response(
                         websocket,
@@ -1169,10 +1136,6 @@ class MitmproxyManager:
             logger.error("Error getting state: %s", e)
             return {}
 
-    def get_proxy_port(self) -> int:
-        """Get current proxy port"""
-        return self.proxy_port
-
     async def set_proxy_port(self, port: int) -> bool:
         """Set proxy port (only if proxy is not running)"""
         if self.is_running:
@@ -1249,34 +1212,10 @@ class MitmproxyManager:
             logger.debug("Port %s is not available: %s", port, e)
             return False
 
-    async def _diagnose_port_usage(self, port: int):
-        """Diagnose what's using the port (for debugging only)"""
-        try:
-            # Use asyncio to execute command
-            process = await asyncio.create_subprocess_exec(
-                "lsof",
-                "-i",
-                f":{port}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await process.communicate()
-
-            if process.returncode == 0 and stdout.strip():
-                logger.info("Port %s is being used by:", port)
-                logger.info(stdout.decode().strip())
-            else:
-                logger.info("lsof shows no processes using port %s", port)
-
-        except Exception as e:
-            logger.warning("Error diagnosing port usage: %s", e)
 
     async def _safe_release_port(self):
         """Safely release the proxy port by waiting for natural release"""
         try:
-            # Diagnose what's using the port
-            await self._diagnose_port_usage(self.proxy_port)
-
             # Wait for natural port release with multiple attempts
             logger.info("Waiting for port %s to be released naturally", self.proxy_port)
 
@@ -1308,19 +1247,9 @@ class MitmproxyManager:
             logger.warning(
                 "Port %s is still in use after all waiting attempts", self.proxy_port
             )
-            await self._diagnose_port_usage(self.proxy_port)
 
         except Exception as e:
             logger.warning("Error in safe port release: %s", e)
-
-    async def _cleanup_all_mitmproxy_processes(self):
-        """Clean up all mitmproxy processes - simplified version"""
-        try:
-            logger.info("Skipping process cleanup - using natural port release")
-            # Just wait for natural port release
-            await asyncio.sleep(1)
-        except Exception as e:
-            logger.warning("Error in cleanup: %s", e)
 
     async def install_certificate(self, websocket: Optional[WebSocket] = None) -> bool:
         """Install certificate on device"""

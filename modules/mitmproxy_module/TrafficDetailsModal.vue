@@ -18,20 +18,24 @@
           <h6>Basic Information</h6>
           <div class="detail-grid">
             <div class="detail-item">
-              <label>URL:</label>
-              <span>{{ localEntry.url }}</span>
+              <span class="detail-key">URL: </span>
+              <span class="detail-value">{{ localEntry.url }}</span>
             </div>
             <div class="detail-item">
-              <label>Method:</label>
-              <span>{{ localEntry.method }}</span>
+              <span class="detail-key">Method: </span>
+              <span class="method-badge detail-value" :class="'method-' + localEntry.method.toLowerCase()">
+                {{ localEntry.method }}
+              </span>
             </div>
             <div class="detail-item">
-              <label>Status:</label>
-              <span>{{ localEntry.status_code }}</span>
+              <span class="detail-key">Status:</span>
+              <span class="status-badge detail-value" :class="getStatusClass(localEntry.status_code)">
+                {{ localEntry.status_code }}
+              </span>
             </div>
             <div class="detail-item">
-              <label>Time:</label>
-              <span>{{ formatTime(localEntry.timestamp) }}</span>
+              <span class="detail-key">Time:</span>
+              <span class="detail-value">{{ formatTime(localEntry.timestamp) }}</span>
             </div>
           </div>
         </div>
@@ -173,10 +177,11 @@ export default {
   emits: ['close', 'content-changed', 'success', 'error'],
   data() {
     return {
-      isLoading: false,
       localEntry: null,
-      rawRequestContent: '',
-      rawResponseContent: ''
+      requestSourceContent: '',
+      responseSourceContent: '',
+      requestEncoding: 'utf-8',
+      responseEncoding: 'utf-8'
     }
   },
   watch: {
@@ -194,13 +199,20 @@ export default {
   methods: {
     setEntry(entry) {
       this.localEntry = { ...entry }
-      this.rawRequestContent = entry.request_content || ''
-      this.rawResponseContent = entry.response_content || ''
-      this.localEntry.request_view = this.localEntry.request_view || 'auto'
-      this.localEntry.response_view = this.localEntry.response_view || 'auto'
+      this.requestSourceContent = structuredClone(entry.request_content) || ''
+      this.responseSourceContent = structuredClone(entry.response_content) || ''
+      this.requestEncoding = entry.request_content_encoding || 'utf-8'
+      this.responseEncoding = entry.response_content_encoding || 'utf-8'
     },
     closeModal() {
       this.$emit('close')
+    },
+    getStatusClass(statusCode) {
+      if (statusCode >= 200 && statusCode < 300) return 'status-success'
+      if (statusCode >= 300 && statusCode < 400) return 'status-warning'
+      if (statusCode >= 400 && statusCode < 500) return 'status-error'
+      if (statusCode >= 500) return 'status-critical'
+      return 'status-unknown'
     },
     async loadContent() {
       // Flow bodies arrive with get_flows/flow_add/flow_update WebSocket messages.
@@ -209,31 +221,69 @@ export default {
     formatTime(timestamp) {
       return new Date(timestamp * 1000).toLocaleString('ru-RU')
     },
-    formatContent(content, viewType) {
-      const text = typeof content === 'string' ? content : JSON.stringify(content ?? '', null, 2)
-      if (viewType === 'hex') {
-        return Array.from(new TextEncoder().encode(text))
-          .map(byte => byte.toString(16).padStart(2, '0'))
-          .join(' ')
+    base64ToBytes(base64Content) {
+      const binary = atob(base64Content || '')
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i)
       }
-      return text
+      return bytes
     },
-    changeContentView(messageType, viewType) {
+    contentToBytes(content, encoding) {
+      if (encoding === 'base64') {
+        return this.base64ToBytes(content)
+      }
+      return new TextEncoder().encode(content || '')
+    },
+    formatContent(content, encoding, viewType) {
+      if (content === null || content === undefined || content === '') {
+        return content
+      }
+      if (viewType === 'hex') {
+        const bytes = this.contentToBytes(content, encoding)
+        return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ')
+      }
+      if (viewType === 'raw') {
+        return content
+      }
+ 
+      if (encoding === 'base64') {
+        const byteLength = this.base64ToBytes(content).length
+        return `[Binary content — ${byteLength} bytes, not valid UTF-8. Switch to Hex mode or use Download to inspect the raw bytes.]`
+      }
+      return content
+    },
+    changeContentView(messageType, viewType, emit = true) {
+      if (!this.localEntry) return
+      const sourceContent =
+        messageType === 'request'
+          ? this.requestSourceContent
+          : this.responseSourceContent
+      const encoding =
+        messageType === 'request'
+          ? this.requestEncoding
+          : this.responseEncoding
+      this.localEntry[`${messageType}_view`] = viewType
+      this.localEntry[`${messageType}_content`] =
+        this.formatContent(sourceContent, encoding, viewType)
+      if (emit) {
+        this.$emit('content-changed', {
+          messageType,
+          viewType,
+          content: this.localEntry[`${messageType}_content`]
+        })
+      }
+    },
+    downloadFlowContent(flowId, messageType) {
       if (!this.localEntry) return
       const rawContent = messageType === 'request'
         ? this.rawRequestContent
         : this.rawResponseContent
-      const content = this.formatContent(rawContent, viewType)
-      this.localEntry[`${messageType}_view`] = viewType
-      this.localEntry[`${messageType}_content`] = content
-      this.$emit('content-changed', { messageType, content, viewType })
-    },
-    downloadFlowContent(flowId, messageType) {
-      if (!this.localEntry) return
-      const content = messageType === 'request'
-        ? this.rawRequestContent
-        : this.rawResponseContent
-      const blob = new Blob([content || ''], { type: 'application/octet-stream' })
+      const encoding = messageType === 'request'
+        ? this.rawRequestEncoding
+        : this.rawResponseEncoding
+      const bytes = this.contentToBytes(rawContent, encoding)
+      const blob = new Blob([bytes], { type: 'application/octet-stream' })
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -265,7 +315,7 @@ export default {
 .modal-content {
   background: white;
   border-radius: 8px;
-  max-width: 800px;
+  max-width: 80vw;
   max-height: 80vh;
   width: 90%;
   overflow: hidden;
@@ -385,13 +435,11 @@ export default {
 
 .detail-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 10px;
 }
 
 .detail-item {
   display: flex;
-  flex-direction: column;
 }
 
 .detail-item label {
@@ -543,4 +591,77 @@ export default {
     margin: 10px;
   }
 }
-</style> 
+
+.detail-key{
+  font-weight: 600;
+  color: #495057;
+  min-width: 150px;
+  margin-right: 10px;
+}
+
+.detail-value {
+  color: #333;
+  word-break: break-all;
+}
+
+.method-badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.method-get {
+  background: #d4edda;
+  color: #155724;
+}
+
+.method-post {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.method-put {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.method-delete {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.status-badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.status-success {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-warning {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.status-error {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.status-critical {
+  background: #721c24;
+  color: white;
+}
+
+.status-unknown {
+  background: #e2e3e5;
+  color: #383d41;
+}
+
+</style>

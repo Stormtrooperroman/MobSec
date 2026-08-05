@@ -12,6 +12,7 @@ from app.dynamic.device_management.emulator_manager import EmulatorManager
 from app.modules.chain_manager import ChainManager
 from app.modules.module_manager import ModuleManager
 from app.report_generator import start_report_generator, stop_report_generator
+from app.dynamic.utils.adb_utils import  ensure_adb_server
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ async def initialize_background_services():
     """Initialize modules, chains, and emulators in the background."""
     try:
         await chain_manager.startup()
+        await ensure_adb_server()
         modules_task = asyncio.create_task(module_manager.start_modules())
         emulators_task = asyncio.create_task(emulator_manager.start_active_emulators())
 
@@ -67,8 +69,6 @@ async def startup_event():
     await init_db()
 
     await start_report_generator()
-
-    await chain_manager.startup()
 
     asyncio.create_task(initialize_background_services())
 

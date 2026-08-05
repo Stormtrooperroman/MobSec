@@ -340,7 +340,6 @@
       :entry="selectedEntry"
       :device-id="deviceId"
       @close="closeModal"
-      @content-changed="handleContentChanged"
       @success="handleModalSuccess"
       @error="handleModalError"
     />
@@ -816,15 +815,6 @@ export default {
       this.showDetailsModal = false
     },
 
-    handleContentChanged(data) {
-      if (data.messageType === 'request') {
-        this.selectedEntry.request_content = data.content;
-        this.selectedEntry.request_view = data.viewType;
-      } else if (data.messageType === 'response') {
-        this.selectedEntry.response_content = data.content;
-        this.selectedEntry.response_view = data.viewType;
-      }
-    },
 
     handleModalSuccess(message) {
       this.$emit('success', message);
@@ -885,7 +875,6 @@ export default {
         case 'flows':
           this.isLoading = false
           if (data.data && Array.isArray(data.data)) {
-            // Don't replace if empty array received (might be temporary)
             if (data.data.length > 0 || this.trafficData.length === 0) {
               this.trafficData = data.data.map(flow => this.convertFlowToTrafficEntry(flow))
               this.applyFilters()
@@ -1925,11 +1914,6 @@ td.no-traffic small {
   .clear-filters-btn {
     margin-left: 0;
     width: 100%;
-  }
-  
-  .security-stats {
-    flex-direction: column;
-    gap: 10px;
   }
 }
 </style>

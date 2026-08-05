@@ -63,6 +63,24 @@ async def start_device_server(device_id: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.post("/device/{device_id}/stop")
+async def stop_device_server(device_id: str):
+    """
+    Stop the scrcpy server on the specified device
+    """
+    device_manager = DeviceManager()
+    device = await device_manager.get_device(device_id)
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    try:
+        await device.kill_server()
+
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
 @router.websocket("/ws/{device_id}")
 async def websocket_endpoint(
     websocket: WebSocket, device_id: str, action: Optional[str] = Query(None)
@@ -372,32 +390,6 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
 
 # Physical Device Management Endpoints
 
-
-@router.post("/device/{device_id}/enable-wireless")
-async def enable_wireless_debugging(device_id: str):
-    """Enable wireless debugging on a USB-connected device"""
-    try:
-        device_manager = DeviceManager()
-        success = await device_manager.enable_wireless_debugging(device_id)
-
-        if success:
-            return {
-                "status": "success",
-                "message": "Wireless debugging enabled successfully",
-                "data": {"wireless_enabled": True},
-            }
-
-        raise HTTPException(
-            status_code=500, detail="Failed to enable wireless debugging"
-        )
-
-    except Exception as e:
-        logger.error("Error enabling wireless debugging: %s", str(e))
-        raise HTTPException(
-            status_code=500, detail=f"Error enabling wireless debugging: {str(e)}"
-        ) from e
-
-
 @router.post("/device/connect-wifi")
 async def connect_wifi_device(request: dict):
     """Connect to a device via WiFi"""
@@ -427,4 +419,46 @@ async def connect_wifi_device(request: dict):
         logger.error("Error connecting to WiFi device: %s", str(e))
         raise HTTPException(
             status_code=500, detail=f"Error connecting to WiFi device: {str(e)}"
+        ) from e
+
+
+@router.post("/device/pair-wifi")
+async def pair_wifi_device(request: dict):
+    """Pair with a device via WiFi (Android 11+ wireless debugging)"""
+    try:
+        ip_address = request.get("ip_address")
+        port = request.get("port")
+        pairing_port = request.get("pairing_port")
+        pairing_code = request.get("pairing_code")
+
+        if not ip_address:
+            raise HTTPException(status_code=400, detail="ip_address is required")
+        if not port:
+            raise HTTPException(status_code=400, detail="port is required")
+        if not pairing_port:
+            raise HTTPException(status_code=400, detail="pairing_port is required")
+        if not pairing_code:
+            raise HTTPException(status_code=400, detail="pairing_code is required")
+
+        device_manager = DeviceManager()
+        success = await device_manager.pair_wifi_device(ip_address, port, pairing_port, pairing_code)
+
+        if success:
+            return {
+                "status": "success",
+                "message": f"Successfully paired with device at {ip_address}:{port}",
+                "data": {"ip_address": ip_address, "port": port, "paired": True},
+            }
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to pair with device at {ip_address}:{port}",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error pairing WiFi device: %s", str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Error pairing WiFi device: {str(e)}"
         ) from e

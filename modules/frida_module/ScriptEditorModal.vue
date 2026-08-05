@@ -234,7 +234,6 @@ export default {
   width: 80%;
   height: 70%;
   max-width: 1000px;
-  max-height: 800px;
 }
 
 .modal-container.script-editor-modal .modal-body {

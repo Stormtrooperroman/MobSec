@@ -12,7 +12,7 @@ from redis import Redis
 from sqlalchemy.future import select
 
 import websockets
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 from urllib.parse import urlencode
 
 from app.core.database_manager import db_manager

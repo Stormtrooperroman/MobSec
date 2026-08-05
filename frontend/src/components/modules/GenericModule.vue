@@ -74,26 +74,12 @@
                 </span>
                 <span class="filter-toggle-arrow">▾</span>
               </button>
-              <div
-                v-if="showSeverityDropdown"
-                class="filter-dropdown"
-                @click.stop
-              >
-                <label
-                  v-for="severity in availableSeverities"
-                  :key="severity"
-                  class="filter-option"
-                >
+              <div v-if="showSeverityDropdown" class="filter-dropdown" @click.stop>
+                <label v-for="severity in availableSeverities" :key="severity" class="filter-option">
                   <input type="checkbox" :value="severity" v-model="severityFilter" />
                   <span>{{ severity }}</span>
                 </label>
-                <button
-                  type="button"
-                  class="filter-clear"
-                  @click.stop="severityFilter = []"
-                >
-                  Clear
-                </button>
+                <button type="button" class="filter-clear" @click.stop="severityFilter = []">Clear</button>
               </div>
             </div>
 
@@ -112,26 +98,12 @@
                 </span>
                 <span class="filter-toggle-arrow">▾</span>
               </button>
-              <div
-                v-if="showCategoryDropdown"
-                class="filter-dropdown"
-                @click.stop
-              >
-                <label
-                  v-for="category in availableCategories"
-                  :key="category"
-                  class="filter-option"
-                >
+              <div v-if="showCategoryDropdown" class="filter-dropdown" @click.stop>
+                <label v-for="category in availableCategories" :key="category" class="filter-option">
                   <input type="checkbox" :value="category" v-model="categoryFilter" />
                   <span>{{ category }}</span>
                 </label>
-                <button
-                  type="button"
-                  class="filter-clear"
-                  @click.stop="categoryFilter = []"
-                >
-                  Clear
-                </button>
+                <button type="button" class="filter-clear" @click.stop="categoryFilter = []">Clear</button>
               </div>
             </div>
           </div>
@@ -288,10 +260,8 @@ export default {
           const ruleCategory = this.extractCategoryFromRuleId(finding.rule_id);
           const metadataCategory = finding.metadata ? finding.metadata.category : null;
 
-          const matchesRuleCategory =
-            ruleCategory && this.categoryFilter.includes(ruleCategory);
-          const matchesMetadataCategory =
-            metadataCategory && this.categoryFilter.includes(metadataCategory);
+          const matchesRuleCategory = ruleCategory && this.categoryFilter.includes(ruleCategory);
+          const matchesMetadataCategory = metadataCategory && this.categoryFilter.includes(metadataCategory);
 
           if (!matchesRuleCategory && !matchesMetadataCategory) {
             return false;
@@ -307,10 +277,7 @@ export default {
       const severityEl = this.$refs.severityFilterGroup;
       const categoryEl = this.$refs.categoryFilterGroup;
 
-      if (
-        (!severityEl || !severityEl.contains(event.target)) &&
-        (!categoryEl || !categoryEl.contains(event.target))
-      ) {
+      if ((!severityEl || !severityEl.contains(event.target)) && (!categoryEl || !categoryEl.contains(event.target))) {
         this.showSeverityDropdown = false;
         this.showCategoryDropdown = false;
       }
@@ -365,8 +332,7 @@ export default {
 <style scoped>
 .generic-module {
   width: 100%;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', sans-serif;
   color: #333;
 }
 
@@ -583,7 +549,6 @@ export default {
 
 /* Finding card styling */
 .findings-list {
-  display: grid;
   gap: 16px;
 }
 

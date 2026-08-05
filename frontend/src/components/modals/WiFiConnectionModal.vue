@@ -7,32 +7,52 @@
       </div>
       <div class="modal-body">
         <div class="form-group">
+          <label class="form-label">Connection Type:</label>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" v-model="connectionType" value="connect" />
+              Connect
+            </label>
+            <label class="radio-label">
+              <input type="radio" v-model="connectionType" value="pair" />
+              Pair
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
           <label for="wifi-ip">IP Address:</label>
-          <input 
-            id="wifi-ip"
-            v-model="connection.ip"
-            type="text"
-            placeholder="192.168.1.100"
-            class="form-input"
-          >
+          <input id="wifi-ip" v-model="connection.ip" type="text" placeholder="192.168.1.100" class="form-input" />
         </div>
         <div class="form-group">
           <label for="wifi-port">Port:</label>
-          <input 
+          <input
             id="wifi-port"
             v-model="connection.port"
             type="number"
-            placeholder="5555"
+            :placeholder="connectionType === 'pair' ? '37000' : '5555'"
             class="form-input"
-          >
+          />
+        </div>
+        <div v-if="connectionType === 'pair'" class="form-group">
+          <label for="pair-port">Pair Port:</label>
+          <input
+            id="pair-port"
+            v-model="connection.pairing_port"
+            type="number"
+            placeholder="37000"
+            class="form-input"
+          />
+        </div>
+        <div v-if="connectionType === 'pair'" class="form-group">
+          <label for="wifi-pin">Pairing Code:</label>
+          <input id="wifi-pin" v-model="connection.pin" type="text" placeholder="123456" class="form-input" />
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" @click="closeModal">
-          Cancel
-        </button>
-        <button class="btn btn-primary" @click="connectDevice" :disabled="isConnecting">
-          {{ isConnecting ? 'Connecting...' : 'Connect' }}
+        <button class="btn btn-secondary" @click="closeModal">Cancel</button>
+        <button class="btn btn-primary" @click="submit" :disabled="isConnecting || isSubmitDisabled">
+          {{ submitButtonLabel }}
         </button>
       </div>
     </div>
@@ -47,30 +67,59 @@ export default {
   props: {
     show: {
       type: Boolean,
-      default: false
-    }
+      default: false,
+    },
   },
   emits: ['close', 'success', 'error'],
   data() {
     return {
+      connectionType: 'connect',
       connection: {
         ip: '',
-        port: 5555
+        port: 5555,
+        pairing_port: 0,
+        pin: '',
       },
-      isConnecting: false
+      isConnecting: false,
     };
+  },
+  computed: {
+    isSubmitDisabled() {
+      if (this.connectionType === 'pair') {
+        return !this.connection.ip || !this.connection.port || !this.connection.pairing_port || !this.connection.pin;
+      }
+      return !this.connection.ip || !this.connection.port;
+    },
+    submitButtonLabel() {
+      if (this.isConnecting) {
+        return this.connectionType === 'pair' ? 'Pairing...' : 'Connecting...';
+      }
+      return this.connectionType === 'pair' ? 'Pair' : 'Connect';
+    },
   },
   watch: {
     show(newVal) {
       if (newVal) {
+        this.connectionType = 'connect';
         this.connection.ip = '';
         this.connection.port = 5555;
+        this.connection.pin = '';
       }
-    }
+    },
+    connectionType(newVal) {
+      this.connection.port = newVal === 'pair' ? 37000 : 5555;
+    },
   },
   methods: {
     closeModal() {
       this.$emit('close');
+    },
+
+    submit() {
+      if (this.connectionType === 'pair') {
+        return this.pairDevice();
+      }
+      return this.connectDevice();
     },
 
     async connectDevice() {
@@ -83,19 +132,54 @@ export default {
       try {
         const response = await axios.post('/api/v1/dynamic-testing/device/connect-wifi', {
           ip_address: this.connection.ip,
-          port: this.connection.port
+          port: this.connection.port,
         });
-        
+
         this.$emit('success', `WiFi connection successful for ${this.connection.ip}:${this.connection.port}`);
         this.closeModal();
       } catch (error) {
         console.error('Failed to connect WiFi device:', error);
-        this.$emit('error', `Failed to connect WiFi device ${this.connection.ip}:${this.connection.port}: ${error.response?.data?.detail || 'Unknown error'}`);
+        this.$emit(
+          'error',
+          `Failed to connect WiFi device ${this.connection.ip}:${this.connection.port}: ${
+            error.response?.data?.detail || 'Unknown error'
+          }`,
+        );
       } finally {
         this.isConnecting = false;
       }
-    }
-  }
+    },
+
+    async pairDevice() {
+      if (!this.connection.ip || !this.connection.port || !this.connection.pairing_port || !this.connection.pin) {
+        this.$emit('error', 'Please enter IP address, port, pairing_port and pairing code.');
+        return;
+      }
+
+      this.isConnecting = true;
+      try {
+        const response = await axios.post('/api/v1/dynamic-testing/device/pair-wifi', {
+          ip_address: this.connection.ip,
+          port: this.connection.port,
+          pairing_port: this.connection.pairing_port,
+          pairing_code: this.connection.pin,
+        });
+
+        this.$emit('success', `WiFi pairing successful for ${this.connection.ip}:${this.connection.port}`);
+        this.closeModal();
+      } catch (error) {
+        console.error('Failed to pair WiFi device:', error);
+        this.$emit(
+          'error',
+          `Failed to pair WiFi device ${this.connection.ip}:${this.connection.port}: ${
+            error.response?.data?.detail || 'Unknown error'
+          }`,
+        );
+      } finally {
+        this.isConnecting = false;
+      }
+    },
+  },
 };
 </script>
 
@@ -170,11 +254,25 @@ export default {
   margin-bottom: 20px;
 }
 
-.form-group label {
+.form-group label,
+.form-label {
   display: block;
   margin-bottom: 5px;
   font-weight: 600;
   color: #333;
+}
+
+.radio-group {
+  display: flex;
+  gap: 16px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+  cursor: pointer;
 }
 
 .form-input {
@@ -224,4 +322,4 @@ export default {
 .btn-secondary:hover:not(:disabled) {
   background-color: #545b62;
 }
-</style> 
+</style>

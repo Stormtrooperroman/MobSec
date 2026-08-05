@@ -16,6 +16,42 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 storage = AsyncStorageService()
 
+@router.get("/")
+async def list_files(skip: int = 0, limit: int = 10):
+    """
+    List all uploaded files with their current scan status.
+
+    Parameters:
+    - skip (int, optional): Number of records to skip for pagination. Defaults to 0
+    - limit (int, optional): Maximum number of records to return. Defaults to 10
+
+    Returns:
+    - dict: A dictionary containing:
+        - total (int): Total number of files in the system
+        - skip (int): Number of records skipped
+        - limit (int): Maximum number of records returned
+        - apps (List[dict]): List of file records, each containing:
+            - file_hash (str): Unique identifier
+            - original_name (str): Original filename
+            - upload_time (str): Timestamp of upload
+            - scan_status (str): Current status of analysis
+            - file_type (str): Type of the file
+
+    Raises:
+    - 500: If there is an error retrieving the file list
+    """
+    try:
+        files = await storage.list_files(skip=skip, limit=limit)
+        total = await storage.get_total_files()
+        return {"total": total, "skip": skip, "limit": limit, "apps": files}
+
+    except Exception as e:
+        logger.error("Error listing apps: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving file list",
+        ) from e
+
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_file(file: UploadFile):
@@ -267,38 +303,3 @@ async def delete_file(file_hash: str):
         ) from e
 
 
-@router.get("/")
-async def list_files(skip: int = 0, limit: int = 10):
-    """
-    List all uploaded files with their current scan status.
-
-    Parameters:
-    - skip (int, optional): Number of records to skip for pagination. Defaults to 0
-    - limit (int, optional): Maximum number of records to return. Defaults to 10
-
-    Returns:
-    - dict: A dictionary containing:
-        - total (int): Total number of files in the system
-        - skip (int): Number of records skipped
-        - limit (int): Maximum number of records returned
-        - apps (List[dict]): List of file records, each containing:
-            - file_hash (str): Unique identifier
-            - original_name (str): Original filename
-            - upload_time (str): Timestamp of upload
-            - scan_status (str): Current status of analysis
-            - file_type (str): Type of the file
-
-    Raises:
-    - 500: If there is an error retrieving the file list
-    """
-    try:
-        files = await storage.list_files(skip=skip, limit=limit)
-        total = await storage.get_total_files()
-        return {"total": total, "skip": skip, "limit": limit, "apps": files}
-
-    except Exception as e:
-        logger.error("Error listing apps: %s", str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error retrieving file list",
-        ) from e

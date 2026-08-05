@@ -17,7 +17,7 @@ TEMP_PATH = "/data/local/tmp/"
 SERVER_JAR = "scrcpy-server.jar"
 SERVER_PACKAGE = "com.genymobile.scrcpy.Server"
 SERVER_PROCESS_NAME = "app_process"
-SERVER_VERSION = "1.19-ws6"
+SERVER_VERSION = "1.19-ws7"
 SERVER_TYPE = "web"
 PID_FILE = f"{TEMP_PATH}ws_scrcpy.pid"
 

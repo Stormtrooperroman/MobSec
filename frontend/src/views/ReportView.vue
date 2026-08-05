@@ -141,6 +141,7 @@
 <script>
 import { defineComponent } from 'vue';
 import * as Vue from 'vue';
+import { loadModule } from 'vue3-sfc-loader';
 import GenericModule from '../components/modules/GenericModule.vue';
 
 export default defineComponent({
@@ -221,7 +222,6 @@ export default defineComponent({
 
                 const { component_content, component_name } = await response.json();
 
-                const { loadModule } = window['vue3-sfc-loader'];
                 const options = {
                   moduleCache: {
                     vue: Vue,

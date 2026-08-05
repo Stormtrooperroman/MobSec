@@ -3,47 +3,33 @@
     <div class="file-manager-header">
       <span>
         File Manager
-        <span class="user-info">
-          [{{ fileManagerData.currentUser }}]
-        </span>
+        <span class="user-info"> [{{ fileManagerData.currentUser }}] </span>
       </span>
     </div>
-    
+
     <div class="file-manager-path">
       <div class="current-path">
         <span class="path-label">Current Path:</span>
         <span class="path-value">{{ fileManagerData.currentPath }}</span>
       </div>
     </div>
-    
+
     <div class="file-manager-toolbar">
       <button @click="goToParentDirectory" :disabled="fileManagerData.currentPath === '/'">
         <font-awesome-icon icon="level-up-alt" /> Parent
       </button>
-      <button @click="goToQuickPath('/')">
-        <font-awesome-icon icon="folder" /> Root
-      </button>
-      <button @click="goToQuickPath('/data/local/tmp')">
-        <font-awesome-icon icon="folder" /> Temp
-      </button>
-      <button @click="goToQuickPath('/storage')">
-        <font-awesome-icon icon="folder" /> Storage
-      </button>
-      <button @click="refreshFileList">
-        <font-awesome-icon icon="sync" /> Refresh
-      </button>
-      <button @click="createDirectory">
-        <font-awesome-icon icon="folder-plus" /> New Folder
-      </button>
-      <input type="file" @change="uploadFile" style="display: none" ref="fileInput">
-      <button @click="$refs.fileInput.click()">
-        <font-awesome-icon icon="upload" /> Upload File
-      </button>
-      
+      <button @click="goToQuickPath('/')"><font-awesome-icon icon="folder" /> Root</button>
+      <button @click="goToQuickPath('/data/local/tmp')"><font-awesome-icon icon="folder" /> Temp</button>
+      <button @click="goToQuickPath('/storage')"><font-awesome-icon icon="folder" /> Storage</button>
+      <button @click="refreshFileList"><font-awesome-icon icon="sync" /> Refresh</button>
+      <button @click="createDirectory"><font-awesome-icon icon="folder-plus" /> New Folder</button>
+      <input type="file" @change="uploadFile" style="display: none" ref="fileInput" />
+      <button @click="$refs.fileInput.click()"><font-awesome-icon icon="upload" /> Upload File</button>
+
       <!-- Simple button to toggle role -->
       <div class="user-controls" v-if="fileManagerData.suAvailable || fileManagerData.currentUser !== 'unknown'">
-        <button 
-          @click="toggleSu" 
+        <button
+          @click="toggleSu"
           :class="['role-toggle-btn', { 'root-mode': fileManagerData.useSu }]"
           :disabled="!fileManagerData.suAvailable"
         >
@@ -52,7 +38,7 @@
         </button>
       </div>
     </div>
-    
+
     <div class="file-manager-content">
       <table class="file-table">
         <thead>
@@ -67,14 +53,8 @@
         <tbody>
           <tr v-for="entry in fileManagerData.entries" :key="entry.name" class="file-row">
             <td class="file-name">
-              <span 
-                :class="['file-icon', getFileIconClass(entry)]"
-                @click="handleFileClick(entry)"
-              >
-                <font-awesome-icon 
-                  :icon="getFileIcon(entry)" 
-                  class="file-type-icon"
-                />
+              <span :class="['file-icon', getFileIconClass(entry)]" @click="handleFileClick(entry)">
+                <font-awesome-icon :icon="getFileIcon(entry)" class="file-type-icon" />
                 {{ entry.name }}
                 <span v-if="entry.type === 'symlink' && entry.target" class="symlink-target">
                   → {{ entry.target }}
@@ -85,7 +65,11 @@
             <td>{{ entry.is_directory ? '-' : formatFileSize(entry.size) }}</td>
             <td>{{ entry.modified }}</td>
             <td class="file-actions">
-              <button v-if="!entry.is_directory && entry.type !== 'symlink'" @click="downloadFile(entry.name)" class="action-btn">
+              <button
+                v-if="!entry.is_directory && entry.type !== 'symlink'"
+                @click="downloadFile(entry.name)"
+                class="action-btn"
+              >
                 <font-awesome-icon icon="download" />
                 Download
               </button>
@@ -107,8 +91,8 @@ export default {
   props: {
     deviceId: {
       type: String,
-      required: true
-    }
+      required: true,
+    },
   },
   data() {
     return {
@@ -120,8 +104,8 @@ export default {
         selectedFiles: [],
         suAvailable: false,
         useSu: false,
-        currentUser: 'unknown'
-      }
+        currentUser: 'unknown',
+      },
     };
   },
   async mounted() {
@@ -136,19 +120,19 @@ export default {
         if (this.currentFileManagerClient && this.currentFileManagerClient.readyState === WebSocket.OPEN) {
           return;
         }
-        
+
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsHost = window.location.host;
-        
+
         await this.$nextTick();
-        
+
         const fileManagerContent = this.$el.querySelector('.file-manager-content');
         if (fileManagerContent) {
-          this.fileManagerScrollHandler = (event) => {
+          this.fileManagerScrollHandler = event => {
             const { scrollTop, scrollHeight, clientHeight } = fileManagerContent;
             const isAtTop = scrollTop === 0;
             const isAtBottom = scrollTop + clientHeight >= scrollHeight;
-            
+
             if (event.deltaY < 0 && isAtTop) {
               event.preventDefault();
               event.stopPropagation();
@@ -159,31 +143,35 @@ export default {
               event.stopPropagation();
             }
           };
-          
+
           fileManagerContent.addEventListener('wheel', this.fileManagerScrollHandler, { passive: false });
         }
-        
-        const fileManagerWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=file_manager`;
-        
+
+        const fileManagerWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(
+          this.deviceId,
+        )}?action=file_manager`;
+
         if (this.currentFileManagerClient) {
           this.currentFileManagerClient.close();
           this.currentFileManagerClient = null;
         }
-        
+
         const fileManagerWs = new WebSocket(fileManagerWsUrl);
-        
+
         fileManagerWs.addEventListener('open', () => {
           console.log('File Manager WebSocket connected');
-          
+
           // Request initial status and file list
-          fileManagerWs.send(JSON.stringify({
-            type: 'file_manager',
-            action: 'list',
-            path: '/data/local/tmp'
-          }));
+          fileManagerWs.send(
+            JSON.stringify({
+              type: 'file_manager',
+              action: 'list',
+              path: '/data/local/tmp',
+            }),
+          );
         });
-        
-        fileManagerWs.addEventListener('message', (event) => {
+
+        fileManagerWs.addEventListener('message', event => {
           try {
             const message = JSON.parse(event.data);
             if (message.type === 'file_manager') {
@@ -193,23 +181,22 @@ export default {
             console.error('Error parsing file manager message:', e);
           }
         });
-        
-        fileManagerWs.addEventListener('close', (event) => {
+
+        fileManagerWs.addEventListener('close', event => {
           console.log('File Manager WebSocket closed:', event.code, event.reason);
-          
+
           if (event.code !== 1000) {
             setTimeout(() => {
               this.openFileManager();
             }, 3000);
           }
         });
-        
-        fileManagerWs.addEventListener('error', (error) => {
+
+        fileManagerWs.addEventListener('error', error => {
           console.error('File Manager WebSocket error:', error);
         });
-        
-        this.currentFileManagerClient = fileManagerWs;
 
+        this.currentFileManagerClient = fileManagerWs;
       } catch (error) {
         console.error('Error opening file manager:', error);
       }
@@ -220,7 +207,7 @@ export default {
         this.currentFileManagerClient.close();
         this.currentFileManagerClient = null;
       }
-      
+
       if (this.fileManagerScrollHandler) {
         const fileManagerContent = this.$el?.querySelector('.file-manager-content');
         if (fileManagerContent) {
@@ -228,7 +215,7 @@ export default {
         }
         this.fileManagerScrollHandler = null;
       }
-      
+
       // Reset file manager data
       this.fileManagerData.entries = [];
       this.fileManagerData.selectedFiles = [];
@@ -239,20 +226,20 @@ export default {
 
     handleFileManagerMessage(message) {
       console.log('File Manager message:', message);
-      
+
       if (message.action === 'ready') {
         console.log('Ready message received:', {
           current_path: message.current_path,
           su_available: message.su_available,
           use_su: message.use_su,
-          current_user: message.current_user
+          current_user: message.current_user,
         });
         this.fileManagerData.currentPath = message.current_path;
         this.fileManagerData.suAvailable = message.su_available || false;
         this.fileManagerData.useSu = message.use_su || false;
         this.fileManagerData.currentUser = message.current_user || 'unknown';
         console.log('Updated fileManagerData:', this.fileManagerData);
-        
+
         // Force Vue to update the UI
         this.$nextTick(() => {
           this.$forceUpdate();
@@ -264,7 +251,7 @@ export default {
         this.fileManagerData.useSu = message.use_su;
         this.fileManagerData.suAvailable = message.su_available;
         this.fileManagerData.currentUser = message.current_user || 'unknown';
-        
+
         // Force Vue to update the UI
         this.$nextTick(() => {
           this.$forceUpdate();
@@ -286,7 +273,7 @@ export default {
         for (let i = 0; i < binaryString.length; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
-        
+
         const blob = new Blob([bytes]);
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -306,23 +293,27 @@ export default {
         if (normalizedPath !== '/' && normalizedPath.endsWith('/')) {
           normalizedPath = normalizedPath.slice(0, -1);
         }
-        
-        this.currentFileManagerClient.send(JSON.stringify({
-          type: 'file_manager',
-          action: 'list',
-          path: normalizedPath
-        }));
+
+        this.currentFileManagerClient.send(
+          JSON.stringify({
+            type: 'file_manager',
+            action: 'list',
+            path: normalizedPath,
+          }),
+        );
       }
     },
 
     downloadFile(filename) {
       const fullPath = this.fileManagerData.currentPath + '/' + filename;
       if (this.currentFileManagerClient && this.currentFileManagerClient.readyState === WebSocket.OPEN) {
-        this.currentFileManagerClient.send(JSON.stringify({
-          type: 'file_manager',
-          action: 'download',
-          path: fullPath
-        }));
+        this.currentFileManagerClient.send(
+          JSON.stringify({
+            type: 'file_manager',
+            action: 'download',
+            path: fullPath,
+          }),
+        );
       }
     },
 
@@ -330,11 +321,13 @@ export default {
       if (confirm(`Are you sure you want to delete ${filename}?`)) {
         const fullPath = this.fileManagerData.currentPath + '/' + filename;
         if (this.currentFileManagerClient && this.currentFileManagerClient.readyState === WebSocket.OPEN) {
-          this.currentFileManagerClient.send(JSON.stringify({
-            type: 'file_manager',
-            action: 'delete',
-            path: fullPath
-          }));
+          this.currentFileManagerClient.send(
+            JSON.stringify({
+              type: 'file_manager',
+              action: 'delete',
+              path: fullPath,
+            }),
+          );
         }
       }
     },
@@ -344,22 +337,26 @@ export default {
       if (dirName) {
         const fullPath = this.fileManagerData.currentPath + '/' + dirName;
         if (this.currentFileManagerClient && this.currentFileManagerClient.readyState === WebSocket.OPEN) {
-          this.currentFileManagerClient.send(JSON.stringify({
-            type: 'file_manager',
-            action: 'mkdir',
-            path: fullPath
-          }));
+          this.currentFileManagerClient.send(
+            JSON.stringify({
+              type: 'file_manager',
+              action: 'mkdir',
+              path: fullPath,
+            }),
+          );
         }
       }
     },
 
     refreshFileList() {
       if (this.currentFileManagerClient && this.currentFileManagerClient.readyState === WebSocket.OPEN) {
-        this.currentFileManagerClient.send(JSON.stringify({
-          type: 'file_manager',
-          action: 'list',
-          path: this.fileManagerData.currentPath
-        }));
+        this.currentFileManagerClient.send(
+          JSON.stringify({
+            type: 'file_manager',
+            action: 'list',
+            path: this.fileManagerData.currentPath,
+          }),
+        );
       }
     },
 
@@ -367,7 +364,7 @@ export default {
       const file = event.target.files[0];
       if (file) {
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = e => {
           const arrayBuffer = e.target.result;
           const bytes = new Uint8Array(arrayBuffer);
           let binaryString = '';
@@ -375,15 +372,17 @@ export default {
             binaryString += String.fromCharCode(bytes[i]);
           }
           const base64Data = btoa(binaryString);
-          
+
           const fullPath = this.fileManagerData.currentPath + '/' + file.name;
           if (this.currentFileManagerClient && this.currentFileManagerClient.readyState === WebSocket.OPEN) {
-            this.currentFileManagerClient.send(JSON.stringify({
-              type: 'file_manager',
-              action: 'upload',
-              path: fullPath,
-              data: base64Data
-            }));
+            this.currentFileManagerClient.send(
+              JSON.stringify({
+                type: 'file_manager',
+                action: 'upload',
+                path: fullPath,
+                data: base64Data,
+              }),
+            );
           }
         };
         reader.readAsArrayBuffer(file);
@@ -404,10 +403,12 @@ export default {
 
     toggleSu() {
       if (this.currentFileManagerClient && this.currentFileManagerClient.readyState === WebSocket.OPEN) {
-        this.currentFileManagerClient.send(JSON.stringify({
-          type: 'file_manager',
-          action: 'toggle_su'
-        }));
+        this.currentFileManagerClient.send(
+          JSON.stringify({
+            type: 'file_manager',
+            action: 'toggle_su',
+          }),
+        );
       }
     },
 
@@ -441,20 +442,21 @@ export default {
 
     handleFileClick(entry) {
       if (entry.is_directory) {
-        const newPath = this.fileManagerData.currentPath === '/' 
-          ? '/' + entry.name 
-          : this.fileManagerData.currentPath + '/' + entry.name;
+        const newPath =
+          this.fileManagerData.currentPath === '/'
+            ? '/' + entry.name
+            : this.fileManagerData.currentPath + '/' + entry.name;
         this.navigateToDirectory(newPath);
       } else if (entry.type === 'symlink') {
         if (entry.target) {
-          const targetPath = entry.target.startsWith('/') 
-            ? entry.target 
+          const targetPath = entry.target.startsWith('/')
+            ? entry.target
             : this.fileManagerData.currentPath + '/' + entry.target;
           this.navigateToDirectory(targetPath);
         }
       }
-    }
-  }
+    },
+  },
 };
 </script>
 
@@ -687,7 +689,7 @@ export default {
   .file-manager-section {
     max-height: 350px;
   }
-  
+
   .file-manager-content {
     max-height: 250px;
   }
@@ -699,9 +701,9 @@ export default {
     margin-top: 0.5rem;
     margin-bottom: 0.5rem;
   }
-  
+
   .file-manager-content {
     max-height: 200px;
   }
 }
-</style> 
+</style>

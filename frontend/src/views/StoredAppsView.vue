@@ -206,7 +206,6 @@ export default {
 </script>
 
 <style>
-
 .upload-empty-button {
   margin-top: 20px;
   padding: 10px 20px;

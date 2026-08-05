@@ -70,8 +70,6 @@ export default {
 </script>
 
 <style>
-
-
 header {
   background-color: white;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);

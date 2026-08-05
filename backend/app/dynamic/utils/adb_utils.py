@@ -16,7 +16,6 @@ def get_adb_env() -> Dict[str, str]:
 async def execute_adb_command(
     device_id: str,
     command: List[str],
-    env: Optional[Dict[str, str]] = None,
 ) -> tuple[str, str, int]:
     """
     Execute ADB command and return stdout, stderr, and return code
@@ -24,7 +23,6 @@ async def execute_adb_command(
     Args:
         device_id: Device serial or None for global command
         command: List of command parts (e.g., ["shell", "ls"])
-        env: Optional environment variables
 
     Returns:
         Tuple of (stdout, stderr, return_code)
@@ -35,6 +33,9 @@ async def execute_adb_command(
         if device_id:
             adb_cmd.extend(["-s", device_id])
         adb_cmd.extend(command)
+
+        env = get_adb_env()
+
 
         # Execute command
         process = await asyncio.create_subprocess_exec(
@@ -70,11 +71,10 @@ async def execute_adb_shell(
     return await execute_adb_command(
         device_id=device_id,
         command=["shell", shell_command],
-        env=env,
     )
 
 
-async def execute_adb_devices(env: Optional[Dict[str, str]] = None) -> tuple[str, str, int]:
+async def execute_adb_devices() -> tuple[str, str, int]:
     """
     Get list of connected devices
 
@@ -87,7 +87,6 @@ async def execute_adb_devices(env: Optional[Dict[str, str]] = None) -> tuple[str
     return await execute_adb_command(
         device_id=None,
         command=["devices", "-l"],
-        env=env,
     )
 
 
@@ -104,14 +103,10 @@ async def remove_all_port_forwarding(device_id: Optional[str] = None) -> tuple[s
     return await execute_adb_command(
         device_id=device_id,
         command=["forward", "--remove-all"],
-        env=None,
     )
 
 
-async def ensure_adb_server(
-    env: Optional[Dict[str, str]] = None,
-    all_interfaces: bool = False,
-) -> bool:
+async def ensure_adb_server() -> bool:
     """
     Ensure ADB server is running, starting it if needed.
 
@@ -123,13 +118,10 @@ async def ensure_adb_server(
         True if server started successfully (or is already running), False otherwise.
     """
     try:
-        if env is None:
-            env = get_adb_env()
 
-        cmd: List[str] = ["adb"]
-        if all_interfaces:
-            cmd.append("-a")
-        cmd.append("start-server")
+        env = get_adb_env()
+
+        cmd: List[str] = ["adb", "-a", "server", "start"]
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -143,7 +135,7 @@ async def ensure_adb_server(
             logger.info("ADB server started successfully")
             return True
 
-        logger.error("Failed to start ADB server: %s", stderr.decode())
+        logger.error("Failed to start ADB server adb utils: %s", stderr.decode())
         return False
 
     except Exception as e:

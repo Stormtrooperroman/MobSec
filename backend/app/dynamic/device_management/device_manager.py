@@ -68,18 +68,6 @@ class DeviceManager:
             else:
                 self.devices[serial].state = device["status"]
 
-    async def _init_adb(self):
-        """
-        Initializes the ADB server
-        """
-        try:
-            env = get_adb_env()
-            return await ensure_adb_server(env=env, all_interfaces=False)
-
-        except Exception as e:
-            self.logger.error("Error initializing ADB: %s", str(e))
-            return False
-
     async def get_devices(self) -> List[Dict[str, str]]:
         """
         Gets the list of all connected Android devices (emulators + physical)
@@ -176,10 +164,6 @@ class DeviceManager:
             ip_address, port
         )
 
-    async def enable_wireless_debugging(self, device_id: str) -> bool:
-        """Enable wireless debugging on a USB-connected device"""
-        return await self.physical_device_manager.enable_wireless_debugging(device_id)
-
     async def get_device_properties(self, device_id: str) -> Dict[str, str]:
         """Get detailed properties of a device"""
         return await self.physical_device_manager.get_device_properties(device_id)
@@ -191,3 +175,7 @@ class DeviceManager:
     async def check_device_connectivity(self, device_id: str) -> bool:
         """Check if a device is still connected and responsive"""
         return await self.physical_device_manager.check_device_connectivity(device_id)
+
+    async def pair_wifi_device(self, ip_address: str, port: int, pairing_port: int, pairing_code: str):
+        """Pair with a device via WiFi using adb pair (Android 11+ wireless debugging)"""
+        return await self.physical_device_manager.pair_wifi_device(ip_address, port, pairing_port, pairing_code)

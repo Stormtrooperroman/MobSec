@@ -24,6 +24,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . /app
 
+RUN wget https://github.com/Stormtrooperroman/ws-scrcpy_server/releases/download/1.19-ws7/scrcpy-server.jar -O scrcpy-server.jar 
+
 ENV PYTHONUNBUFFERED 1
 ENV DATABASE_URL=postgresql+asyncpg://user:password@db:5432/mobsec
 ENV REDIS_URL=redis://redis:6379/0
