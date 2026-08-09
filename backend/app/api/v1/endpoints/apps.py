@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 storage = AsyncStorageService()
 
+
 @router.get("/")
 async def list_files(skip: int = 0, limit: int = 10):
     """
@@ -301,5 +302,3 @@ async def delete_file(file_hash: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error deleting file",
         ) from e
-
-

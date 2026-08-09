@@ -10,7 +10,6 @@ import redis
 from app.core.app_manager import storage
 from app.models.app import ScanStatus
 
-
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
@@ -88,7 +87,9 @@ class ReportGenerator:
                 result_data = json.loads(result_json)
             except json.JSONDecodeError:
                 logger.error(
-                    "Failed to parse JSON result for %s: %s...", result_key, result_json[:100]
+                    "Failed to parse JSON result for %s: %s...",
+                    result_key,
+                    result_json[:100],
                 )
                 return
 
@@ -152,7 +153,9 @@ class ReportGenerator:
 
             if success:
                 logger.info(
-                    "Updated scan results for file %s with %s results", file_hash, module_name
+                    "Updated scan results for file %s with %s results",
+                    file_hash,
+                    module_name,
                 )
             else:
                 logger.error("Failed to update scan results for file %s", file_hash)
@@ -213,8 +216,11 @@ class ReportGenerator:
                 logger.error("Error processing chain %s: %s", chain_key, e)
 
     def _process_chain_module_completion(
-        self, chain_key: str, chain_data: dict, module_name: str,
-        result_data: Dict[str, Any]
+        self,
+        chain_key: str,
+        chain_data: dict,
+        module_name: str,
+        result_data: Dict[str, Any],
     ):
         """Process a completed module in a chain"""
         current_index = chain_data.get("current_index", 0)
@@ -229,16 +235,19 @@ class ReportGenerator:
         next_module_index = current_index + 1
         self.redis_client.publish(
             f"chain:module:completed:{chain_task_id}",
-            json.dumps({
-                "chain_task_id": chain_task_id,
-                "module_index": current_index,
-                "next_module_index": next_module_index,
-                "file_hash": file_hash,
-            }),
+            json.dumps(
+                {
+                    "chain_task_id": chain_task_id,
+                    "module_index": current_index,
+                    "next_module_index": next_module_index,
+                    "file_hash": file_hash,
+                }
+            ),
         )
         logger.info(
             "Published chain module completion event for %s in chain %s",
-            module_name, chain_task_id
+            module_name,
+            chain_task_id,
         )
 
 

@@ -80,9 +80,9 @@ class AsyncStorageService:
         # Ensure base storage directory exists
         os.makedirs(self.storage_dir, exist_ok=True)
 
-        (
-            file_hash, file_size, md5_hash, sha1_hash, sha256_hash
-        ) = await self._save_file_with_hashes(content)
+        file_hash, file_size, md5_hash, sha1_hash, sha256_hash = (
+            await self._save_file_with_hashes(content)
+        )
         folder = self._get_folder_structure(content.filename, file_hash)
 
         folder_path = os.path.join(self.storage_dir, folder)
@@ -103,11 +103,7 @@ class AsyncStorageService:
             "file_size": file_size,
             "folder": folder,
             "file_type": file_type,
-            "hashes": {
-                "md5": md5_hash,
-                "sha1": sha1_hash,
-                "sha256": sha256_hash
-            }
+            "hashes": {"md5": md5_hash, "sha1": sha1_hash, "sha256": sha256_hash},
         }
         await self._save_file_model(file_info)
 
@@ -135,10 +131,11 @@ class AsyncStorageService:
         file_hash = md5.hexdigest()
 
         return (
-            file_hash, file_size,
+            file_hash,
+            file_size,
             md5.hexdigest(),
             sha1.hexdigest(),
-            sha256.hexdigest()
+            sha256.hexdigest(),
         )
 
     def _extract_zip_file(self, zip_path: str, folder_path: str):
@@ -212,17 +209,21 @@ class AsyncStorageService:
                             "file_type": file_info.get("file_type", ""),
                             "folder_path": file_info.get("folder_path", ""),
                         },
-                        file_hash=file_hash
+                        file_hash=file_hash,
                     )
                 elif action_type == "chain":
-                    from app.modules.chain_manager import ChainManager  # pylint: disable=import-outside-toplevel
+                    from app.modules.chain_manager import (
+                        ChainManager,
+                    )  # pylint: disable=import-outside-toplevel
 
                     chain_manager = ChainManager.get_instance()
                     await chain_manager.run_chain(action, file_hash)
 
                 logger.info(
                     "Auto-run %s '%s' started for file %s",
-                    action_type, action, file_hash
+                    action_type,
+                    action,
+                    file_hash,
                 )
         except Exception as e:
             logger.error("Error in auto-run processing: %s", str(e))
@@ -353,8 +354,7 @@ class AsyncStorageService:
                         shutil.rmtree(folder_path)
                     except Exception as e:
                         logger.error(
-                            "Error removing directory %s: %s",
-                            folder_path, str(e)
+                            "Error removing directory %s: %s", folder_path, str(e)
                         )
                         raise
 

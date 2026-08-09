@@ -11,7 +11,6 @@ from app.dynamic.communication.base_websocket_manager import BaseWebSocketManage
 from app.dynamic.utils.su_utils import check_su_availability
 from app.dynamic.utils.adb_utils import execute_adb_shell, execute_adb_command
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -70,8 +69,7 @@ class FileManager(BaseWebSocketManager):
         try:
             command = "whoami" if not self.use_su else 'echo "whoami" | su'
             stdout, _, return_code = await execute_adb_shell(
-                device_id=self.device_id,
-                shell_command=command
+                device_id=self.device_id, shell_command=command
             )
 
             if return_code == 0:
@@ -163,8 +161,7 @@ class FileManager(BaseWebSocketManager):
             )
 
             check_output, check_error, return_code = await execute_adb_shell(
-                device_id=self.device_id,
-                shell_command=check_command
+                device_id=self.device_id, shell_command=check_command
             )
 
             check_output = check_output.strip()
@@ -180,8 +177,7 @@ class FileManager(BaseWebSocketManager):
             ls_command = self.get_shell_command(f'ls -la "{path}" 2>/dev/null')
 
             stdout, stderr, return_code = await execute_adb_shell(
-                device_id=self.device_id,
-                shell_command=ls_command
+                device_id=self.device_id, shell_command=ls_command
             )
 
             ls_output = stdout
@@ -194,7 +190,8 @@ class FileManager(BaseWebSocketManager):
 
                 if self.use_su:
                     logger.warning(
-                        "SU command failed for path %s, suggesting to disable SU mode", path
+                        "SU command failed for path %s, suggesting to disable SU mode",
+                        path,
                     )
                     error_msg += " (Try disabling SU mode if the issue persists)"
 
@@ -325,7 +322,7 @@ class FileManager(BaseWebSocketManager):
         try:
             stdout, _, return_code = await execute_adb_shell(
                 device_id=self.device_id,
-                shell_command=f'stat "{path}" 2>/dev/null || echo "ERROR: Cannot stat file"'
+                shell_command=f'stat "{path}" 2>/dev/null || echo "ERROR: Cannot stat file"',
             )
 
             if return_code != 0:
@@ -396,8 +393,7 @@ class FileManager(BaseWebSocketManager):
             )
 
             stdout, _, _ = await execute_adb_shell(
-                device_id=self.device_id,
-                shell_command=check_command
+                device_id=self.device_id, shell_command=check_command
             )
 
             if "NOT_FILE" in stdout:
@@ -422,9 +418,7 @@ class FileManager(BaseWebSocketManager):
                 )
 
                 if return_code != 0:
-                    await self.send_error(
-                        f"Failed to copy file for download: {stderr}"
-                    )
+                    await self.send_error(f"Failed to copy file for download: {stderr}")
                     return
 
                 _, _, return_code = await execute_adb_command(
@@ -522,8 +516,7 @@ class FileManager(BaseWebSocketManager):
                 f'rm -rf "{path}" && echo "SUCCESS" || echo "FAILED"'
             )
             stdout, _, return_code = await execute_adb_shell(
-                device_id=self.device_id,
-                shell_command=rm_command
+                device_id=self.device_id, shell_command=rm_command
             )
 
             if "FAILED" in stdout or return_code != 0:
@@ -552,8 +545,7 @@ class FileManager(BaseWebSocketManager):
                 f'mkdir -p "{path}" && echo "SUCCESS" || echo "FAILED"'
             )
             stdout, _, return_code = await execute_adb_shell(
-                device_id=self.device_id,
-                shell_command=mkdir_command
+                device_id=self.device_id, shell_command=mkdir_command
             )
 
             if "FAILED" in stdout or return_code != 0:

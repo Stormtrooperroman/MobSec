@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 
 from app.core.database_manager import db_manager
 from app.models.app import ScanStatus
-from app.models.chain import Module, ModuleType
+from app.models.module import Module, ModuleType
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -53,10 +53,14 @@ class ModuleManager:
         self.ACTION_MODULE_MAP = {}
 
     @classmethod
-    def get_instance(cls, redis_url: Optional[str] = None, modules_path: Optional[str] = None) -> "ModuleManager":
+    def get_instance(
+        cls, redis_url: Optional[str] = None, modules_path: Optional[str] = None
+    ) -> "ModuleManager":
         if cls._instance is None:
             if redis_url is None or modules_path is None:
-                raise ValueError("ModuleManager.get_instance requires redis_url and modules_path on first call")
+                raise ValueError(
+                    "ModuleManager.get_instance requires redis_url and modules_path on first call"
+                )
             cls(redis_url=redis_url, modules_path=modules_path)
         return cls._instance
 
@@ -106,8 +110,8 @@ class ModuleManager:
                 if config.get("type") == "dynamic"
                 else ModuleType.STATIC
             )
-            
-            if  config.get("map_name", None) != None:
+
+            if config.get("map_name", None) != None:
                 map_name = config.get("map_name")
                 self.ACTION_MODULE_MAP[map_name] = module_name
 
@@ -180,7 +184,9 @@ class ModuleManager:
 
             if is_dynamic:
                 run_kwargs["network"] = "mobsec_app_network"
-                run_kwargs["environment"]["DATABASE_URL"] = os.getenv("DATABASE_URL", "")
+                run_kwargs["environment"]["DATABASE_URL"] = os.getenv(
+                    "DATABASE_URL", ""
+                )
                 run_kwargs["environment"]["PORT"] = str(module_config.get("port", 8090))
             else:
                 run_kwargs["network"] = "mobsec_app_network"
@@ -195,20 +201,31 @@ class ModuleManager:
             logger.error("Failed to start container %s: %s", image_name, str(e))
             raise
 
+    def _image_name(self, module_name: str) -> str:
+        return f"mobsec_{module_name}"
+
+    async def _get_container(self, module_name: str):
+        """Fetch a module's container, or None if it doesn't exist."""
+        loop = asyncio.get_event_loop()
+        try:
+            return await loop.run_in_executor(
+                None, self.docker_client.containers.get, self._image_name(module_name)
+            )
+        except docker.errors.NotFound:
+            return None
+
     async def start_module(self, module_name: str) -> None:
         """Start a single module asynchronously"""
-        image_name = f"mobsec_{module_name}"
+        image_name = self._image_name(module_name)
         module_path = os.path.join(self.modules_path, module_name)
 
         try:
-            try:
-                existing_container = self.docker_client.containers.get(image_name)
+            existing_container = await self._get_container(module_name)
+            if existing_container is not None:
                 await asyncio.get_event_loop().run_in_executor(
                     None, lambda: existing_container.remove(force=True)
                 )
                 logger.info("Removed existing container: %s", image_name)
-            except docker.errors.NotFound:
-                pass
 
             await self._build_image_async(image_name, module_path)
             await self._start_container_async(module_name, image_name)
@@ -255,13 +272,13 @@ class ModuleManager:
 
     async def stop_module(self, module_name: str):
         """Stop a single module asynchronously"""
-        try:
-            loop = asyncio.get_event_loop()
-            container = self.docker_client.containers.get(f"mobsec_{module_name}")
-            await loop.run_in_executor(None, lambda: container.stop(timeout=2))
-            await loop.run_in_executor(None, lambda: container.remove(force=True))
-        except docker.errors.NotFound:
-            pass
+        container = await self._get_container(module_name)
+        if container is None:
+            return
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: container.stop(timeout=2))
+        await loop.run_in_executor(None, lambda: container.remove(force=True))
 
     async def submit_task(
         self,
@@ -286,9 +303,7 @@ class ModuleManager:
             }
 
             # Store task data in Redis
-            self.redis.set(
-                f"task:{task_id}", json.dumps(task_data), ex=3600
-            )
+            self.redis.set(f"task:{task_id}", json.dumps(task_data), ex=3600)
 
             # Add task to module's queue
             self.redis.rpush(f"module:{module_name}:queue", task_id)
@@ -296,6 +311,7 @@ class ModuleManager:
 
             # Import here to avoid circular imports
             from app.core.app_manager import storage
+
             await storage.update_scan_status(
                 file_hash=file_hash, status=ScanStatus.SCANNING
             )
@@ -339,9 +355,7 @@ class ModuleManager:
                 await asyncio.gather(*container_tasks, return_exceptions=True)
 
             # Get all images
-            images = await loop.run_in_executor(
-                None, self.docker_client.images.list
-            )
+            images = await loop.run_in_executor(None, self.docker_client.images.list)
 
             # Remove images concurrently
             image_tasks = []
@@ -375,6 +389,54 @@ class ModuleManager:
             result = await session.execute(stmt)
             module = result.scalar_one_or_none()
             return module is not None
+
+    async def _get_running_container_names(self) -> set:
+        loop = asyncio.get_event_loop()
+        try:
+            containers = await loop.run_in_executor(
+                None, self.docker_client.containers.list
+            )
+            return {c.name for c in containers}
+        except Exception as e:
+            logger.error("Error listing running containers: %s", str(e))
+            return set()
+
+    async def list_modules(self, module_type: str | None = None):
+        running_names = await self._get_running_container_names()
+
+        modules_info = []
+        for module_name, module_config in self.modules_config.items():
+            if (
+                module_type is not None
+                and module_config.get("type", "static") != module_type
+            ):
+                continue
+
+            module_info = {
+                "id": module_config.get("id", module_name),
+                "name": module_config.get("display_name", module_name),
+                "description": module_config.get(
+                    "description", "No description available"
+                ),
+                "active": self._image_name(module_name) in running_names,
+                "is_external": False,
+                "version": module_config.get("version", "0.1"),
+                "input_formats": module_config.get("input_formats", ["apk"]),
+                "module_type": module_config.get("type"),
+            }
+
+            if "map_name" in module_config:
+                module_info["map_name"] = module_config.get("map_name")
+
+            if (
+                module_config.get("type") == ModuleType.DYNAMIC
+                and "view" in module_config
+            ):
+                module_info["view"] = module_config.get("view")
+
+            modules_info.append(module_info)
+
+        return modules_info
 
     def get_module_ws_url(
         self, module_name: str, device_id: str, query_params: dict = None
@@ -448,4 +510,3 @@ class ModuleManager:
                 await websocket.close(code=4000, reason=str(e))
             except Exception:
                 pass
-

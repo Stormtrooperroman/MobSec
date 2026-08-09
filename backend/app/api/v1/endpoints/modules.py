@@ -1,14 +1,13 @@
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import docker
 import httpx
 import yaml
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, HTTPException, status, Query
 
 from app.core.app_manager import storage
-from app.models.external_module import ModuleStatus
 from app.modules.external_module_registry import module_registry
 from app.modules.module_manager import ModuleManager
 
@@ -23,9 +22,18 @@ module_manager = ModuleManager.get_instance(
 
 
 @router.get("/")
-async def list_modules() -> List[Dict]:
+async def list_modules(
+    module_type: Optional[str] = Query(None, description="Filter modules by type"),
+    source: Optional[str] = Query(
+        None, description="Filter modules by source (internal/external)"
+    ),
+) -> List[Dict]:
     """
-    Get information and status of all available internal modules.
+    Get information and status of all available modules.
+
+    Query Parameters:
+    - module_type (str, optional): Filter modules by module_type (static/dynamic)
+    - source (str, optional): Filter modules by source (internal/external)
 
     Returns:
     - List[dict]: A list of dictionaries, each containing:
@@ -39,42 +47,13 @@ async def list_modules() -> List[Dict]:
     """
     try:
         modules_info = []
-        docker_client = docker.from_env()
+        module_type = module_type
+        module_source = source
+        if module_source != "internal":
+            modules_info += await module_manager.list_modules(module_type=module_type)
 
-        modules = [
-            d
-            for d in os.listdir(module_manager.modules_path)
-            if os.path.isdir(os.path.join(module_manager.modules_path, d))
-        ]
-
-        for module_name in modules:
-            container_name = f"mobsec_{module_name}"
-
-            module_config = module_manager.modules_config.get(module_name, {})
-
-            module_info = {
-                "id": module_config.get("id", module_name),
-                "name": module_config.get("display_name", module_name),
-                "description": module_config.get(
-                    "description", "No description available"
-                ),
-                "active": False,
-                "is_external": False,
-                "version": module_config.get("version", "0.1"),
-                "input_formats": module_config.get("input_formats", ["apk"]),
-            }
-
-            try:
-                container = docker_client.containers.get(container_name)
-                module_info["active"] = container.status == "running"
-            except docker.errors.NotFound:
-                pass
-            except Exception as e:
-                logger.error(
-                    "Error checking container status for %s: %s", module_name, str(e)
-                )
-
-            modules_info.append(module_info)
+        if module_source != "external":
+            modules_info += await module_registry.list_modules(module_type=module_type)
 
         return modules_info
 
@@ -83,44 +62,6 @@ async def list_modules() -> List[Dict]:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error listing modules: {str(e)}",
-        ) from e
-
-
-@router.get("/all")
-async def list_all_modules() -> List[Dict]:
-    """
-    Get information and status of all available modules (internal and external).
-
-    Returns:
-    - List[dict]: A list of dictionaries containing both internal and external modules
-    """
-    try:
-        internal_modules = await list_modules()
-
-        external_modules = await module_registry.list_modules()
-
-        external_modules_formatted = [
-            {
-                "id": module["module_id"],
-                "name": module["config"]["name"],
-                "description": module["config"].get(
-                    "description", "No description available"
-                ),
-                "active": module["status"] == ModuleStatus.ACTIVE,
-                "is_external": True,
-                "version": module["config"].get("version"),
-                "input_formats": module["config"].get("input_formats", []),
-            }
-            for module in external_modules
-        ]
-
-        return internal_modules + external_modules_formatted
-
-    except Exception as e:
-        logger.error("Error listing all modules: %s", str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error listing all modules: {str(e)}",
         ) from e
 
 
@@ -301,7 +242,9 @@ async def run_module(module_name: str, request: Dict[str, Any] = Body(...)):
         raise
     except Exception as e:
         logger.error("Error submitting %s task: %s", module_name, str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to submit task: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed to submit task: {str(e)}"
+        ) from e
 
 
 def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
@@ -334,7 +277,9 @@ def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
                             config = yaml.safe_load(f) or {}
                             module_type = config.get("type", "static")
 
-                    vue_suffix = "Tool.vue" if module_type == "dynamic" else "Report.vue"
+                    vue_suffix = (
+                        "Tool.vue" if module_type == "dynamic" else "Report.vue"
+                    )
                     vue_components = [
                         f for f in os.listdir(module_path) if f.endswith(vue_suffix)
                     ]

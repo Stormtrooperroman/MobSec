@@ -31,7 +31,6 @@ class EmulatorManager:
         self.base_ports = {"adb": 5555, "frida": 27042, "scrcpy": 8886}
         self.adb_port = None
 
-
         database_url = os.getenv(
             "DATABASE_URL", "postgresql+asyncpg://postgres:password@db:5432/mobsec_db"
         )
@@ -71,8 +70,6 @@ class EmulatorManager:
     #     except Exception as e:
     #         logger.error("Error starting ADB server: %s", e)
     #         return False
-
-    
 
     async def _wait_for_android_boot(
         self, host: str, port: int, timeout: int = 120
@@ -147,7 +144,12 @@ class EmulatorManager:
             env = get_adb_env()
 
             check_result = subprocess.run(
-                ["adb", "devices"], capture_output=True, text=True, timeout=10, env=env, check=False
+                ["adb", "devices"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=env,
+                check=False,
             )
 
             if check_result.returncode == 0 and f"{host}:{port}" in check_result.stdout:
@@ -464,7 +466,10 @@ class EmulatorManager:
 
             if active_emulators:
                 logger.info("Starting %s active emulators", len(active_emulators))
-                tasks = [self.start_emulator(emulator_name) for emulator_name in active_emulators]
+                tasks = [
+                    self.start_emulator(emulator_name)
+                    for emulator_name in active_emulators
+                ]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 started = 0

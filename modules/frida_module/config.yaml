@@ -6,3 +6,6 @@ active: True
 type: dynamic
 port: 8090
 map_name: frida
+view:
+  icon: bug
+  title: Frida

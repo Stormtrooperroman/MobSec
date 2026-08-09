@@ -187,7 +187,7 @@ export default {
     async fetchModules() {
       try {
         this.loading = true;
-        const response = await fetch('/api/v1/modules/all');
+        const response = await fetch('/api/v1/modules/?module_type=static');
         if (!response.ok) throw new Error('Failed to fetch modules');
         const allModules = await response.json();
 

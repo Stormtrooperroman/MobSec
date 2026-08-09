@@ -30,4 +30,3 @@ class DatabaseManager:
 
 # Global instance
 db_manager = DatabaseManager()
-

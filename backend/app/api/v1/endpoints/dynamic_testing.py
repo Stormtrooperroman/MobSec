@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import tempfile
@@ -81,6 +80,7 @@ async def stop_device_server(device_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
+
 @router.websocket("/ws/{device_id}")
 async def websocket_endpoint(
     websocket: WebSocket, device_id: str, action: Optional[str] = Query(None)
@@ -91,7 +91,7 @@ async def websocket_endpoint(
     module_manager = ModuleManager.get_instance()
     if action in module_manager.ACTION_MODULE_MAP:
         module_name = module_manager.ACTION_MODULE_MAP[action]
-        
+
         exists = await module_manager.check_module_exists(module_name)
 
         if not exists:
@@ -156,7 +156,8 @@ async def websocket_endpoint(
                 return
 
             logger.info(
-                "Shell started successfully for device %s, waiting for messages...", device_id
+                "Shell started successfully for device %s, waiting for messages...",
+                device_id,
             )
 
             try:
@@ -171,7 +172,8 @@ async def websocket_endpoint(
                         if message["type"] == "websocket.receive":
                             if "bytes" in message:
                                 logger.info(
-                                    "Received bytes message: %s bytes", len(message['bytes'])
+                                    "Received bytes message: %s bytes",
+                                    len(message["bytes"]),
                                 )
                                 try:
                                     decoded_data = message["bytes"].decode(
@@ -229,7 +231,8 @@ async def websocket_endpoint(
                                 await file_manager.handle_message(message["text"])
                             elif "bytes" in message:
                                 logger.info(
-                                    "Received bytes message: %s bytes", len(message["bytes"])
+                                    "Received bytes message: %s bytes",
+                                    len(message["bytes"]),
                                 )
                         else:
                             logger.info("Unknown message type: %s", message["type"])
@@ -335,7 +338,9 @@ async def install_app_on_device(device_id: str, request: dict):
         raise
     except Exception as e:
         logger.error("Error installing app: %s", str(e))
-        raise HTTPException(status_code=500, detail=f"Error installing app: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Error installing app: {str(e)}"
+        ) from e
 
 
 @router.post("/device/{device_id}/install-apk-direct")
@@ -359,7 +364,9 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
 
             if success:
                 logger.info(
-                    "Successfully installed %s on device %s", apk_file.filename, device_id
+                    "Successfully installed %s on device %s",
+                    apk_file.filename,
+                    device_id,
                 )
                 return {
                     "status": "success",
@@ -385,10 +392,13 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
         raise
     except Exception as e:
         logger.error("Error installing APK directly: %s", str(e))
-        raise HTTPException(status_code=500, detail=f"Error installing APK: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Error installing APK: {str(e)}"
+        ) from e
 
 
 # Physical Device Management Endpoints
+
 
 @router.post("/device/connect-wifi")
 async def connect_wifi_device(request: dict):
@@ -441,7 +451,9 @@ async def pair_wifi_device(request: dict):
             raise HTTPException(status_code=400, detail="pairing_code is required")
 
         device_manager = DeviceManager()
-        success = await device_manager.pair_wifi_device(ip_address, port, pairing_port, pairing_code)
+        success = await device_manager.pair_wifi_device(
+            ip_address, port, pairing_port, pairing_code
+        )
 
         if success:
             return {

@@ -5,10 +5,11 @@ from typing import List, Optional
 from redis import Redis
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
 from app.core.config import settings
-from app.models.external_module import ExternalModule, ModuleStatus
+from app.models.module import Module, ModuleStatus, ModuleSource, ModuleType
 from app.core.settings_db import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ class ExternalModuleRegistry:
         return cls._instance
 
     def __init__(self):
-        if hasattr(self, '_initialized') and self._initialized:
+        if hasattr(self, "_initialized") and self._initialized:
             return
 
         self.redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
@@ -46,7 +47,7 @@ class ExternalModuleRegistry:
                 status_code=403, detail="External modules support is disabled"
             )
 
-        module_id = module_data["module_id"]
+        name = module_data["name"]
 
         max_retries = 3
         retry_delay = 5
@@ -59,7 +60,7 @@ class ExternalModuleRegistry:
             if attempt < max_retries - 1:
                 logger.info(
                     "Health check failed for %s, attempt %s/%s. Retrying in %s seconds...",
-                    module_id,
+                    name,
                     attempt + 1,
                     max_retries,
                     retry_delay,
@@ -67,9 +68,13 @@ class ExternalModuleRegistry:
                 await asyncio.sleep(retry_delay)
 
         logger.info("Health: %s", is_healthy)
-
+        module_type = (
+            ModuleType.DYNAMIC
+            if module_data["config"].get("type") == "dynamic"
+            else ModuleType.STATIC
+        )
         module_dict = {
-            "module_id": module_id,
+            "name": name,
             "base_url": module_data["base_url"],
             "config": module_data["config"],
             "healthcheck_url": module_data.get("healthcheck_url"),
@@ -77,19 +82,18 @@ class ExternalModuleRegistry:
             "last_heartbeat": datetime.now(timezone.utc),
             "status": ModuleStatus.ACTIVE if is_healthy else ModuleStatus.ERROR,
             "error_message": None if is_healthy else "Health check failed",
+            "source": ModuleSource.EXTERNAL,
+            "module_type": module_type,
         }
 
         async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(ExternalModule).where(ExternalModule.module_id == module_id)
-            )
-            existing_module = result.scalars().first()
+            existing_module = await self._get_db_module(session, name)
 
             if existing_module:
                 for key, value in module_dict.items():
                     setattr(existing_module, key, value)
             else:
-                db_module = ExternalModule.from_dict(module_dict)
+                db_module = Module.from_dict(module_dict)
                 session.add(db_module)
 
             await session.commit()
@@ -97,25 +101,28 @@ class ExternalModuleRegistry:
         status_msg = (
             "registered successfully" if is_healthy else "registered with errors"
         )
-        logger.info("Module %s %s", module_id, status_msg)
+        logger.info("Module %s %s", name, status_msg)
         return module_dict
 
-    async def get_module(self, module_id: str) -> Optional[dict]:
+    async def _get_db_module(
+        self, session: AsyncSession, name: str
+    ) -> Optional[Module]:
+        result = await session.execute(select(Module).where(Module.name == name))
+        return result.scalars().first()
+
+    async def get_module(self, name: str) -> Optional[dict]:
         """Get module information by its ID"""
         async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(ExternalModule).where(ExternalModule.module_id == module_id)
-            )
-            db_module = result.scalars().first()
+            db_module = await self._get_db_module(session, name)
 
             if db_module:
                 return db_module.to_dict()
 
         return None
 
-    async def is_module_available(self, module_id: str) -> bool:
+    async def is_module_available(self, name: str) -> bool:
         """Check if module is available"""
-        module = await self.get_module(module_id)
+        module = await self.get_module(name)
         if not module:
             return False
         return module["status"] == ModuleStatus.ACTIVE
@@ -167,17 +174,14 @@ class ExternalModuleRegistry:
             )
             return False
 
-    async def update_module_heartbeat(self, module_id: str) -> bool:
+    async def update_module_heartbeat(self, name: str) -> bool:
         """Update the last contact time with the module"""
-        module = await self.get_module(module_id)
+        module = await self.get_module(name)
         if not module:
             return False
 
         async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(ExternalModule).where(ExternalModule.module_id == module_id)
-            )
-            db_module = result.scalars().first()
+            db_module = await self._get_db_module(session, name)
 
             if db_module:
                 db_module.last_heartbeat = datetime.now(timezone.utc)
@@ -192,7 +196,7 @@ class ExternalModuleRegistry:
         while True:
             try:
                 async with AsyncSessionLocal() as session:
-                    result = await session.execute(select(ExternalModule))
+                    result = await session.execute(select(Module))
                     db_modules = result.scalars().all()
 
                 for db_module in db_modules:
@@ -204,12 +208,7 @@ class ExternalModuleRegistry:
                         is_healthy = await self._check_module_health(health_url)
 
                         async with AsyncSessionLocal() as session:
-                            result = await session.execute(
-                                select(ExternalModule).where(
-                                    ExternalModule.module_id == db_module.module_id
-                                )
-                            )
-                            module = result.scalars().first()
+                            module = await self._get_db_module(session, db_module.name)
 
                             if module:
                                 old_status = module.status
@@ -228,7 +227,7 @@ class ExternalModuleRegistry:
                                 if old_status != module.status:
                                     logger.info(
                                         "Module %s status changed from %s to %s",
-                                        db_module.module_id,
+                                        db_module.name,
                                         old_status,
                                         module.status,
                                     )
@@ -236,7 +235,7 @@ class ExternalModuleRegistry:
                         health_status = "healthy" if is_healthy else "unhealthy"
                         logger.debug(
                             "Health check for module %s: %s",
-                            db_module.module_id,
+                            db_module.name,
                             health_status,
                         )
 
@@ -245,25 +244,52 @@ class ExternalModuleRegistry:
 
             await asyncio.sleep(self.health_check_interval)
 
-    async def list_modules(self, active_only: bool = False) -> List[dict]:
+    async def list_modules(
+        self, module_type: str | None = None, active_only: bool = False
+    ) -> List[dict]:
         """Get a list of all registered modules"""
+        modules_info = []
         async with AsyncSessionLocal() as session:
-            query = select(ExternalModule)
+            query = select(Module).where(Module.source == ModuleSource.EXTERNAL)
             if active_only:
-                query = query.where(ExternalModule.status == ModuleStatus.ACTIVE)
+                query = query.where(Module.status == ModuleStatus.ACTIVE)
+            if module_type is not None:
+                query = query.where(Module.module_type == module_type)
 
             result = await session.execute(query)
             db_modules = result.scalars().all()
 
-            return [module.to_dict() for module in db_modules]
+            for module in db_modules:
+                module_dict = module.to_dict()
+                module_info = {
+                    "id": module_dict["name"],
+                    "name": module_dict["config"].get("name", module_dict["name"]),
+                    "description": module_dict["config"].get(
+                        "description", "No description available"
+                    ),
+                    "active": module_dict["status"] == ModuleStatus.ACTIVE,
+                    "is_external": True,
+                    "version": module_dict["config"].get("version"),
+                    "input_formats": module_dict["config"].get("input_formats", []),
+                    "module_type": module_config.get("type"),
+                }
+                if "map_name" in module_dict["config"]:
+                    module_info["map_name"] = module_dict["config"].get("map_name")
 
-    async def deregister_module(self, module_id: str) -> bool:
+                if (
+                    module_dict["config"].get("type") == ModuleType.DYNAMIC
+                    and "view" in module_dict["config"]
+                ):
+                    module_info["view"] = module_dict["config"].get("view")
+
+                modules_info.append(module_info)
+
+            return modules_info
+
+    async def deregister_module(self, name: str) -> bool:
         """Remove a module from the registry"""
         async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(ExternalModule).where(ExternalModule.module_id == module_id)
-            )
-            db_module = result.scalars().first()
+            db_module = await self._get_db_module(session, name)
 
             if not db_module:
                 return False
@@ -271,7 +297,7 @@ class ExternalModuleRegistry:
             await session.delete(db_module)
             await session.commit()
 
-        logger.info("Module %s removed from registry", module_id)
+        logger.info("Module %s removed from registry", name)
         return True
 
     def shutdown(self):

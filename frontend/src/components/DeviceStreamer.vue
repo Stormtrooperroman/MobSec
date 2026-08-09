@@ -38,7 +38,7 @@
               @click="setActiveTab(tool.ACTION)"
             >
               <span class="tab-icon">
-                <font-awesome-icon :icon="getToolIcon(tool.ACTION)" v-if="getToolIcon(tool.ACTION)" />
+                <font-awesome-icon :icon="getToolIcon(tool)" v-if="getToolIcon(tool)" />
               </span>
               <span class="tab-title">{{ tool.title || tool.ACTION }}</span>
             </button>
@@ -173,13 +173,43 @@ export default {
       this.activeTab = tabName;
     },
 
-    getToolIcon(action) {
-      const icons = {
-        file_manager: 'folder',
-        frida: 'bug',
-        mitmproxy: 'network-wired',
-      };
-      return icons[action] || 'tool';
+    getToolIcon(tool) {
+      return tool.icon || (tool.ACTION === 'file_manager' ? 'folder' : 'plug');
+    },
+
+    async fetchAvailableTools() {
+      const tools = [
+        {
+          title: 'File Manager',
+          ACTION: 'file_manager',
+          client: FileListingClient,
+          icon: 'folder',
+        },
+      ];
+
+      try {
+        const response = await fetch('/api/v1/modules/?module_type=dynamic');
+        if (!response.ok) {
+          throw new Error('Failed to fetch dynamic modules');
+        }
+        const modules = await response.json();
+
+        modules.forEach(module => {
+          const view = module.view || {};
+          const moduleKey = module.map_name || module.name;
+          tools.push({
+            title: view.title || module.title || module.name,
+            ACTION: moduleKey,
+            client: null,
+            moduleName: moduleKey,
+            icon: view.icon,
+          });
+        });
+      } catch (error) {
+        console.error('Error fetching dynamic modules:', error);
+      }
+
+      return tools;
     },
 
     handleSuccess(message) {
@@ -370,25 +400,7 @@ export default {
           console.log('Player type:', this.streamClient.player.constructor.name);
         }
 
-        this.availableTools = [
-          {
-            title: 'File Manager',
-            ACTION: 'file_manager',
-            client: FileListingClient,
-          },
-          {
-            title: 'Frida',
-            ACTION: 'frida',
-            client: null,
-            moduleName: 'frida',
-          },
-          {
-            title: 'Traffic Monitor',
-            ACTION: 'mitmproxy',
-            client: null,
-            moduleName: 'mitmproxy',
-          },
-        ];
+        this.availableTools = await this.fetchAvailableTools();
 
         this.isConnected = true;
         console.log('StreamClientScrcpy started successfully');

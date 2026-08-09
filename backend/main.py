@@ -12,7 +12,7 @@ from app.dynamic.device_management.emulator_manager import EmulatorManager
 from app.modules.chain_manager import ChainManager
 from app.modules.module_manager import ModuleManager
 from app.report_generator import start_report_generator, stop_report_generator
-from app.dynamic.utils.adb_utils import  ensure_adb_server
+from app.dynamic.utils.adb_utils import ensure_adb_server
 
 logger = logging.getLogger(__name__)
 

@@ -514,7 +514,9 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  transition:
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 .device-info h3 {

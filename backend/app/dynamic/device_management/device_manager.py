@@ -4,7 +4,6 @@ import logging
 
 from app.dynamic.device_management.scrcpy_device import Device
 from app.dynamic.device_management.physical_device_manager import PhysicalDeviceManager
-from app.dynamic.utils.adb_utils import get_adb_env, ensure_adb_server
 
 
 class DeviceManager:
@@ -176,6 +175,10 @@ class DeviceManager:
         """Check if a device is still connected and responsive"""
         return await self.physical_device_manager.check_device_connectivity(device_id)
 
-    async def pair_wifi_device(self, ip_address: str, port: int, pairing_port: int, pairing_code: str):
+    async def pair_wifi_device(
+        self, ip_address: str, port: int, pairing_port: int, pairing_code: str
+    ):
         """Pair with a device via WiFi using adb pair (Android 11+ wireless debugging)"""
-        return await self.physical_device_manager.pair_wifi_device(ip_address, port, pairing_port, pairing_code)
+        return await self.physical_device_manager.pair_wifi_device(
+            ip_address, port, pairing_port, pairing_code
+        )

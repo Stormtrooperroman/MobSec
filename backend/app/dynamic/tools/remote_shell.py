@@ -154,11 +154,12 @@ class RemoteShell:
                         else:
                             logger.error(
                                 "Cannot write input: running=%s, master_fd=%s",
-                                self.is_running, self.master_fd
+                                self.is_running,
+                                self.master_fd,
                             )
                     else:
                         logger.info(
-                            "Unknown shell data type: %s", shell_data.get('type')
+                            "Unknown shell data type: %s", shell_data.get("type")
                         )
                         if self.is_running and self.master_fd is not None:
                             loop = asyncio.get_event_loop()
@@ -169,7 +170,7 @@ class RemoteShell:
 
                 logger.info(
                     "JSON parsed but not a shell command: %s, treating as raw data",
-                    message
+                    message,
                 )
             except json.JSONDecodeError:
                 pass
@@ -188,7 +189,8 @@ class RemoteShell:
 
             logger.error(
                 "Cannot write data: running=%s, master_fd=%s",
-                self.is_running, self.master_fd
+                self.is_running,
+                self.master_fd,
             )
 
         except Exception as e:

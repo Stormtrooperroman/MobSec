@@ -12,9 +12,8 @@ from sqlalchemy import (
     Table,
     select,
 )
-from sqlalchemy.orm import declarative_base, relationship
-
-Base = declarative_base()
+from sqlalchemy.orm import relationship
+from app.models.base import Base
 
 
 class ChainStatus(enum.Enum):
@@ -52,31 +51,6 @@ class Chain(Base):
         "Module", secondary=chain_modules, order_by="chain_modules.c.order"
     )
     executions = relationship("ChainExecution", back_populates="chain")
-
-
-class ModuleType(str, enum.Enum):
-    STATIC = "static"
-    DYNAMIC = "dynamic"
-
-class Module(Base):
-    __tablename__ = "modules"
-    name = Column(String, nullable=False, primary_key=True)
-    version = Column(String)
-    description = Column(String)
-    config = Column(JSON)
-    module_type = Column(Enum(ModuleType), default=ModuleType.STATIC)
-    created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
-
-    # Relationships
-    chains = relationship("Chain", secondary=chain_modules, overlaps="modules")
-    executions = relationship("ModuleExecution", back_populates="module")
 
 
 class ChainExecution(Base):

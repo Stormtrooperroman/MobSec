@@ -2,7 +2,7 @@ import logging
 import os
 from typing import Tuple
 
-from app.dynamic.utils.adb_utils import get_adb_env, execute_adb_command
+from app.dynamic.utils.adb_utils import execute_adb_command
 
 logger = logging.getLogger(__name__)
 

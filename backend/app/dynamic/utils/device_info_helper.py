@@ -51,9 +51,7 @@ class DeviceInfoHelper:
                         f"| head -1 | awk '{{print $2}}' | cut -d'/' -f1"
                     )
                     stdout, _, return_code = await execute_adb_shell(
-                        device_id=device_id,
-                        shell_command=cmd,
-                        env=env
+                        device_id=device_id, shell_command=cmd, env=env
                     )
 
                     if return_code == 0:

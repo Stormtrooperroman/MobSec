@@ -53,4 +53,3 @@ api_router.include_router(
     tags=["Emulators"],
     responses={404: {"description": "Not found"}},
 )
-

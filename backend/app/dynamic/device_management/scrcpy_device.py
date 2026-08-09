@@ -176,11 +176,7 @@ class Device:
 
             logger.info("Pushing server to device...")
             server_jar = "/app/scrcpy-server.jar"
-            push_cmd = [
-                "push",
-                server_jar,
-                f"{TEMP_PATH}{SERVER_JAR}"
-            ]
+            push_cmd = ["push", server_jar, f"{TEMP_PATH}{SERVER_JAR}"]
             stdout, stderr, returncode = await execute_adb_command(
                 device_id=self.serial,
                 command=push_cmd,
@@ -190,11 +186,7 @@ class Device:
                 return None
 
             logger.info("Setting up ADB forward...")
-            forward_cmd = [
-                "forward",
-                f"tcp:{self.port}",
-                f"tcp:{self.port}"
-            ]
+            forward_cmd = ["forward", f"tcp:{self.port}", f"tcp:{self.port}"]
             stdout, stderr, returncode = await execute_adb_command(
                 device_id=self.serial,
                 command=forward_cmd,
@@ -224,9 +216,7 @@ class Device:
                 logger.error("Error starting server: %s", stderr)
                 return None
 
-            logger.info(
-                "Server start stdout: %s", stdout if stdout else "None"
-            )
+            logger.info("Server start stdout: %s", stdout if stdout else "None")
 
             result = None
             for _ in range(10):
@@ -274,4 +264,3 @@ class Device:
         except Exception as e:
             logger.error("Error starting scrcpy server: %s", e)
             return None
-

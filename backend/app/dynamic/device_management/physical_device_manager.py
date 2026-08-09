@@ -37,8 +37,7 @@ class PhysicalDeviceManager:
                 return []
 
             devices = parse_devices_from_adb_output(
-                stdout=stdout,
-                parse_line_func=self._parse_device_line
+                stdout=stdout, parse_line_func=self._parse_device_line
             )
 
             return devices
@@ -321,7 +320,9 @@ class PhysicalDeviceManager:
             self.logger.error("Error getting screen info for %s: %s", device_id, str(e))
             return None
 
-    async def pair_wifi_device(self, ip_address: str, port: int, pairing_port: int, pairing_code: str) -> bool:
+    async def pair_wifi_device(
+        self, ip_address: str, port: int, pairing_port: int, pairing_code: str
+    ) -> bool:
         """Pair with a device via WiFi using adb pair (Android 11+ wireless debugging)"""
         try:
             self.logger.info(

@@ -36,7 +36,6 @@ async def execute_adb_command(
 
         env = get_adb_env()
 
-
         # Execute command
         process = await asyncio.create_subprocess_exec(
             *adb_cmd,
@@ -55,7 +54,6 @@ async def execute_adb_command(
 async def execute_adb_shell(
     device_id: str,
     shell_command: str,
-    env: Optional[Dict[str, str]] = None,
 ) -> tuple[str, str, int]:
     """
     Execute ADB shell command
@@ -63,7 +61,6 @@ async def execute_adb_shell(
     Args:
         device_id: Device serial
         shell_command: Shell command to execute
-        env: Optional environment variables
 
     Returns:
         Tuple of (stdout, stderr, return_code)
@@ -90,13 +87,15 @@ async def execute_adb_devices() -> tuple[str, str, int]:
     )
 
 
-async def remove_all_port_forwarding(device_id: Optional[str] = None) -> tuple[str, str, int]:
+async def remove_all_port_forwarding(
+    device_id: Optional[str] = None,
+) -> tuple[str, str, int]:
     """
     Remove all port forwarding for a device or globally
-    
+
     Args:
         device_id: Device serial or None for global
-        
+
     Returns:
         Tuple of (stdout, stderr, return_code)
     """

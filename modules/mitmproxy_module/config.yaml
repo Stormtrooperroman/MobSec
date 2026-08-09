@@ -6,3 +6,6 @@ active: True
 type: dynamic
 port: 8091
 map_name: mitmproxy
+view:
+  icon: network-wired
+  title: Traffic Monitor

@@ -167,7 +167,7 @@ export default {
   methods: {
     async fetchModules() {
       try {
-        const response = await axios.get('/api/v1/modules/');
+        const response = await axios.get('/api/v1/modules/?module_type=static');
         this.modules = response.data;
       } catch (error) {
         this.showError('Error fetching modules');

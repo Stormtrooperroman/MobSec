@@ -18,10 +18,11 @@ from app.models.chain import (
     Chain,
     ChainExecution,
     ChainStatus,
-    Module,
     ModuleExecution,
     chain_modules,
 )
+
+from app.models.module import Module
 
 logger = logging.getLogger(__name__)
 
@@ -153,9 +154,7 @@ class ChainManager:
                 chain_task_id,
             )
         else:
-            await self._start_module(
-                chain_task_id, next_module_index, file_hash
-            )
+            await self._start_module(chain_task_id, next_module_index, file_hash)
 
     async def _process_chain_event_queue(self):
         """Process chain events from the queue in the main event loop"""
@@ -233,6 +232,7 @@ class ChainManager:
 
     async def init_db(self):
         from app.core.settings_db import init_db
+
         await init_db()
 
     async def get_chain_by_name(self, chain_name: str):
@@ -427,6 +427,7 @@ class ChainManager:
             raise ValueError(f"Chain '{chain_name}' not found")
 
         from app.core.app_manager import storage
+
         file_info = await storage.get_scan_status(file_hash)
         if not file_info:
             raise ValueError(f"File with hash '{file_hash}' not found")
@@ -677,7 +678,9 @@ class ChainManager:
                                 )
                                 await session.execute(stmt)
                                 logger.info(
-                                    "Relinked module %s to chain %s", module_name, chain.name
+                                    "Relinked module %s to chain %s",
+                                    module_name,
+                                    chain.name,
                                 )
                             except Exception as e:
                                 logger.error(
@@ -688,7 +691,9 @@ class ChainManager:
                                 )
                         else:
                             logger.warning(
-                                "Module %s not found for chain %s", module_name, chain.name
+                                "Module %s not found for chain %s",
+                                module_name,
+                                chain.name,
                             )
 
             await session.commit()
@@ -734,9 +739,7 @@ class ChainManager:
                         )
                 except Exception as e:
                     chain_name = chain_def.get("name", "unknown")
-                    logger.error(
-                        "Failed to create chain %s: %s", chain_name, str(e)
-                    )
+                    logger.error("Failed to create chain %s: %s", chain_name, str(e))
 
         except Exception as e:
             logger.error(

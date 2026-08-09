@@ -8,7 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.core.app_manager import storage
-from app.models.external_module import ModuleStatus
+from app.models.module import ModuleStatus
 from app.modules.external_module_registry import module_registry
 
 logger = logging.getLogger(__name__)
@@ -32,12 +32,6 @@ async def register_external_module(module_data: Dict[str, Any] = Body(...)):
         raise HTTPException(
             status_code=500, detail=f"Error registering module: {str(e)}"
         ) from e
-
-
-@router.get("/")
-async def list_external_modules(active_only: bool = False) -> List[Dict[str, Any]]:
-    """Get a list of all registered external modules"""
-    return await module_registry.list_modules(active_only)
 
 
 @router.get("/{module_id}")
