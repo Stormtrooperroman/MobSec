@@ -9,7 +9,6 @@ from mitmproxy.addons import intercept
 from mitmproxy.addons import readfile
 from mitmproxy.addons import view
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -76,7 +75,7 @@ class WebMaster(master.Master):
             )
 
     def _sig_view_add(self, **kwargs) -> None:
-        flow_obj = kwargs.get('flow')
+        flow_obj = kwargs.get("flow")
         if hasattr(self, "flow_callbacks") and flow_obj:
             for callback in self.flow_callbacks:
                 try:
@@ -90,7 +89,7 @@ class WebMaster(master.Master):
                     logger.error("Error in flow callback: %s", callback_error)
 
     def _sig_view_update(self, **kwargs) -> None:
-        flow_obj = kwargs.get('flow')
+        flow_obj = kwargs.get("flow")
         if hasattr(self, "flow_callbacks") and flow_obj:
             for callback in self.flow_callbacks:
                 try:
@@ -104,7 +103,7 @@ class WebMaster(master.Master):
                     logger.error("Error in flow callback: %s", callback_error)
 
     def _sig_view_remove(self, **kwargs) -> None:
-        flow_obj = kwargs.get('flow')
+        flow_obj = kwargs.get("flow")
         if hasattr(self, "flow_callbacks") and flow_obj:
             for callback in self.flow_callbacks:
                 try:

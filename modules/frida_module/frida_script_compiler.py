@@ -20,11 +20,11 @@ BRIDGE_IMPORTS = {
 }
 
 BRIDGE_MARKERS = (
-    "from \"frida-java-bridge\"",
+    'from "frida-java-bridge"',
     "from 'frida-java-bridge'",
-    "from \"frida-objc-bridge\"",
+    'from "frida-objc-bridge"',
     "from 'frida-objc-bridge'",
-    "from \"frida-swift-bridge\"",
+    'from "frida-swift-bridge"',
     "from 'frida-swift-bridge'",
     "import Java from",
     "import ObjC from",
@@ -48,7 +48,9 @@ def _needs_compilation(content: str, script_name: str) -> bool:
 
 def _prepare_source(content: str, script_name: str) -> tuple[str, str]:
     """Return source path and content ready for frida.Compiler."""
-    if any(marker in content for marker in BRIDGE_MARKERS) or script_name.endswith(".ts"):
+    if any(marker in content for marker in BRIDGE_MARKERS) or script_name.endswith(
+        ".ts"
+    ):
         suffix = ".ts" if script_name.endswith(".ts") else ".ts"
         return suffix, content
 
@@ -98,9 +100,10 @@ def compile_script(script_name: str, content: str) -> str:
         compiler.on("diagnostics", on_diagnostics)
         bundle = compiler.build(source_path, project_root=AGENT_PROJECT_ROOT)
 
-
         if diagnostics:
-            logger.error("COMPILE DIAGNOSTICS for %s:\n%s", script_name, "\n".join(diagnostics))
+            logger.error(
+                "COMPILE DIAGNOSTICS for %s:\n%s", script_name, "\n".join(diagnostics)
+            )
         print("=== BUNDLE OUTPUT ===")
         print(bundle[:2000])
 
@@ -110,5 +113,3 @@ def compile_script(script_name: str, content: str) -> str:
             os.unlink(source_path)
         except OSError:
             pass
-
-

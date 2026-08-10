@@ -1,55 +1,52 @@
 import json
 import logging
-import os
 
-import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
 
-from mitmproxy_manager import get_mitmproxy_manager, cleanup_mitmproxy_manager
+from mitmproxy_manager import cleanup_mitmproxy_manager, get_mitmproxy_manager
+from mobsec_modules_library.dynamic import (
+    BaseModuleManager,
+    create_module_app,
+    run_module_server,
+)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
-logger = logging.getLogger(__name__)
 
 
+class MitmproxyModuleManager(BaseModuleManager):
 
-app = FastAPI(title="Mitmproxy Module")
+    def __init__(self, manager, websocket: WebSocket, device_id: str):
+        self._manager = manager
+        self._websocket = websocket
+        self._device_id = device_id
+
+    async def start(self) -> bool:
+        return await self._manager.start()
+
+    async def handle_message(
+        self, websocket: WebSocket, device_id: str, text: str
+    ) -> None:
+        data = json.loads(text)
+        data.setdefault("device_id", device_id)
+        await self._manager.handle_message(websocket, json.dumps(data))
+
+    async def stop(self) -> None:
+        self._manager.remove_websocket(self._websocket)
+        await cleanup_mitmproxy_manager(self._device_id)
 
 
-@app.websocket("/ws/{device_id}")
-async def websocket_endpoint(websocket: WebSocket, device_id: str):
-    await websocket.accept()
-    logger.info("Mitmproxy WebSocket connected for device %s", device_id)
+async def manager_factory(
+    websocket: WebSocket, device_id: str
+) -> MitmproxyModuleManager:
+    manager = await get_mitmproxy_manager(device_id)
+    manager.add_websocket(websocket)
+    return MitmproxyModuleManager(manager, websocket, device_id)
 
-    mitmproxy_manager = await get_mitmproxy_manager(device_id)
-    mitmproxy_manager.add_websocket(websocket)
-    if not await mitmproxy_manager.start():
-        await websocket.close(code=4000, reason="Failed to start Mitmproxy manager")
-        return
 
-    try:
-        while True:
-            message = await websocket.receive()
-            if message["type"] == "websocket.disconnect":
-                break
-            if message["type"] == "websocket.receive":
-                if "text" in message:
-                    data = json.loads(message["text"])
-                    data.setdefault("device_id", device_id)
-                    await mitmproxy_manager.handle_message(
-                        websocket, json.dumps(data)
-                    )
-    except WebSocketDisconnect:
-        logger.info("Mitmproxy WebSocket disconnected for device %s", device_id)
-    except Exception as e:
-        logger.error("Error in Mitmproxy session for device %s: %s", device_id, str(e))
-    finally:
-        mitmproxy_manager.remove_websocket(websocket)
-        await cleanup_mitmproxy_manager(device_id)
-
+app = create_module_app("Mitmproxy Module", manager_factory)
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8091"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    run_module_server(app, default_port=8091)

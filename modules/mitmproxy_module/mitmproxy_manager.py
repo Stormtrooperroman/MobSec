@@ -21,7 +21,11 @@ from mitmproxy.utils.emoji import emoji
 from mitmproxy.utils.strutils import always_str
 
 from web_master import WebMaster
-from adb_utils import check_su_availability, execute_adb_command, execute_adb_shell
+from mobsec_modules_library.dynamic.adb_utils import (
+    check_su_availability,
+    execute_adb_command,
+    execute_adb_shell,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +161,9 @@ def flow_to_json(flow_obj: flow.Flow) -> dict:
                 content_length = None
                 content_hash = None
 
-            response_content, response_content_encoding = _extract_content(flow_obj.response)
+            response_content, response_content_encoding = _extract_content(
+                flow_obj.response
+            )
 
             f["response"] = {
                 "http_version": flow_obj.response.http_version,
@@ -198,7 +204,9 @@ def flow_to_json(flow_obj: flow.Flow) -> dict:
         f["messages_meta"] = {
             "contentLength": sum(len(x.content) for x in flow_obj.messages),
             "count": len(flow_obj.messages),
-            "timestamp_last": flow_obj.messages[-1].timestamp if flow_obj.messages else None,
+            "timestamp_last": (
+                flow_obj.messages[-1].timestamp if flow_obj.messages else None
+            ),
         }
     elif isinstance(flow_obj, DNSFlow):
         f["request"] = flow_obj.request.to_json()
@@ -206,7 +214,6 @@ def flow_to_json(flow_obj: flow.Flow) -> dict:
             f["response"] = flow_obj.response.to_json()
 
     return f
-
 
 
 class MitmproxyManager:
@@ -259,8 +266,7 @@ class MitmproxyManager:
             # Check port availability before initialization
             if not await self._check_port_available(self.proxy_port):
                 logger.warning(
-                    "Port %s is not available during initialization",
-                    self.proxy_port
+                    "Port %s is not available during initialization", self.proxy_port
                 )
                 # Try to safely release the port
                 await self._safe_release_port()
@@ -302,10 +308,8 @@ class MitmproxyManager:
         """Handle flow events"""
         try:
             # Log the event
-            flow_id = flow_obj.id if flow_obj else 'None'
-            logger.debug(
-                "Flow event: %s - %s", event_type, flow_id
-            )
+            flow_id = flow_obj.id if flow_obj else "None"
+            logger.debug("Flow event: %s - %s", event_type, flow_id)
 
             if hasattr(self, "_active_websockets") and self._active_websockets:
                 # Determine the correct action name based on event_type
@@ -345,7 +349,7 @@ class MitmproxyManager:
         """Handle log events"""
         try:
             # Just log the event
-            msg = getattr(log_entry, 'msg', str(log_entry))
+            msg = getattr(log_entry, "msg", str(log_entry))
             logger.debug("Log event: %s - %s", event_type, msg)
         except Exception as log_error:
             logger.error("Error in log event handler: %s", log_error)
@@ -419,7 +423,7 @@ class MitmproxyManager:
 
     async def stop(self, cleanup=False) -> bool:
         """Stop mitmproxy manager
-        
+
         Args:
             cleanup: If True, clears master_instance and all flows. If False, preserves flows for reuse.
         """
@@ -485,7 +489,8 @@ class MitmproxyManager:
         """Stop the proxy server"""
         try:
             logger.info(
-                "stop_proxy() called - master_instance: %s", self.master_instance is not None
+                "stop_proxy() called - master_instance: %s",
+                self.master_instance is not None,
             )
             if self.master_instance is None:
                 logger.info("Master instance is already None, nothing to stop")
@@ -494,15 +499,17 @@ class MitmproxyManager:
             # First disable the server, as recommended in GitHub issue #7237
             try:
                 logger.info(
-                    "stop_proxy() - master_instance: %s", self.master_instance is not None
+                    "stop_proxy() - master_instance: %s",
+                    self.master_instance is not None,
                 )
                 if self.master_instance is not None:
                     logger.info(
-                        "stop_proxy() - master_instance type: %s", type(self.master_instance)
+                        "stop_proxy() - master_instance type: %s",
+                        type(self.master_instance),
                     )
                     logger.info(
                         "stop_proxy() - master_instance has options: %s",
-                        hasattr(self.master_instance, 'options')
+                        hasattr(self.master_instance, "options"),
                     )
 
                 logger.info("Disabling server before shutdown")
@@ -531,7 +538,9 @@ class MitmproxyManager:
                                 addon.shutdown()
                             except Exception as addon_error:
                                 logger.warning(
-                                    "Error shutting down addon %s: %s", type(addon).__name__, addon_error
+                                    "Error shutting down addon %s: %s",
+                                    type(addon).__name__,
+                                    addon_error,
                                 )
             except Exception as e:
                 logger.warning("Error shutting down addons: %s", e)
@@ -560,7 +569,7 @@ class MitmproxyManager:
 
     async def stop_proxy_threadsafe(self, cleanup=False) -> bool:
         """Stop the proxy server from another thread safely
-        
+
         Args:
             cleanup: If True, clears master_instance and all flows. If False, preserves flows for reuse.
         """
@@ -576,7 +585,7 @@ class MitmproxyManager:
                 try:
                     logger.info(
                         "stop_server() called - master_instance_ref: %s",
-                        master_instance_ref is not None
+                        master_instance_ref is not None,
                     )
                     if master_instance_ref is not None:
                         logger.info(
@@ -584,7 +593,7 @@ class MitmproxyManager:
                         )
                         logger.info(
                             "master_instance_ref has options: %s",
-                            hasattr(master_instance_ref, 'options')
+                            hasattr(master_instance_ref, "options"),
                         )
                         if hasattr(master_instance_ref, "options"):
                             logger.info("Disabling server before shutdown (threadsafe)")
@@ -602,7 +611,8 @@ class MitmproxyManager:
             event_loop = master_instance_ref.event_loop if master_instance_ref else None
             logger.info(
                 "stop_server() called: %s %s",
-                hasattr(master_instance_ref, 'event_loop'), event_loop
+                hasattr(master_instance_ref, "event_loop"),
+                event_loop,
             )
             # Call function in master instance event loop
             if (
@@ -633,7 +643,8 @@ class MitmproxyManager:
                 logger.info("Master instance shutdown (threadsafe)")
             except Exception as shutdown_error:
                 logger.warning(
-                    "Could not shutdown master instance (threadsafe): %s", shutdown_error
+                    "Could not shutdown master instance (threadsafe): %s",
+                    shutdown_error,
                 )
 
             # Force close all sockets and addons
@@ -647,7 +658,9 @@ class MitmproxyManager:
                                 addon.shutdown()
                             except Exception as addon_error:
                                 logger.warning(
-                                    "Error shutting down addon %s: %s", type(addon).__name__, addon_error
+                                    "Error shutting down addon %s: %s",
+                                    type(addon).__name__,
+                                    addon_error,
                                 )
             except Exception as e:
                 logger.warning("Error shutting down addons: %s", e)
@@ -672,7 +685,8 @@ class MitmproxyManager:
                 if await self._check_port_available(self.proxy_port):
                     logger.info(
                         "Port %s successfully released on attempt %s",
-                        self.proxy_port, attempt + 1
+                        self.proxy_port,
+                        attempt + 1,
                     )
                     break
                 time.sleep(2)
@@ -729,7 +743,6 @@ class MitmproxyManager:
             logger.error("Error clearing flows: %s", e)
             return False
 
-
     def delete_flow(self, flow_id: str) -> bool:
         """Delete a flow"""
         try:
@@ -773,7 +786,6 @@ class MitmproxyManager:
             logger.error("Error exporting traffic: %s", e)
             raise
 
-
     async def handle_message(self, websocket: WebSocket, data: str):
         """Handle WebSocket message"""
         try:
@@ -781,7 +793,7 @@ class MitmproxyManager:
 
             if "device_id" in message and message["device_id"] != self.device_id:
                 expected = self.device_id
-                got = message['device_id']
+                got = message["device_id"]
                 await self.send_response(
                     websocket,
                     {
@@ -937,7 +949,9 @@ class MitmproxyManager:
                     cert_path = await self.generate_certificate()
                     if cert_path and os.path.exists(cert_path):
                         with open(cert_path, "rb") as cert_file:
-                            cert_content = base64.b64encode(cert_file.read()).decode("ascii")
+                            cert_content = base64.b64encode(cert_file.read()).decode(
+                                "ascii"
+                            )
                         await self.send_response(
                             websocket,
                             {
@@ -997,10 +1011,10 @@ class MitmproxyManager:
                 elif action == "reboot_device":
                     # Simple device reboot implementation
                     try:
-                        
+
                         _, stderr, returncode = await execute_adb_command(
-                            device_id=self.device_id,
-                            command=["reboot"])
+                            device_id=self.device_id, command=["reboot"]
+                        )
 
                         success = returncode == 0
                         await self.send_response(
@@ -1149,7 +1163,6 @@ class MitmproxyManager:
         logger.warning("Port %s is not available", port)
         return False
 
-
     # Certificate management methods (keep your existing implementation)
     async def generate_certificate(self) -> Optional[str]:
         """Generate mitmproxy certificate"""
@@ -1211,7 +1224,6 @@ class MitmproxyManager:
         except Exception as e:
             logger.debug("Port %s is not available: %s", port, e)
             return False
-
 
     async def _safe_release_port(self):
         """Safely release the proxy port by waiting for natural release"""
@@ -1300,8 +1312,8 @@ class MitmproxyManager:
             device_cert_path = f"/data/local/tmp/mitmproxy-ca-cert-{cert_hash}.pem"
 
             stdout, stderr, returncode = await execute_adb_command(
-                            device_id=self.device_id,
-                            command=["push", cert_path, device_cert_path])
+                device_id=self.device_id, command=["push", cert_path, device_cert_path]
+            )
 
             if returncode != 0:
                 logger.error("Failed to push certificate: %s", stderr)
@@ -1332,7 +1344,7 @@ class MitmproxyManager:
                 device_id=self.device_id,
                 shell_command="getprop ro.build.version.sdk_int",
             )
-            
+
             try:
                 sdk_version = int(version_stdout.strip())
                 logger.info("Android SDK version: %s", sdk_version)
@@ -1368,23 +1380,19 @@ class MitmproxyManager:
             # Check existing certificates in system
             list_stdout, list_stderr, returncode = await execute_adb_shell(
                 device_id=self.device_id,
-                shell_command="su 0 ls -la "
-                "system/etc/security/cacerts/ | head -10",
+                shell_command="su 0 ls -la " "system/etc/security/cacerts/ | head -10",
             )
 
             if returncode == 0:
                 existing_certs = list_stdout.strip()
                 logger.info("Existing system certificates: %s", existing_certs)
             else:
-                logger.warning(
-                    "Failed to list existing certificates: %s", list_stderr
-                )
+                logger.warning("Failed to list existing certificates: %s", list_stderr)
 
             # Mount system as RW if needed
             _, _, _ = await execute_adb_shell(
-                device_id=self.device_id,
-                shell_command="su 0 mount -o rw,remount /"
-            )            
+                device_id=self.device_id, shell_command="su 0 mount -o rw,remount /"
+            )
 
             # Detailed diagnostics before installation
             logger.info("Installing certificate:")
@@ -1403,32 +1411,27 @@ class MitmproxyManager:
                 logger.info("Executing install command %s/3: %s", i + 1, cmd)
 
                 stdout, stderr, returncode = await execute_adb_shell(
-                    device_id=self.device_id,
-                    shell_command=cmd
+                    device_id=self.device_id, shell_command=cmd
                 )
-            
+
                 if returncode == 0:
                     success_count += 1
-                    logger.info(
-                        "Command %s succeeded: %s", i + 1, stdout.strip()
-                    )
+                    logger.info("Command %s succeeded: %s", i + 1, stdout.strip())
                 else:
                     logger.error("Command %s failed: %s", i + 1, stderr)
 
             logger.info("Install commands: %s/3 successful", success_count)
 
-
             # Mount system back as RO
             _, _, _ = await execute_adb_shell(
-                    device_id=self.device_id,
-                    shell_command="su 0 mount -o ro,remount /"
-                )
+                device_id=self.device_id, shell_command="su 0 mount -o ro,remount /"
+            )
 
             # Verify that certificate is actually installed
             verify_stdout, verify_stderr, returncode = await execute_adb_shell(
-                    device_id=self.device_id,
-                    shell_command=f"su 0 ls -la {system_cert_path}"
-                )
+                device_id=self.device_id,
+                shell_command=f"su 0 ls -la {system_cert_path}",
+            )
 
             if returncode == 0:
                 file_info = verify_stdout.strip()
@@ -1437,9 +1440,8 @@ class MitmproxyManager:
                 # Check that certificate exactly matches original
                 compare_stdout, compare_stderr, returncode = await execute_adb_shell(
                     device_id=self.device_id,
-                    shell_command=f"su 0 cat {system_cert_path}"
+                    shell_command=f"su 0 cat {system_cert_path}",
                 )
-                
 
                 if returncode == 0:
                     installed_cert = compare_stdout.strip()
@@ -1462,16 +1464,14 @@ class MitmproxyManager:
                     )
                     self.cert_installed = False
 
-
                 if self.cert_installed:
                     logger.info(
-                        "Certificate successfully installed and verified at %s", system_cert_path
+                        "Certificate successfully installed and verified at %s",
+                        system_cert_path,
                     )
 
             else:
-                logger.error(
-                    "Certificate verification failed: %s", verify_stderr
-                )
+                logger.error("Certificate verification failed: %s", verify_stderr)
                 self.cert_installed = False
 
             # Suggest reboot to activate certificate only if installation was successful
@@ -1548,19 +1548,13 @@ class MitmproxyManager:
 
             if self.su_available:
                 # Use su for global proxy configuration
-                cmd = (
-                    f"su 0 settings put global http_proxy {proxy_setting}"
-                )
+                cmd = f"su 0 settings put global http_proxy {proxy_setting}"
             else:
                 # Try to configure without su
-                cmd = (
-                    f"settings put global http_proxy {proxy_setting}"
-                )
+                cmd = f"settings put global http_proxy {proxy_setting}"
             _, stderr, returncode = await execute_adb_shell(
-                    device_id=self.device_id,
-                    shell_command=cmd
-                )
-            
+                device_id=self.device_id, shell_command=cmd
+            )
 
             if returncode == 0:
                 logger.info("Proxy configured successfully: %s", proxy_setting)
@@ -1570,7 +1564,7 @@ class MitmproxyManager:
                 # Check that setting was applied
                 check_stdout, _, _ = await execute_adb_shell(
                     device_id=self.device_id,
-                    shell_command="settings get global http_proxy"
+                    shell_command="settings get global http_proxy",
                 )
                 current_proxy = check_stdout.strip()
                 logger.info("Current proxy setting: %s", current_proxy)
@@ -1613,20 +1607,18 @@ class MitmproxyManager:
                 cmd = f"settings put global http_proxy :0"
 
             _, stderr, returncode = await execute_adb_shell(
-                    device_id=self.device_id,
-                    shell_command=cmd
-                )
+                device_id=self.device_id, shell_command=cmd
+            )
 
             if returncode == 0:
                 logger.info("Proxy disabled successfully")
-
 
                 self.proxy_configured = False
 
                 # Check that setting was applied
                 check_stdout, _, _ = await execute_adb_shell(
                     device_id=self.device_id,
-                    shell_command="settings get global http_proxy"
+                    shell_command="settings get global http_proxy",
                 )
 
                 current_proxy = check_stdout.strip()

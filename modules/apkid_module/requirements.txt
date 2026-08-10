@@ -1,2 +1,2 @@
-redis==4.5.1
 asyncio==3.4.3
+mobsec-modules-library

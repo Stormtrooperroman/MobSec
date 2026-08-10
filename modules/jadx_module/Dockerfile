@@ -16,10 +16,10 @@ COPY requirements.txt ./
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Download and setup JADX
-RUN wget https://github.com/skylot/jadx/releases/download/v1.5.1/jadx-1.5.1.zip && \
+RUN wget https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip && \
     mkdir -p /opt/jadx && \
-    unzip jadx-1.5.1.zip -d /opt/jadx && \
-    rm jadx-1.5.1.zip && \
+    unzip jadx-1.5.6.zip -d /opt/jadx && \
+    rm jadx-1.5.6.zip && \
     chmod +x /opt/jadx/bin/jadx
 
 # Add JADX to PATH

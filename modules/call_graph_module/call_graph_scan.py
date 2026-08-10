@@ -1,13 +1,13 @@
 import os
 import json
 import lmdb
-import redis
 import hashlib
 import logging
 import asyncio
 import gc
 from typing import Dict, Any, Optional
 from collections import deque
+from mobsec_modules_library.static.static_module import StaticModule
 
 # Androguard imports
 from androguard.misc import AnalyzeAPK
@@ -75,7 +75,9 @@ class LMDBCallGraphStore:
                 return None
             return json.loads(b.decode())
 
-    def export_json_stream(self, file_hash: str, output_path: str, batch_size: int = 1000):
+    def export_json_stream(
+        self, file_hash: str, output_path: str, batch_size: int = 1000
+    ):
         """
         Exports nodes and edges to JSON file in streaming mode.
         Format: {"nodes": [...], "edges": [...], "stats": {...}}
@@ -127,10 +129,9 @@ class LMDBCallGraphStore:
             fout.flush()
 
 
-class CallGraphModule:
+class CallGraphModule(StaticModule):
     def __init__(self):
-        self.redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
-        self.module_name = "call_graph_module"
+        super().__init__("call_graph_module")
         # LMDB path and map size configurable via env
         lmdb_root = os.getenv("LMDB_PATH", "/tmp/lmdb_callgraph")
         lmdb_map_size_env = os.getenv("LMDB_MAP_SIZE_BYTES")
@@ -146,52 +147,23 @@ class CallGraphModule:
         self.node_batch_size = int(os.getenv("NODE_BATCH_SIZE", "500"))
         self.edge_batch_size = int(os.getenv("EDGE_BATCH_SIZE", "1000"))
 
-    async def start(self):
-        logger.info(f"Starting {self.module_name} module (LMDB backend)...")
-        while True:
-            try:
-                queue_key = f"module:{self.module_name}:queue"
-                task_id = self.redis_client.lpop(queue_key)
-
-                if task_id:
-                    try:
-                        task_data_str = self.redis_client.get(f"task:{task_id}")
-                        if not task_data_str:
-                            logger.error(f"Task data not found for task_id: {task_id}")
-                            continue
-
-                        task_data = json.loads(task_data_str)
-                        logger.info(f"Processing task {task_id} for file: {task_data.get('file_hash')}")
-
-                        result = await self.process(task_data)
-                        if not result:
-                            logger.error(f"No result returned from process for task {task_id}")
-                            continue
-
-                        # Store result meta in redis (small)
-                        result_key = f"result:{self.module_name}:{task_data['file_hash']}"
-                        self.redis_client.set(result_key, json.dumps(result))
-                        logger.info(f"Successfully stored result metadata for task {task_id}")
-
-                    except Exception as e:
-                        logger.exception(f"Error processing task {task_id}: {e}")
-
-                await asyncio.sleep(1)
-
-            except Exception as e:
-                logger.exception(f"Critical error in {self.module_name} module main loop: {e}")
-                await asyncio.sleep(5)
-
     async def process(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
-        file_path = os.path.join("/shared_data", task_data["folder_path"], task_data["file_name"])
+        file_path = os.path.join(
+            "/shared_data", task_data["folder_path"], task_data["file_name"]
+        )
 
         if not os.path.exists(file_path):
             return {"status": "error", "error": f"File not found: {file_path}"}
 
         if task_data.get("file_type") != "apk":
-            return {"status": "error", "error": "Call Graph module only supports APK files"}
+            return {
+                "status": "error",
+                "error": "Call Graph module only supports APK files",
+            }
 
-        file_hash = task_data.get("file_hash", sha1_short(task_data.get("file_name", file_path)))
+        file_hash = task_data.get(
+            "file_hash", sha1_short(task_data.get("file_name", file_path))
+        )
         try:
             # Analyze APK (this creates objects in memory)
             logger.info(f"AnalyzeAPK for {file_path}")
@@ -215,15 +187,12 @@ class CallGraphModule:
 
             # Export all data to JSON format
             json_data = self.export_to_json(file_hash, stats)
-            
+
             # Clean up LMDB data after export
             self.cleanup_lmdb_data(file_hash)
 
             # Return complete JSON data
-            result = {
-                "status": "success",
-                "results": json_data
-            }
+            result = {"status": "success", "results": json_data}
             return result
 
         except Exception as e:
@@ -267,7 +236,10 @@ class CallGraphModule:
         try:
             for method in cg.nodes():
                 try:
-                    if main_activity_class and method.get_class_name() == main_activity_class:
+                    if (
+                        main_activity_class
+                        and method.get_class_name() == main_activity_class
+                    ):
                         entry_points.append(method)
                 except Exception:
                     continue
@@ -386,7 +358,10 @@ class CallGraphModule:
             processed_counter += 1
 
             # flush batches occasionally
-            if len(node_batch) >= self.node_batch_size or len(edge_batch) >= self.edge_batch_size:
+            if (
+                len(node_batch) >= self.node_batch_size
+                or len(edge_batch) >= self.edge_batch_size
+            ):
                 flush_batches()
 
             # small periodic GC to help with androguard object churn
@@ -426,7 +401,9 @@ class CallGraphModule:
         }
 
         elapsed = time.time() - start_time
-        logger.info(f"Call graph generation finished: nodes={total_nodes}, edges={total_edges}, time={elapsed:.1f}s")
+        logger.info(
+            f"Call graph generation finished: nodes={total_nodes}, edges={total_edges}, time={elapsed:.1f}s"
+        )
 
         return stats
 
@@ -435,16 +412,16 @@ class CallGraphModule:
         Export all call graph data from LMDB to JSON format.
         """
         logger.info(f"Exporting call graph data to JSON for {file_hash}")
-        
+
         nodes = []
         edges = []
-        
+
         try:
             with self.store.env.begin() as txn:
                 # Read all nodes
                 cursor = txn.cursor()
                 node_prefix = f"{file_hash}:node:".encode()
-                
+
                 # Use set_range to start from the prefix
                 cursor.set_range(node_prefix)
                 for key, value in cursor:
@@ -455,7 +432,7 @@ class CallGraphModule:
                         nodes.append(node_data)
                     except json.JSONDecodeError:
                         continue
-                
+
                 # Read all edges
                 edge_prefix = f"{file_hash}:edge:".encode()
                 cursor.set_range(edge_prefix)
@@ -468,25 +445,17 @@ class CallGraphModule:
                         if len(key_parts) >= 4:
                             from_hash = key_parts[2]
                             to_hash = key_parts[3]
-                            edges.append({
-                                "from_hash": from_hash,
-                                "to_hash": to_hash
-                            })
+                            edges.append({"from_hash": from_hash, "to_hash": to_hash})
                     except Exception:
                         continue
-        
+
         except Exception as e:
             logger.error(f"Error exporting data from LMDB: {e}")
             return {"error": f"Failed to export data: {str(e)}"}
-        
+
         logger.info(f"Exported {len(nodes)} nodes and {len(edges)} edges")
-        
-        return {
-            "file_hash": file_hash,
-            "nodes": nodes,
-            "edges": edges,
-            "stats": stats
-        }
+
+        return {"file_hash": file_hash, "nodes": nodes, "edges": edges, "stats": stats}
 
     def cleanup_lmdb_data(self, file_hash: str):
         """
@@ -495,7 +464,7 @@ class CallGraphModule:
         try:
             with self.store.env.begin(write=True) as txn:
                 cursor = txn.cursor()
-                
+
                 # Delete all nodes
                 node_prefix = f"{file_hash}:node:".encode()
                 cursor.set_range(node_prefix)
@@ -504,10 +473,10 @@ class CallGraphModule:
                     if not key.startswith(node_prefix):
                         break
                     keys_to_delete.append(key)
-                
+
                 for key in keys_to_delete:
                     txn.delete(key)
-                
+
                 # Delete all edges
                 edge_prefix = f"{file_hash}:edge:".encode()
                 cursor.set_range(edge_prefix)
@@ -516,16 +485,16 @@ class CallGraphModule:
                     if not key.startswith(edge_prefix):
                         break
                     keys_to_delete.append(key)
-                
+
                 for key in keys_to_delete:
                     txn.delete(key)
-                
+
                 # Delete stats
                 stats_key = f"{file_hash}:meta:stats".encode()
                 txn.delete(stats_key)
-                
+
             logger.info(f"Cleaned up LMDB data for {file_hash}")
-            
+
         except Exception as e:
             logger.error(f"Error cleaning up LMDB data: {e}")
 

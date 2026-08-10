@@ -1,4 +1,4 @@
-redis
 androguard>=4.0.1
 lief
 python-magic
+mobsec-modules-library

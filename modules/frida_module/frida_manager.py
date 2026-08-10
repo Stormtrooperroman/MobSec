@@ -9,10 +9,16 @@ from typing import Any, Dict, List
 import frida
 from fastapi import WebSocket
 
-from adb_utils import execute_adb_command, execute_adb_shell, remove_all_port_forwarding
-from base_websocket_manager import BaseWebSocketManager
 from frida_script_compiler import compile_script
 from frida_script_service import FridaScriptService
+
+from mobsec_modules_library.dynamic import BaseWebSocketManager
+
+from mobsec_modules_library.dynamic.adb_utils import (
+    execute_adb_command,
+    execute_adb_shell,
+    remove_all_port_forwarding,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +293,9 @@ class FridaManager(BaseWebSocketManager):
                     shell_command="chmod 755 /data/local/tmp/frida-server",
                 )
                 if rc != 0:
-                    await self.send_error("Failed to set executable permissions for Frida server")
+                    await self.send_error(
+                        "Failed to set executable permissions for Frida server"
+                    )
                     return
 
                 await self.send_response(
