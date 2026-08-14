@@ -38,11 +38,6 @@
           <font-awesome-icon v-else icon="stop" />
           Stop Server
         </button>
-        <button @click="listProcesses" :disabled="!fridaRunning || fridaProcessesLoading" class="frida-btn">
-          <font-awesome-icon v-if="fridaProcessesLoading" icon="spinner" spin />
-          <font-awesome-icon v-else icon="list" />
-          List Processes
-        </button>
       </div>
       
       <div class="frida-toolbar-right">
@@ -62,6 +57,15 @@
             </div>
           </div>
         </div>
+        <button
+          @click="openAttachModal"
+          :disabled="!fridaRunning || isScriptRunning"
+          class="frida-btn attach-target-btn"
+          title="Attach to a running process or start an application"
+        >
+          <font-awesome-icon icon="crosshairs" />
+          Select Target
+        </button>
       </div>
     </div>
     
@@ -84,11 +88,7 @@
               <font-awesome-icon v-else icon="refresh" />
               Refresh Scripts
             </button>
-            <button @click="stopCurrentScript" :disabled="isStopButtonDisabled" class="script-btn stop-btn">
-              <font-awesome-icon v-if="fridaStopping" icon="spinner" spin />
-              <font-awesome-icon v-else icon="stop" />
-              Stop Script
-            </button>
+            
           </div>
           
           <div class="scripts-list">
@@ -99,7 +99,22 @@
                   <font-awesome-icon icon="edit" />
                   Edit
                 </button>
-                <button @click="runScript(name)" :disabled="isRunButtonDisabled" class="action-btn">
+                <button
+                  v-if="currentRunningScript === name && isScriptRunning"
+                  @click="stopCurrentScript"
+                  :disabled="fridaStopping"
+                  class="script-btn stop-btn"
+                >
+                  <font-awesome-icon v-if="fridaStopping" icon="spinner" spin />
+                  <font-awesome-icon v-else icon="stop" />
+                  Stop
+                </button>
+                <button
+                  v-else
+                  @click="runScript(name)"
+                  :disabled="isRunButtonDisabled"
+                  class="action-btn"
+                >
                   <font-awesome-icon icon="play" />
                   Run
                 </button>
@@ -112,22 +127,7 @@
           </div>
         </div>
       </div>
-      
-      <div class="frida-processes" v-if="fridaProcesses.length > 0">
-        <h4>Processes</h4>
-        <div class="processes-list">
-          <div v-for="process in fridaProcesses" :key="process.pid" class="process-item" @click="selectProcess(process.name)">
-            <div class="process-info">
-              <div class="process-name">{{ process.name }}</div>
-              <div class="process-pid">PID: {{ process.pid }}</div>
-            </div>
-            <div class="process-icon">
-              <font-awesome-icon icon="chevron-right" />
-            </div>
-          </div>
-        </div>
-      </div>
-      
+
       <div class="frida-output" v-if="fridaOutput.length > 0">
         <h4>Output</h4>
         <div class="output-content" ref="fridaOutputContent">
@@ -155,16 +155,30 @@
       @close="closeScriptEditor"
       @save="handleScriptSave"
     />
+
+    <AttachModal
+      :show="showAttachModal"
+      :processes="fridaProcesses"
+      :apps="fridaApps"
+      :processes-loading="fridaProcessesLoading"
+      :apps-loading="fridaAppsLoading"
+      @close="closeAttachModal"
+      @confirm="handleAttachConfirm"
+      @refresh-processes="listProcesses"
+      @refresh-apps="listApps"
+    />
   </div>
 </template>
 
 <script>
 import ScriptEditorModal from './ScriptEditorModal.vue'
+import AttachModal from './AttachModal.vue'
 
 export default {
   name: 'FridaTool',
   components: {
-    ScriptEditorModal
+    ScriptEditorModal,
+    AttachModal
   },
   props: {
     deviceId: {
@@ -196,15 +210,14 @@ export default {
       fridaProcessesLoading: false,
       scriptsLoading: false,
       showProcessError: false,
+      showAttachModal: false,
+      fridaApps: [],
+      fridaAppsLoading: false,
     };
   },
   computed: {
     isRunButtonDisabled() {
       const disabled = !this.fridaRunning || this.isScriptRunning;
-      return disabled;
-    },
-    isStopButtonDisabled() {
-      const disabled = !this.isScriptRunning;
       return disabled;
     }
   },
@@ -292,6 +305,7 @@ export default {
       this.fridaRunning = false;
       this.fridaScripts = {};
       this.fridaProcesses = [];
+      this.fridaApps = [];
       this.fridaOutput = [];
       this.isScriptRunning = false;
       this.currentRunningScript = null;
@@ -300,6 +314,8 @@ export default {
       this.fridaStopping = false;
       this.fridaRefreshing = false;
       this.fridaProcessesLoading = false;
+      this.fridaAppsLoading = false;
+      this.showAttachModal = false;
     },
 
     handleFridaMessage(message) {
@@ -365,6 +381,10 @@ export default {
           this.fridaProcesses = message.processes;
           this.fridaProcessesLoading = false;
           break;
+        case 'apps_list':
+          this.fridaApps = message.apps || [];
+          this.fridaAppsLoading = false;
+          break;
 
         case 'error':
           console.error('Frida error:', message.message);
@@ -374,6 +394,7 @@ export default {
           this.fridaStopping = false;
           this.fridaRefreshing = false;
           this.fridaProcessesLoading = false;
+          this.fridaAppsLoading = false;
           this.scriptsLoading = false;
           this._pendingScriptContent = undefined;
           alert('Frida error: ' + message.message);
@@ -430,6 +451,35 @@ export default {
           action: 'list_processes'
         }));
       }
+    },
+
+    listApps() {
+      if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
+        this.fridaAppsLoading = true;
+        this.currentFridaClient.send(JSON.stringify({
+          type: 'frida',
+          action: 'list_apps'
+        }));
+      }
+    },
+
+    openAttachModal() {
+      this.showAttachModal = true;
+    },
+
+    closeAttachModal() {
+      this.showAttachModal = false;
+    },
+
+    handleAttachConfirm({ target, label }) {
+      this.targetProcessName = target;
+      this.showProcessError = false;
+      this.fridaOutput.push({
+        timestamp: new Date().toLocaleTimeString(),
+        text: `Target selected: ${label}`,
+        stream: 'stdout'
+      });
+      this.scrollToFridaOutput();
     },
 
     loadScriptFile(event) {
@@ -779,6 +829,11 @@ if (Java.available) {
 .frida-toolbar-right {
   display: flex;
   align-items: center;
+  gap: 10px;
+}
+
+.attach-target-btn {
+  white-space: nowrap;
 }
 
 .process-input-group {
@@ -1217,5 +1272,14 @@ if (Java.available) {
     flex-direction: column;
     align-items: stretch;
   }
+
+  .frida-toolbar-right {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .attach-target-btn {
+    justify-content: center;
+  }
 }
-</style> 
+</style>

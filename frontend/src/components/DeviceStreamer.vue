@@ -88,7 +88,6 @@ import { ACTION } from '@/ws-scrcpy/common/Action';
 import { MsePlayer } from '@/ws-scrcpy/app/player/MsePlayer';
 import { WebCodecsPlayer } from '@/ws-scrcpy/app/player/WebCodecsPlayer';
 import { TinyH264Player } from '@/ws-scrcpy/app/player/TinyH264Player';
-import { BroadwayPlayer } from '@/ws-scrcpy/app/player/BroadwayPlayer';
 
 import { FileListingClient } from '@/ws-scrcpy/app/googDevice/client/FileListingClient';
 
@@ -98,7 +97,6 @@ import FileManager from './tools/FileManager.vue';
 StreamClientScrcpy.registerPlayer(TinyH264Player);
 StreamClientScrcpy.registerPlayer(MsePlayer);
 StreamClientScrcpy.registerPlayer(WebCodecsPlayer);
-StreamClientScrcpy.registerPlayer(BroadwayPlayer);
 
 export default {
   name: 'DeviceStreamer',
@@ -331,19 +329,7 @@ export default {
           this.deviceId,
         )}?action=stream`;
 
-        let playerName = 'tinyh264';
-
-        if (typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported) {
-          if (MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"')) {
-            playerName = 'mse';
-            console.log('Using MSE player (preferred)');
-          }
-        }
-
-        if (typeof VideoDecoder !== 'undefined') {
-          playerName = 'webcodecs';
-          console.log('Using WebCodecs player (best performance)');
-        }
+        let playerName = 'webcodecs';
 
         console.log('Selected player:', playerName);
 

@@ -7,14 +7,18 @@
       </div>
 
       <div class="upload-area" @dragover.prevent @drop.prevent="handleFileDrop" :class="{ 'drag-over': isDragging }">
-        <div class="upload-icon">📤</div>
+        <div class="upload-icon">
+          <font-awesome-icon icon="arrow-up-from-bracket" />
+        </div>
         <p class="upload-instructions"><span class="highlight">Click to browse</span> or drag & drop your file here</p>
         <p class="file-types">Supported formats: APK, IPA, ZIP</p>
         <input type="file" ref="fileInput" @change="handleFileUpload" class="file-input" accept=".apk,.ipa,.zip" />
       </div>
 
       <div v-if="file" class="selected-file">
-        <div class="file-icon">📄</div>
+        <div class="file-icon">
+          <font-awesome-icon icon="file" />
+        </div>
         <div class="file-details">
           <div class="file-name">{{ file.name }}</div>
           <div class="file-size">{{ formatFileSize(file.size) }}</div>
@@ -298,8 +302,8 @@ export default {
 
 .spinner {
   display: inline-block;
-  width: 16px;
-  height: 16px;
+  width: 10px;
+  height: 10px;
   border: 2px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
   border-top-color: white;

@@ -36,7 +36,6 @@ class NativeLibsModule(StaticModule):
 
         try:
             apk = APK(file_path)
-            native_libs = apk.get_libraries()
 
             results = {
                 "status": "success",

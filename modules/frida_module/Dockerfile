@@ -19,6 +19,8 @@ RUN cd /module/agent && frida-create -t agent
 RUN cd /module/agent && npm install frida-java-bridge
 
 COPY *.py /module/
+COPY frida_scripts/ /module/frida_scripts
+
 COPY config.yaml /module/
 
 ENV FRIDA_AGENT_ROOT=/module/agent

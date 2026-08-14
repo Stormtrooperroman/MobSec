@@ -105,18 +105,39 @@ async def remove_all_port_forwarding(
     )
 
 
+async def is_adb_server_running(host: str = "127.0.0.1", port: int = 5037) -> bool:
+    """
+    Check whether the ADB server is currently listening on its default port.
+
+    Args:
+        host: Host where the ADB server is expected to listen.
+        port: Port where the ADB server is expected to listen.
+
+    Returns:
+        True if a connection to the ADB server port succeeds, False otherwise.
+    """
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=1.0
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+        return False
+
+
 async def ensure_adb_server() -> bool:
     """
     Ensure ADB server is running, starting it if needed.
 
-    Args:
-        env: Optional environment variables for the ADB process.
-        all_interfaces: If True, start ADB with '-a' to listen on all interfaces.
-
     Returns:
-        True if server started successfully (or is already running), False otherwise.
+        True if server is already running or started successfully, False otherwise.
     """
     try:
+        if await is_adb_server_running():
+            logger.info("ADB server is already running")
+            return True
 
         env = get_adb_env()
 

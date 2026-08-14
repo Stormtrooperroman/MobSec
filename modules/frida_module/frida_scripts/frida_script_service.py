@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 
-from database import db_manager
-from frida_script_model import FridaScript
+from .database import db_manager
+from .frida_script_model import FridaScript
 
 logger = logging.getLogger(__name__)
 

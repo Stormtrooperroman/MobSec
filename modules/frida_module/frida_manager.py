@@ -5,12 +5,13 @@ import os
 import socket
 import tempfile
 from typing import Any, Dict, List
+import base64
 
 import frida
 from fastapi import WebSocket
 
-from frida_script_compiler import compile_script
-from frida_script_service import FridaScriptService
+from frida_scripts.frida_script_compiler import compile_script
+from frida_scripts.frida_script_service import FridaScriptService
 
 from mobsec_modules_library.dynamic import BaseWebSocketManager
 
@@ -604,6 +605,53 @@ class FridaManager(BaseWebSocketManager):
             logger.error("Error stopping script: %s", str(e))
             await self.send_error(f"Error stopping script: {str(e)}")
 
+    def _extract_icon_base64(self, params):
+        icons = params.get("icons") or []
+        if not icons:
+            return None
+
+        icon = (
+            max(icons, key=lambda i: i.get("width", 0) * i.get("height", 0))
+            if any("width" in i for i in icons)
+            else icons[0]
+        )
+
+        img_bytes = icon.get("image")
+        if not img_bytes:
+            return None
+
+        img_format = (icon.get("format") or "png").lower()
+        encoded = base64.b64encode(img_bytes).decode("ascii")
+        return f"data:image/{img_format};base64,{encoded}"
+
+    async def list_installed_apps(self):
+        try:
+            loop = asyncio.get_event_loop()
+
+            self.frida_device = await loop.run_in_executor(
+                None, self._get_frida_device_sync
+            )
+            apps_list = []
+            apps = self.frida_device.enumerate_applications(scope="full")
+            for app in apps:
+                params = dict(app.parameters)
+
+                app_json = {
+                    "identifier": app.identifier,
+                    "name": app.name,
+                    "pid": app.pid if app.pid else None,
+                    "icon": self._extract_icon_base64(params),
+                }
+
+                apps_list.append(app_json)
+
+            await self.send_response(
+                {"type": "frida", "action": "apps_list", "apps": apps_list}
+            )
+        except Exception as e:
+            logger.error("Error listing installed apps: %s", str(e))
+            await self.send_error(f"Error listing installed apps: {str(e)}")
+
     async def list_processes(self):
         try:
             loop = asyncio.get_event_loop()
@@ -665,6 +713,7 @@ class FridaManager(BaseWebSocketManager):
             "start_server": self.start_frida_server,
             "stop_server": self.stop_frida_server,
             "list_processes": self.list_processes,
+            "list_apps": self.list_installed_apps,
             "get_script_stats": self.get_script_stats,
         }
 

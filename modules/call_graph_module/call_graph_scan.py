@@ -275,7 +275,6 @@ class CallGraphModule(StaticModule):
         edge_batch = []
         total_nodes = 0
         total_edges = 0
-        external_calls = 0
         entry_point_count = len(entry_points)
 
         # helper to push batch into LMDB

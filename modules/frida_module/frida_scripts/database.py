@@ -27,7 +27,7 @@ db_manager = DatabaseManager()
 
 
 async def init_db():
-    from frida_script_model import Base
+    from .frida_script_model import Base
 
     async with db_manager.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

@@ -45,7 +45,7 @@
     </div>
 
     <div class="modules-section">
-      <h3 v-if="externalModules.length > 0" class="section-title">Internal Modules</h3>
+      <h3 v-if="internalModules.length > 0" class="section-title">Internal Modules</h3>
       <div v-for="group in internalModulesByType" :key="'int-' + group.type" class="module-type-group">
         <h4 class="module-type-title">{{ formatType(group.type) }}</h4>
         <div class="modules-grid">

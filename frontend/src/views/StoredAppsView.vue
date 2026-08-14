@@ -52,7 +52,9 @@
               </td>
               <td class="table-cell actions-cell">
                 <button @click="runAnalysis(app)" class="action-button run-button">
-                  <span class="action-icon">▶</span>
+                  <span class="action-icon">
+                    <font-awesome-icon icon="play" />
+                  </span>
                   Analyze
                 </button>
                 <button
@@ -60,11 +62,16 @@
                   class="action-button report-button"
                   :disabled="app.scan_status === 'N/A'"
                 >
-                  <span class="action-icon">📊</span>
+                  <span class="action-icon">
+                    <font-awesome-icon icon="chart-simple" />
+                  </span>
                   View Report
                 </button>
                 <button @click="deleteApp(app.file_hash)" class="action-button delete-button">
-                  <span class="action-icon">🗑️</span>
+                  <span class="action-icon">
+                    <font-awesome-icon icon="trash" />
+                  </span>
+                  Delete
                 </button>
               </td>
             </tr>

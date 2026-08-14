@@ -3,7 +3,6 @@ import os
 import asyncio
 import logging
 from typing import Dict, Any, List
-import zipfile
 from mobsec_modules_library.static.static_module import StaticModule
 
 logging.basicConfig(
@@ -28,7 +27,7 @@ class TruffleHogModule(StaticModule):
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
 
-            stdout, stderr = await process.communicate()
+            stdout, _ = await process.communicate()
             logger.info(f"TruffleHog output: {stdout.decode()}")
 
             if stdout:

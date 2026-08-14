@@ -123,7 +123,7 @@ export default {
   methods: {
     async fetchModules() {
       try {
-        const response = await fetch('/api/v1/modules');
+        const response = await fetch('/api/v1/modules/?module_type=static');
         this.availableModules = await response.json();
       } catch (error) {
         console.error('Error fetching modules:', error);

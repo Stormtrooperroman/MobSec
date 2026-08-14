@@ -118,18 +118,13 @@
           >
             <font-awesome-icon icon="trash" /> Clear
           </button>
-          
-          <div class="dropdown">
-            <button 
-              class="btn btn-sm btn-outline-secondary dropdown-toggle" 
-              @click="showExportMenu = !showExportMenu"
-            >
-              <font-awesome-icon icon="download" /> Export
-            </button>
-            <div class="dropdown-menu" v-show="showExportMenu">
-              <a @click="exportTraffic('json')" class="dropdown-item">JSON</a>
-            </div>
-          </div>
+
+          <a 
+            @click="exportTraffic('json')"
+            class="control-btn"
+          >
+            <font-awesome-icon icon="download" />  Export
+        </a>
         </div>
       </div>
 

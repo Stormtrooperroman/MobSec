@@ -3,7 +3,9 @@
     <div class="header page-header">
       <h2 class="page-title page-title-main">Analysis Chains</h2>
       <button @click="openCreateModal" class="create-button">
-        <span class="button-icon">+</span>
+        <span class="button-icon">
+          <font-awesome-icon icon="plus" />
+        </span>
         Create Chain
       </button>
     </div>
@@ -26,15 +28,21 @@
 
         <div class="button-container">
           <button @click="exportChain(chain)" class="card-button export-button" title="Export chain configuration">
-            <span class="button-icon">📤</span>
+            <span class="button-icon">
+              <font-awesome-icon icon="arrow-up-from-bracket" />
+            </span>
             Export
           </button>
           <button @click="editChain(chain)" class="card-button edit-button" title="Edit chain configuration">
-            <span class="button-icon">✏️</span>
+            <span class="button-icon">
+              <font-awesome-icon icon="pen" />
+            </span>
             Edit
           </button>
           <button @click="confirmDelete(chain)" class="card-button delete-button" title="Delete chain">
-            <span class="button-icon">🗑️</span>
+            <span class="button-icon">
+              <font-awesome-icon icon="trash" />
+            </span>
             Delete
           </button>
         </div>

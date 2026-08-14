@@ -1,9 +1,7 @@
 import os
 import asyncio
 import shutil
-import subprocess
 import zipfile
-from pathlib import Path
 from typing import Dict, Any, List
 import logging
 import sys
@@ -63,7 +61,7 @@ class JadxModule(StaticModule):
             os.makedirs(extract_dir, exist_ok=True)
 
             # Unzip the APK to extract DEX files
-            extracted_files = await self.unzip(apk_path, extract_dir)
+            await self.unzip(apk_path, extract_dir)
 
             # Find all DEX files
             dex_files = await self.find_dex_files(extract_dir)
@@ -141,7 +139,7 @@ class JadxModule(StaticModule):
                 return False
 
         except Exception as e:
-            logger.exception(f"Error running JADX on {input_file}")
+            logger.exception(f"Error running JADX on {input_file}: {str(e)}")
             return False
 
     async def unzip(self, app_path: str, ext_path: str) -> List[str]:
@@ -220,7 +218,7 @@ class JadxModule(StaticModule):
             return file_list
 
         except Exception as e:
-            logger.exception("Unzipping Error with OS unzip utility")
+            logger.exception(f"Unzipping Error with OS unzip utility: {str(e)}")
             return []
 
     async def find_dex_files(self, base_dir: str) -> List[str]:

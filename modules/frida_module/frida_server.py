@@ -2,7 +2,7 @@ import logging
 
 from fastapi import WebSocket
 
-from database import init_db
+from frida_scripts.database import init_db
 from frida_manager import FridaManager
 from mobsec_modules_library.dynamic import (
     BaseModuleManager,

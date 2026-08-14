@@ -7,11 +7,9 @@ import socket
 import hashlib
 import base64
 from typing import Dict, Any, List, Optional
-from datetime import datetime
-from io import BytesIO
 from fastapi import WebSocket
 
-from mitmproxy import options, flow, io as mitmproxy_io, certs
+from mitmproxy import options, flow, certs
 from mitmproxy import flowfilter
 from mitmproxy.http import HTTPFlow
 from mitmproxy.tcp import TCPFlow
