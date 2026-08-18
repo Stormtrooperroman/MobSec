@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import docker
 import docker.errors
+from docker.types import Mount
 import yaml
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -29,7 +30,6 @@ class EmulatorManager:
         self.docker_client = docker.from_env()
         self.emulators_config = self._load_emulators_config()
         self.base_ports = {"adb": 5555, "frida": 27042, "scrcpy": 8886}
-        self.adb_port = None
 
         database_url = os.getenv(
             "DATABASE_URL", "postgresql+asyncpg://postgres:password@db:5432/mobsec_db"
@@ -46,30 +46,6 @@ class EmulatorManager:
         port = sock.getsockname()[1]
         sock.close()
         return port
-
-    # def _start_adb_server(self) -> bool:
-    #     """Start ADB server listening on all interfaces"""
-    #     try:
-    #         env = get_adb_env()
-    #         result = subprocess.run(
-    #             ["adb", "-a", "server", "start"],
-    #             capture_output=True,
-    #             text=True,
-    #             timeout=10,
-    #             check=False,
-    #             env=env,
-    #         )
-
-    #         if result.returncode == 0:
-    #             logger.info("ADB server started successfully (all interfaces)")
-    #             return True
-
-    #         logger.error("Failed to start ADB server emulator manager: %s", result.stderr)
-    #         return False
-
-    #     except Exception as e:
-    #         logger.error("Error starting ADB server: %s", e)
-    #         return False
 
     async def _wait_for_android_boot(
         self, host: str, port: int, timeout: int = 120
@@ -288,6 +264,15 @@ class EmulatorManager:
                 logger.error("Failed to register emulator %s: %s", emulator_name, e)
                 await session.rollback()
                 raise
+    
+    async def _ensure_volume_subpath(self, volume_name: str, subpath: str) -> None:
+        """Ensure a subdirectory exists inside a named volume before subpath-mounting it."""
+        self.docker_client.containers.run(
+            "busybox",
+            command=["mkdir", "-p", f"/vol/{subpath}"],
+            volumes={volume_name: {"bind": "/vol", "mode": "rw"}},
+            remove=True,
+        )
 
     async def start_emulator(self, emulator_name: str) -> Dict[str, Any]:
         """Start emulator"""
@@ -336,6 +321,8 @@ class EmulatorManager:
             internal_port = self.base_ports[service]
             port_bindings[f"{internal_port}/tcp"] = external_port
 
+        await self._ensure_volume_subpath("mobsec_shared_data", emulator_name)
+
         container = self.docker_client.containers.run(
             image_name,
             detach=True,
@@ -343,7 +330,14 @@ class EmulatorManager:
             network="mobsec_app_network",
             ports=port_bindings,
             environment={"REDIS_URL": self.redis_url, "EMULATOR_NAME": emulator_name},
-            volumes={"mobsec_shared_data": {"bind": "/shared_data", "mode": "rw"}},
+            mounts=[
+                Mount(
+                    target="/data",
+                    source="mobsec_shared_data",
+                    type="volume",
+                    subpath=emulator_name,
+                )
+            ],
             name=container_name,
         )
 

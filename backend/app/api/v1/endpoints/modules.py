@@ -1,7 +1,8 @@
 import logging
 import os
 from typing import Any, Dict, List, Optional
-
+import aiofiles
+import asyncio
 import docker
 import httpx
 import yaml
@@ -47,7 +48,6 @@ async def list_modules(
     """
     try:
         modules_info = []
-        module_type = module_type
         module_source = source
         if module_source != "internal":
             modules_info += await module_manager.list_modules(module_type=module_type)
@@ -247,7 +247,7 @@ async def run_module(module_name: str, request: Dict[str, Any] = Body(...)):
         ) from e
 
 
-def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
+async def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
     """
     Dynamically discover module UI components across all modules
 
@@ -273,8 +273,8 @@ def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
                     config_path = os.path.join(module_path, "config.yaml")
                     module_type = "static"
                     if os.path.exists(config_path):
-                        with open(config_path, encoding="utf-8") as f:
-                            config = yaml.safe_load(f) or {}
+                        async with aiofiles.open(config_path, encoding="utf-8") as f:
+                            config = await yaml.safe_load(f) or {}
                             module_type = config.get("type", "static")
 
                     vue_suffix = (
@@ -419,8 +419,8 @@ async def get_module_ui_component(module_name: str):
                 detail=f"File not found: {module_info['vue_file_path']}",
             )
 
-        with open(module_info["vue_file_path"], "r", encoding="utf-8") as f:
-            vue_component_content = f.read()
+        async with aiofiles.open(module_info["vue_file_path"], "r", encoding="utf-8") as f:
+            vue_component_content = await f.read()
 
         return {
             "module_name": module_name,
@@ -458,7 +458,7 @@ async def get_module_vue_file(module_name: str, filename: str):
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail=f"File not found: {filename}")
 
-    with open(file_path, "r", encoding="utf-8") as f:
-        content = f.read()
+    async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+        content = await f.read()
 
     return {"filename": filename, "content": content}

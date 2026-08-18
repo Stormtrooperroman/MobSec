@@ -271,7 +271,7 @@ class ExternalModuleRegistry:
                     "is_external": True,
                     "version": module_dict["config"].get("version"),
                     "input_formats": module_dict["config"].get("input_formats", []),
-                    "module_type": module_config.get("type"),
+                    "module_type": module_dict.get("type"),
                 }
                 if "map_name" in module_dict["config"]:
                     module_info["map_name"] = module_dict["config"].get("map_name")

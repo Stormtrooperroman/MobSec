@@ -50,7 +50,7 @@ class ModuleManager:
         self.modules_config = self._load_modules_config()
         self.async_session = db_manager.session_factory
         self._initialized = True
-        self.ACTION_MODULE_MAP = {}
+        self.module_name_mappings = {}
 
     @classmethod
     def get_instance(
@@ -113,7 +113,7 @@ class ModuleManager:
 
             if config.get("map_name", None) != None:
                 map_name = config.get("map_name")
-                self.ACTION_MODULE_MAP[map_name] = module_name
+                self.module_name_mappings[map_name] = module_name
 
             if existing_module:
                 existing_module.version = version

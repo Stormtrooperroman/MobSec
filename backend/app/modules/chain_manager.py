@@ -277,46 +277,52 @@ class ChainManager:
 
     async def get_all_chains(self):
         async with self.async_session() as session:
-            chains_stmt = select(Chain)
-            chains_result = await session.execute(chains_stmt)
-            chains = chains_result.scalars().all()
-
-            chains_with_modules = []
-
-            for chain in chains:
-                modules_stmt = (
-                    select(Module, chain_modules.c.order, chain_modules.c.parameters)
-                    .join(chain_modules, Module.name == chain_modules.c.module_name)
-                    .where(chain_modules.c.chain_name == chain.name)
-                    .order_by(chain_modules.c.order)
+            stmt = (
+                select(
+                    Chain.name,
+                    Chain.description,
+                    Chain.created_at,
+                    Chain.updated_at,
+                    Module.name.label("module_name"),
+                    Module.version.label("module_version"),
+                    Module.description.label("module_description"),
+                    Module.config.label("module_config"),
+                    chain_modules.c.order,
+                    chain_modules.c.parameters,
                 )
-
-                modules_result = await session.execute(modules_stmt)
-
-                chain_modules_list = [
-                    {
-                        "module": {
-                            "name": module.name,
-                            "version": module.version,
-                            "description": module.description,
-                            "config": module.config,
-                        },
-                        "order": order,
-                        "parameters": parameters,
+                .select_from(Chain)
+                .join(chain_modules, Chain.name == chain_modules.c.chain_name)
+                .join(Module, Module.name == chain_modules.c.module_name)
+                .order_by(Chain.name, chain_modules.c.order)
+            )
+            
+            result = await session.execute(stmt)
+            rows = result.all()
+            
+            chains_dict = {}
+            for row in rows:
+                chain_name = row.name
+                if chain_name not in chains_dict:
+                    chains_dict[chain_name] = {
+                        "name": row.name,
+                        "description": row.description,
+                        "created_at": row.created_at,
+                        "updated_at": row.updated_at,
+                        "modules": [],
                     }
-                    for module, order, parameters in modules_result
-                ]
-
-                chain_dict = {
-                    "name": chain.name,
-                    "description": chain.description,
-                    "created_at": chain.created_at,
-                    "updated_at": chain.updated_at,
-                    "modules": chain_modules_list,
-                }
-                chains_with_modules.append(chain_dict)
-
-            return chains_with_modules
+                
+                chains_dict[chain_name]["modules"].append({
+                    "module": {
+                        "name": row.module_name,
+                        "version": row.module_version,
+                        "description": row.module_description,
+                        "config": row.module_config,
+                    },
+                    "order": row.order,
+                    "parameters": row.parameters,
+                })
+            
+            return list(chains_dict.values())
 
     async def update_chain(self, chain_name: str, new_data: dict):
         async with self.async_session() as session:

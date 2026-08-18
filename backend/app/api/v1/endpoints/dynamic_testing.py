@@ -89,8 +89,8 @@ async def websocket_endpoint(
     Main WebSocket endpoint for interacting with the device
     """
     module_manager = ModuleManager.get_instance()
-    if action in module_manager.ACTION_MODULE_MAP:
-        module_name = module_manager.ACTION_MODULE_MAP[action]
+    if action in module_manager.module_name_mappings:
+        module_name = module_manager.module_name_mappings[action]
 
         exists = await module_manager.check_module_exists(module_name)
 
