@@ -60,7 +60,7 @@
 </template>
 
 <script>
-import axios from 'axios';
+import api from '@/services/api';
 
 export default {
   name: 'WiFiConnectionModal',
@@ -130,7 +130,7 @@ export default {
 
       this.isConnecting = true;
       try {
-        const response = await axios.post('/api/v1/dynamic-testing/device/connect-wifi', {
+        await api.post('/dynamic-testing/device/connect-wifi', {
           ip_address: this.connection.ip,
           port: this.connection.port,
         });
@@ -142,7 +142,7 @@ export default {
         this.$emit(
           'error',
           `Failed to connect WiFi device ${this.connection.ip}:${this.connection.port}: ${
-            error.response?.data?.detail || 'Unknown error'
+            error.message || 'Unknown error'
           }`,
         );
       } finally {
@@ -158,7 +158,7 @@ export default {
 
       this.isConnecting = true;
       try {
-        const response = await axios.post('/api/v1/dynamic-testing/device/pair-wifi', {
+        await api.post('/dynamic-testing/device/pair-wifi', {
           ip_address: this.connection.ip,
           port: this.connection.port,
           pairing_port: this.connection.pairing_port,
@@ -172,7 +172,7 @@ export default {
         this.$emit(
           'error',
           `Failed to pair WiFi device ${this.connection.ip}:${this.connection.port}: ${
-            error.response?.data?.detail || 'Unknown error'
+            error.message || 'Unknown error'
           }`,
         );
       } finally {

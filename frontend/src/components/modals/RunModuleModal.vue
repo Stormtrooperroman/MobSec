@@ -93,6 +93,8 @@
 </template>
 
 <script>
+import api from '@/services/api';
+
 export default {
   name: 'RunModuleModal',
   props: {
@@ -187,9 +189,8 @@ export default {
     async fetchModules() {
       try {
         this.loading = true;
-        const response = await fetch('/api/v1/modules/?module_type=static');
-        if (!response.ok) throw new Error('Failed to fetch modules');
-        const allModules = await response.json();
+        const response = await api.get('/modules/?module_type=static');
+        const allModules = response.data;
 
         this.internalModules = allModules.filter(m => !m.is_external);
         this.externalModules = allModules.filter(m => m.is_external);
@@ -203,9 +204,8 @@ export default {
     async fetchChains() {
       try {
         this.loading = true;
-        const response = await fetch('/api/v1/chains');
-        if (!response.ok) throw new Error('Failed to fetch chains');
-        this.chains = await response.json();
+        const response = await api.get('/chains');
+        this.chains = response.data;
       } catch (err) {
         this.error = 'Error loading chains: ' + err.message;
         console.error('Error fetching chains:', err);
@@ -216,9 +216,8 @@ export default {
     async fetchApps() {
       try {
         this.loading = true;
-        const response = await fetch('/api/v1/apps?limit=100');
-        if (!response.ok) throw new Error('Failed to fetch apps');
-        const data = await response.json();
+        const response = await api.get('/apps?limit=100');
+        const data = response.data;
         this.apps = data.apps || [];
       } catch (err) {
         this.error = 'Error loading applications: ' + err.message;
@@ -256,44 +255,22 @@ export default {
         throw new Error('Selected module not found');
       }
 
-      const url = `/api/v1/modules/${selectedModule.id}/run`;
+      const url = `/modules/${selectedModule.id}/run`;
       const requestBody = {
         file_hash: this.selectedApp,
         is_external: selectedModule.is_external,
       };
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
+      const response = await api.post(url, requestBody);
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to run module');
-      }
-
-      this.taskResult = await response.json();
+      this.taskResult = response.data;
       this.$emit('task-submitted', this.taskResult);
     },
     async runChain() {
-      const url = `/api/v1/chains/${this.selectedChain}/run`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ file_hash: this.selectedApp }),
-      });
+      const url = `/chains/${this.selectedChain}/run`;
+      const response = await api.post(url, { file_hash: this.selectedApp });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to run chain');
-      }
-
-      this.taskResult = await response.json();
+      this.taskResult = response.data;
       this.$emit('task-submitted', this.taskResult);
     },
     closeModal() {

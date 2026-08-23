@@ -106,6 +106,7 @@
 <script>
 import '@/assets/app.css';
 import RunModuleModal from '@/components/modals/RunModuleModal.vue';
+import api from '@/services/api';
 
 export default {
   name: 'StoredAppsView',
@@ -153,8 +154,8 @@ export default {
       this.loading = true;
       this.error = null;
       try {
-        const response = await fetch(`/api/v1/apps?skip=${this.skip}&limit=${this.limit}`);
-        const data = await response.json();
+        const response = await api.get(`/apps?skip=${this.skip}&limit=${this.limit}`);
+        const data = response.data;
         this.apps = data.apps || [];
         this.total = data.total || 0;
       } catch (error) {
@@ -186,7 +187,7 @@ export default {
     async deleteApp(fileHash) {
       if (confirm('Are you sure you want to delete this app?')) {
         try {
-          await fetch(`/api/v1/apps/${fileHash}`, { method: 'DELETE' });
+          await api.delete(`/apps/${fileHash}`);
           this.fetchApps();
         } catch (error) {
           console.error('Error deleting app:', error);

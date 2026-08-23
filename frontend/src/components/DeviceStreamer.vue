@@ -92,6 +92,7 @@ import { TinyH264Player } from '@/ws-scrcpy/app/player/TinyH264Player';
 import { FileListingClient } from '@/ws-scrcpy/app/googDevice/client/FileListingClient';
 
 import FileManager from './tools/FileManager.vue';
+import api from '@/services/api';
 
 // Register available players
 StreamClientScrcpy.registerPlayer(TinyH264Player);
@@ -186,11 +187,8 @@ export default {
       ];
 
       try {
-        const response = await fetch('/api/v1/modules/?module_type=dynamic');
-        if (!response.ok) {
-          throw new Error('Failed to fetch dynamic modules');
-        }
-        const modules = await response.json();
+        const response = await api.get('/modules/?module_type=dynamic');
+        const modules = response.data;
 
         modules.forEach(module => {
           const view = module.view || {};
@@ -225,11 +223,8 @@ export default {
       }
 
       try {
-        const uiInfoResponse = await fetch('/api/v1/modules/module-ui-info');
-        if (!uiInfoResponse.ok) {
-          throw new Error('Failed to fetch module UI information');
-        }
-        const moduleUiInfo = await uiInfoResponse.json();
+        const uiInfoResponse = await api.get('/modules/module-ui-info');
+        const moduleUiInfo = uiInfoResponse.data;
 
         await Promise.all(
           toolsWithModule.map(async tool => {
@@ -239,13 +234,8 @@ export default {
             }
 
             try {
-              const response = await fetch(`/api/v1/modules/module-ui-component/${moduleKey}`);
-              if (!response.ok) {
-                console.debug(`Error fetching custom UI for module ${moduleKey}`);
-                return;
-              }
-
-              const { component_content, component_name } = await response.json();
+              const response = await api.get(`/modules/module-ui-component/${moduleKey}`);
+              const { component_content, component_name } = response.data;
               const component = await this.loadVueModuleComponent(moduleKey, component_name, component_content);
               this.toolComponents[tool.ACTION] = component;
             } catch (error) {
@@ -259,7 +249,7 @@ export default {
     },
 
     async loadVueModuleComponent(moduleName, componentName, mainContent) {
-      const moduleBaseUrl = `/api/v1/modules/module-vue-file/${moduleName}`;
+      const moduleBaseUrl = `/modules/module-vue-file/${moduleName}`;
 
       const options = {
         moduleCache: {
@@ -273,12 +263,8 @@ export default {
             };
           }
 
-          const response = await fetch(`${moduleBaseUrl}/${filename}`);
-          if (!response.ok) {
-            throw new Error(`Failed to load ${filename}`);
-          }
-
-          const data = await response.json();
+          const response = await api.get(`${moduleBaseUrl}/${filename}`);
+          const data = response.data;
           return {
             getContentData: async () => data.content,
           };
@@ -300,12 +286,11 @@ export default {
 
         while (retries > 0) {
           try {
-            response = await fetch(`/api/v1/dynamic-testing/device/${this.deviceId}/start`, {
-              method: 'POST',
+            response = await api.post(`/dynamic-testing/device/${this.deviceId}/start`, {}, {
               signal: AbortSignal.timeout(10000),
             });
 
-            if (response.ok) {
+            if (response.status === 200) {
               break;
             }
           } catch (error) {
@@ -319,7 +304,7 @@ export default {
           }
         }
 
-        if (!response?.ok) {
+        if (!response || response.status !== 200) {
           throw new Error('Failed to start device server');
         }
 

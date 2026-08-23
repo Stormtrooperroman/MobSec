@@ -143,6 +143,7 @@ import { defineComponent } from 'vue';
 import * as Vue from 'vue';
 import { loadModule } from 'vue3-sfc-loader';
 import GenericModule from '../components/modules/GenericModule.vue';
+import api from '@/services/api';
 
 export default defineComponent({
   name: 'ReportView',
@@ -201,11 +202,8 @@ export default defineComponent({
       if (!this.reportData.modules) return;
 
       try {
-        const uiInfoResponse = await fetch('/api/v1/modules/module-ui-info');
-        if (!uiInfoResponse.ok) {
-          throw new Error('Failed to fetch module UI information');
-        }
-        const moduleUiInfo = await uiInfoResponse.json();
+        const uiInfoResponse = await api.get('/modules/module-ui-info');
+        const moduleUiInfo = uiInfoResponse.data;
 
         const modules = Object.entries(this.nonEmptyModules);
         const modulesWithUI = await Promise.all(
@@ -214,13 +212,8 @@ export default defineComponent({
 
             if (moduleUiInfo[moduleKey]?.has_custom_ui) {
               try {
-                const response = await fetch(`/api/v1/modules/module-ui-component/${moduleKey}`);
-                if (!response.ok) {
-                  console.debug(`Error fetching custom UI for module ${name}`);
-                  return [name, { ...data, customUI: null }];
-                }
-
-                const { component_content, component_name } = await response.json();
+                const response = await api.get(`/modules/module-ui-component/${moduleKey}`);
+                const { component_content, component_name } = response.data;
 
                 const options = {
                   moduleCache: {
@@ -261,12 +254,8 @@ export default defineComponent({
       this.error = null;
 
       try {
-        const response = await fetch(`/api/v1/apps/report/${this.fileHash}`);
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-        }
-        this.reportData = await response.json();
+        const response = await api.get(`/apps/report/${this.fileHash}`);
+        this.reportData = response.data;
 
         if (this.reportData.modules) {
           Object.keys(this.reportData.modules).forEach(moduleName => {

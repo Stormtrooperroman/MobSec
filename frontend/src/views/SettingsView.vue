@@ -137,7 +137,7 @@
 </template>
 
 <script>
-import axios from 'axios';
+import api from '@/services/api';
 
 export default {
   name: 'SettingsView',
@@ -167,7 +167,7 @@ export default {
   methods: {
     async fetchModules() {
       try {
-        const response = await axios.get('/api/v1/modules/?module_type=static');
+        const response = await api.get('/modules/?module_type=static');
         this.modules = response.data;
       } catch (error) {
         this.showError('Error fetching modules');
@@ -175,7 +175,7 @@ export default {
     },
     async fetchChains() {
       try {
-        const response = await axios.get('/api/v1/chains/');
+        const response = await api.get('/chains/');
         this.chains = response.data;
       } catch (error) {
         this.showError('Error fetching chains');
@@ -183,7 +183,7 @@ export default {
     },
     async fetchSettings() {
       try {
-        const response = await axios.get('/api/v1/settings/auto-run');
+        const response = await api.get('/settings/auto-run');
 
         this.formData = {
           apkAction: response.data.apk_action || null,
@@ -273,7 +273,7 @@ export default {
       this.saving = true;
       try {
         const settings = this.prepareSettingsData();
-        await axios.post('/api/v1/settings/auto-run', settings);
+        await api.post('/settings/auto-run', settings);
         this.showSuccess('Settings saved successfully!');
       } catch (error) {
         this.showError('Error saving settings. Please try again.');

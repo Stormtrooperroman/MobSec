@@ -69,6 +69,7 @@
 </template>
 
 <script>
+import api from '@/services/api';
 import draggable from 'vuedraggable';
 
 export default {
@@ -123,8 +124,8 @@ export default {
   methods: {
     async fetchModules() {
       try {
-        const response = await fetch('/api/v1/modules/?module_type=static');
-        this.availableModules = await response.json();
+        const response = await api.get('/modules/?module_type=static');
+        this.availableModules = response.data;
       } catch (error) {
         console.error('Error fetching modules:', error);
       }
@@ -147,17 +148,12 @@ export default {
     },
     async handleSubmit() {
       try {
-        const url = this.editChain ? `/api/v1/chains/${this.editChain.name}` : '/api/v1/chains';
+        const url = this.editChain ? `/chains/${this.editChain.name}` : '/chains';
+        const method = this.editChain ? 'put' : 'post';
 
-        const response = await fetch(url, {
-          method: this.editChain ? 'PUT' : 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(this.formData),
-        });
+        const response = await api[method](url, this.formData);
 
-        if (response.ok) {
+        if (response.status >= 200 && response.status < 300) {
           this.$emit(this.editChain ? 'chain-updated' : 'chain-created');
           this.close();
         } else {

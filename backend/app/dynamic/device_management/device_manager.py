@@ -2,7 +2,7 @@ from typing import Dict, Optional, List
 import asyncio
 import logging
 
-from app.dynamic.device_management.scrcpy_device import Device
+from app.dynamic.device_management.scrcpy_device import ScrcpyDevice
 from app.dynamic.device_management.physical_device_manager import PhysicalDeviceManager
 
 
@@ -20,7 +20,7 @@ class DeviceManager:
             return
 
         self._initialized = True
-        self.devices: Dict[str, Device] = {}
+        self.devices: Dict[str, ScrcpyDevice] = {}
         self.logger = logging.getLogger(__name__)
         self.active_servers = {}
         self.physical_device_manager = PhysicalDeviceManager()
@@ -59,7 +59,7 @@ class DeviceManager:
         for device in current_devices:
             serial = device["udid"]
             if serial not in self.devices:
-                self.devices[serial] = Device(serial, device["status"])
+                self.devices[serial] = ScrcpyDevice(serial, device["status"])
                 if "type" in device:
                     self.devices[serial].device_type = device["type"]
                 if "name" in device:
@@ -78,7 +78,7 @@ class DeviceManager:
             self.logger.error("Error getting devices: %s", str(e))
             return []
 
-    async def get_device(self, device_id: str) -> Optional[Device]:
+    async def get_device(self, device_id: str) -> Optional[ScrcpyDevice]:
         """
         Gets information about a specific device
         """
@@ -89,7 +89,7 @@ class DeviceManager:
 
         for device_info in devices:
             if device_info["udid"] == device_id:
-                device = Device(device_info["udid"], device_info["status"])
+                device = ScrcpyDevice(device_info["udid"], device_info["status"])
                 if "type" in device_info:
                     device.device_type = device_info["type"]
                 if "name" in device_info:

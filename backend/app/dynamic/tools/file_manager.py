@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from typing import Optional, Dict, Any
+import shlex
 
 from fastapi import WebSocket
 
@@ -104,8 +105,7 @@ class FileManager(BaseWebSocketManager):
     def get_shell_command(self, command: str) -> str:
         """Returns the command with su or without in depending on the settings"""
         if self.use_su and self.su_available:
-            safe_command = command.replace('"', "'")
-            return f'echo "{safe_command}" | su'
+            return f'echo "{shlex.quote(command)}" | su'
         return command
 
     async def handle_message(self, data: str):
@@ -157,7 +157,7 @@ class FileManager(BaseWebSocketManager):
         try:
 
             check_command = self.get_shell_command(
-                f'test -d "{path}" && echo "DIR_EXISTS" || echo "NOT_DIR"'
+                f'test -d "{shlex.quote(path)}" && echo "DIR_EXISTS" || echo "NOT_DIR"'
             )
 
             check_output, check_error, return_code = await execute_adb_shell(
@@ -174,7 +174,9 @@ class FileManager(BaseWebSocketManager):
                 await self.send_error(error_msg)
                 return
 
-            ls_command = self.get_shell_command(f'ls -la "{path}" 2>/dev/null')
+            ls_command = self.get_shell_command(
+                f'ls -la "{shlex.quote(path)}" 2>/dev/null'
+            )
 
             stdout, stderr, return_code = await execute_adb_shell(
                 device_id=self.device_id, shell_command=ls_command
@@ -320,16 +322,14 @@ class FileManager(BaseWebSocketManager):
     async def stat_file(self, path: str):
         """Gets detailed information about a file"""
         try:
-            stdout, _, return_code = await execute_adb_shell(
+            output, _, return_code = await execute_adb_shell(
                 device_id=self.device_id,
-                shell_command=f'stat "{path}" 2>/dev/null || echo "ERROR: Cannot stat file"',
+                shell_command=f'stat "{shlex.quote(path)}" 2>/dev/null || echo "ERROR: Cannot stat file"',
             )
 
             if return_code != 0:
                 await self.send_error(f"Cannot stat file: {path}")
                 return
-
-            output = stdout.decode("utf-8", errors="ignore")
 
             if "ERROR: Cannot stat file" in output:
                 await self.send_error(f"Cannot stat file: {path}")
@@ -389,7 +389,7 @@ class FileManager(BaseWebSocketManager):
         try:
 
             check_command = self.get_shell_command(
-                f'test -f "{path}" && echo "FILE" || echo "NOT_FILE"'
+                f'test -f "{shlex.quote(path)}" && echo "FILE" || echo "NOT_FILE"'
             )
 
             stdout, _, _ = await execute_adb_shell(
@@ -410,7 +410,7 @@ class FileManager(BaseWebSocketManager):
                 )
 
                 copy_command = self.get_shell_command(
-                    f'cp "{path}" "{temp_device_path}" && chmod 644 "{temp_device_path}"'
+                    f'cp "{shlex.quote(path)}" "{temp_device_path}" && chmod 644 "{temp_device_path}"'
                 )
                 _, stderr, return_code = await execute_adb_shell(
                     device_id=self.device_id,
@@ -427,12 +427,12 @@ class FileManager(BaseWebSocketManager):
                 )
 
                 cleanup_command = self.get_shell_command(f'rm "{temp_device_path}"')
-                _, _, return_code = await execute_adb_shell(
+                _, stderr, return_code = await execute_adb_shell(
                     device_id=self.device_id,
                     shell_command=cleanup_command,
                 )
             else:
-                _, _, return_code = await execute_adb_command(
+                _, stderr, return_code = await execute_adb_command(
                     device_id=self.device_id,
                     command=["pull", path, temp_file],
                 )
@@ -513,7 +513,7 @@ class FileManager(BaseWebSocketManager):
             logger.debug("Deleting: %s", path)
 
             rm_command = self.get_shell_command(
-                f'rm -rf "{path}" && echo "SUCCESS" || echo "FAILED"'
+                f'rm -rf "{shlex.quote(path)}" && echo "SUCCESS" || echo "FAILED"'
             )
             stdout, _, return_code = await execute_adb_shell(
                 device_id=self.device_id, shell_command=rm_command
@@ -542,7 +542,7 @@ class FileManager(BaseWebSocketManager):
             logger.debug("Creating directory: %s", path)
 
             mkdir_command = self.get_shell_command(
-                f'mkdir -p "{path}" && echo "SUCCESS" || echo "FAILED"'
+                f'mkdir -p "{shlex.quote(path)}" && echo "SUCCESS" || echo "FAILED"'
             )
             stdout, _, return_code = await execute_adb_shell(
                 device_id=self.device_id, shell_command=mkdir_command

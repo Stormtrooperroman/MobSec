@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.core.database_manager import db_manager
 from app.core.settings_service import settings_service
 from app.models.app import FileModel, FileType, ScanStatus
+from sqlalchemy import func
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -59,7 +60,7 @@ class AsyncStorageService:
                     return FileType.ZIP
 
         except Exception as e:
-            print(f"Error determining file type: {e}")
+            logger.error(f"Error determining file type: {e}")
 
         return FileType.UNKNOWN
 
@@ -321,9 +322,9 @@ class AsyncStorageService:
         Get total number of files in the database.
         """
         async with self.async_session() as session:
-            query = select(FileModel)
+            query = select(func.count()).select_from(FileModel)
             result = await session.execute(query)
-            return len(result.scalars().all())
+            return result.scalar_one()
 
     async def delete_file(self, file_hash: str) -> bool:
         """

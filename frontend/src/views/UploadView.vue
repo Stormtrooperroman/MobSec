@@ -40,6 +40,8 @@
 </template>
 
 <script>
+import api from '@/services/api';
+
 export default {
   data() {
     return {
@@ -101,17 +103,8 @@ export default {
       formData.append('file', this.file);
 
       try {
-        const response = await fetch('/api/v1/apps/upload', {
-          method: 'POST',
-          body: formData,
-          timeout: 300000,
-        });
+        await api.post('/apps/upload', formData, { timeout: 300000 });
 
-        if (!response.ok) {
-          throw new Error(`Upload failed: ${response.statusText}`);
-        }
-
-        await response.json();
         // Redirect to the apps page after successful upload
         this.$router.push({ name: 'apps' });
       } catch (error) {

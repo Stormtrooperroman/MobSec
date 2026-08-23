@@ -1,14 +1,13 @@
 import asyncio
-import json
 import logging
 import os
 import traceback
-from typing import Any, Dict
-
-import redis
+from typing import Any, Dict, Optional
 
 from app.core.app_manager import storage
 from app.models.app import ScanStatus
+
+from app.services.redis_service import RedisService
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -20,16 +19,22 @@ class ReportGenerator:
     def __init__(self):
         redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
-        self.redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
+        self.redis_service = RedisService(redis_url)
         self.running = False
-        self.polling_interval = 2  # seconds
+        self._task: Optional[asyncio.Task] = None
 
     async def start(self):
         """Start the background report generator service"""
         logger.info("Starting Report Generator service")
         self.running = True
         try:
-            await self._monitor_results_loop()
+            async for key in self.redis_service.iter_result_keys():
+                await self._process_result(key)
+
+            await self._monitor_results_events()
+        except asyncio.CancelledError:
+            logger.info("Report generator stopped")
+            raise
         except Exception as e:
             logger.error("Error in report generator: %s", e)
             self.running = False
@@ -39,84 +44,61 @@ class ReportGenerator:
         """Stop the background service"""
         logger.info("Stopping Report Generator service")
         self.running = False
-
-    async def _monitor_results_loop(self):
-        """Main loop to continuously check for new results in Redis"""
-        while self.running:
+        if self._task and not self._task.done():
+            self._task.cancel()
             try:
-                # Scan for all keys matching the result pattern
-                cursor = 0
-                while True:
-                    cursor, keys = self.redis_client.scan(
-                        cursor, match="result:*:*", count=100
-                    )
-
-                    for key in keys:
-                        await self._process_result(key)
-
-                    if cursor == 0:
-                        break
-
-                await asyncio.sleep(self.polling_interval)
-
+                await self._task
+            except asyncio.CancelledError:
+                pass
             except Exception as e:
-                logger.error("Error in monitoring loop: %s", e)
-                await asyncio.sleep(5)  # Wait a bit longer if there's an error
+                logger.debug("Report generator task ended with: %s", e)
+
+        await self.redis_service.close()
+
+    async def _monitor_results_events(self):
+        """Process new results as modules write them, via Redis keyspace
+        notifications.
+        """
+        try:
+            async for key in self.redis_service.listen_result_keys():
+                if not self.running:
+                    break
+                await self._process_result(key)
+        except asyncio.CancelledError:
+            logger.info("Report generator event listener cancelled")
+            raise
+        except Exception as e:
+            logger.error("Error in result event listener: %s", e)
+            raise
 
     async def _process_result(self, result_key: str):
         """Process a single result from Redis and update the database"""
         try:
-            # Extract module name and file hash from the key
-            # Format: result:[module_name]:[file_hash]
-            parts = result_key.split(":")
-            if len(parts) < 3:
+            parsed = self.redis_service.parse_result_key(result_key)
+            if parsed is None:
                 logger.warning("Invalid result key format: %s", result_key)
                 return
 
-            module_name = parts[1]
-            file_hash = parts[2]
+            module_name, file_hash = parsed
 
-            # Get result data from Redis
-            result_json = self.redis_client.get(result_key)
-            if not result_json:
-                logger.warning("Result key exists but no data found: %s", result_key)
-                return
-
-            # Parse result data
-            try:
-                result_data = json.loads(result_json)
-            except json.JSONDecodeError:
-                logger.error(
-                    "Failed to parse JSON result for %s: %s...",
-                    result_key,
-                    result_json[:100],
+            result_data = await self.redis_service.get_json(result_key)
+            if result_data is None:
+                logger.warning(
+                    "Result key exists but no usable data found: %s", result_key
                 )
                 return
 
             # Update file in database with scan results
             await self._update_file_scan_results(file_hash, result_data, module_name)
 
-            # Clean up any associated tasks
-            task_keys = self.redis_client.keys("task:*")
-            for task_key in task_keys:
-                try:
-                    task_data = json.loads(self.redis_client.get(task_key))
-                    if (
-                        task_data.get("file_hash") == file_hash
-                        and task_data.get("module_name", "").lower()
-                        == module_name.lower()
-                    ):
-                        self.redis_client.delete(task_key)
-                        logger.info("Cleaned up associated task: %s", task_key)
-                except json.JSONDecodeError:
-                    logger.warning("Could not parse task data for %s", task_key)
-                except Exception as e:
-                    logger.error(
-                        "Error processing task cleanup for %s: %s", task_key, e
-                    )
+            cleaned = await self.redis_service.delete_tasks_for(
+                file_hash, module_name=module_name, case_insensitive=True
+            )
+            if cleaned:
+                logger.info("Cleaned up %s associated task(s)", cleaned)
 
             # Delete processed result from Redis
-            self.redis_client.delete(result_key)
+            await self.redis_service.delete(result_key)
             logger.info("Processed and removed result: %s", result_key)
 
         except Exception as e:
@@ -160,8 +142,7 @@ class ReportGenerator:
             else:
                 logger.error("Failed to update scan results for file %s", file_hash)
 
-            # Update chains if applicable
-            self._update_chains_for_result(file_hash, module_name, result_data)
+            await self._update_chains_for_result(file_hash, module_name, result_data)
 
         except Exception as e:
             logger.error("Exception in _update_file_scan_results: %s", e)
@@ -191,14 +172,12 @@ class ReportGenerator:
 
         return current_results
 
-    def _update_chains_for_result(
+    async def _update_chains_for_result(
         self, file_hash: str, module_name: str, result_data: Dict[str, Any]
     ):
         """Update chain data for a module result"""
-        chain_key_pattern = "chain:*"
-        for chain_key in self.redis_client.keys(chain_key_pattern):
+        async for chain_task_id, chain_data in self.redis_service.iter_chain_states():
             try:
-                chain_data = json.loads(self.redis_client.get(chain_key))
                 if chain_data.get("file_hash") != file_hash:
                     continue
 
@@ -209,15 +188,15 @@ class ReportGenerator:
                     current_index < len(modules)
                     and modules[current_index] == module_name
                 ):
-                    self._process_chain_module_completion(
-                        chain_key, chain_data, module_name, result_data
+                    await self._process_chain_module_completion(
+                        chain_task_id, chain_data, module_name, result_data
                     )
-            except (json.JSONDecodeError, KeyError) as e:
-                logger.error("Error processing chain %s: %s", chain_key, e)
+            except KeyError as e:
+                logger.error("Error processing chain %s: %s", chain_task_id, e)
 
-    def _process_chain_module_completion(
+    async def _process_chain_module_completion(
         self,
-        chain_key: str,
+        chain_task_id: str,
         chain_data: dict,
         module_name: str,
         result_data: Dict[str, Any],
@@ -228,21 +207,18 @@ class ReportGenerator:
 
         chain_data["results"][module_name] = result_data
         chain_data["current_index"] = current_index + 1
-        chain_task_id = chain_key.split(":")[-1]
 
-        self.redis_client.set(chain_key, json.dumps(chain_data), ex=86400)
+        await self.redis_service.set_chain_state(chain_task_id, chain_data)
 
         next_module_index = current_index + 1
-        self.redis_client.publish(
-            f"chain:module:completed:{chain_task_id}",
-            json.dumps(
-                {
-                    "chain_task_id": chain_task_id,
-                    "module_index": current_index,
-                    "next_module_index": next_module_index,
-                    "file_hash": file_hash,
-                }
-            ),
+        await self.redis_service.publish_chain_event(
+            chain_task_id,
+            {
+                "chain_task_id": chain_task_id,
+                "module_index": current_index,
+                "next_module_index": next_module_index,
+                "file_hash": file_hash,
+            },
         )
         logger.info(
             "Published chain module completion event for %s in chain %s",
@@ -257,7 +233,7 @@ report_generator = ReportGenerator()
 
 async def start_report_generator():
     """Start the report generator as a background task"""
-    asyncio.create_task(report_generator.start())
+    report_generator._task = asyncio.create_task(report_generator.start())
 
 
 async def stop_report_generator():

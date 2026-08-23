@@ -162,6 +162,7 @@
 
 <script>
 import '@/assets/app.css';
+import api from '@/services/api';
 
 export default {
   name: 'ModulesView',
@@ -209,9 +210,8 @@ export default {
     },
     async fetchModules() {
       try {
-        const response = await fetch('/api/v1/modules');
-        const data = await response.json();
-        this.allModules = data.map(module => ({
+        const response = await api.get('/modules');
+        this.allModules = response.data.map(module => ({
           ...module,
           isLoading: false,
           isRebuilding: false,
@@ -225,10 +225,8 @@ export default {
 
       module.isLoading = true;
       try {
-        const response = await fetch(`/api/v1/modules/${module.id}/toggle`, {
-          method: 'POST',
-        });
-        if (response.ok) {
+        const response = await api.post(`/modules/${module.id}/toggle`);
+        if (response.status === 200) {
           module.active = !module.active;
         }
       } catch (error) {
@@ -242,10 +240,8 @@ export default {
 
       module.isRebuilding = true;
       try {
-        const response = await fetch(`/api/v1/modules/${module.id}/rebuild`, {
-          method: 'POST',
-        });
-        if (response.ok) {
+        const response = await api.post(`/modules/${module.id}/rebuild`);
+        if (response.status === 200) {
           await this.fetchModules();
         }
       } catch (error) {
@@ -256,9 +252,8 @@ export default {
     },
     async fetchEmulators() {
       try {
-        const response = await fetch('/api/v1/emulators/list');
-        const data = await response.json();
-        this.emulators = data.emulators.map(emulator => ({
+        const response = await api.get('/emulators/list');
+        this.emulators = response.data.emulators.map(emulator => ({
           ...emulator,
           isLoading: false,
         }));
@@ -271,20 +266,13 @@ export default {
 
       emulator.isLoading = true;
       try {
-        const endpoint = emulator.status === 'running' ? '/api/v1/emulators/stop' : '/api/v1/emulators/start';
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ name: emulator.name }),
-        });
+        const endpoint = emulator.status === 'running' ? '/emulators/stop' : '/emulators/start';
+        const response = await api.post(endpoint, { name: emulator.name });
 
-        if (response.ok) {
+        if (response.status === 200) {
           await this.fetchEmulators();
         } else {
-          const error = await response.json();
-          console.error('Error toggling emulator:', error);
+          console.error('Error toggling emulator:', response.data);
         }
       } catch (error) {
         console.error('Error toggling emulator:', error);

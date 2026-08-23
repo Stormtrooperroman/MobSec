@@ -2,21 +2,18 @@ import asyncio
 import logging
 import os
 import re
-import socket
 import subprocess
 from typing import Any, Dict, List, Optional
 
-import docker
-import docker.errors
 from docker.types import Mount
 import yaml
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from app.core.database_manager import db_manager
 from sqlalchemy import select
-from redis import Redis
+
+from app.services.docker_service import DockerService
 
 from app.dynamic.utils.adb_utils import get_adb_env, ensure_adb_server
-from app.models.emulator import Base, Emulator
+from app.models.emulator import Emulator
 
 logger = logging.getLogger(__name__)
 
@@ -26,26 +23,11 @@ class EmulatorManager:
     def __init__(self, redis_url: str, emulators_path: str):
         self.redis_url = redis_url
         self.emulators_path = emulators_path
-        self.redis = Redis.from_url(redis_url, decode_responses=True)
-        self.docker_client = docker.from_env()
+        self.docker_service = DockerService()
         self.emulators_config = self._load_emulators_config()
         self.base_ports = {"adb": 5555, "frida": 27042, "scrcpy": 8886}
 
-        database_url = os.getenv(
-            "DATABASE_URL", "postgresql+asyncpg://postgres:password@db:5432/mobsec_db"
-        )
-        self.engine = create_async_engine(database_url)
-        self.async_session = sessionmaker(
-            self.engine, class_=AsyncSession, expire_on_commit=False
-        )
-
-    def _find_free_port(self) -> int:
-        """Find a free port"""
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind(("", 0))
-        port = sock.getsockname()[1]
-        sock.close()
-        return port
+        self.async_session = db_manager.session_factory
 
     async def _wait_for_android_boot(
         self, host: str, port: int, timeout: int = 120
@@ -192,33 +174,11 @@ class EmulatorManager:
             "scrcpy": self.base_ports["scrcpy"] + offset,
         }
 
-    def _get_container_ip(self, container_id: str) -> Optional[str]:
+    async def _get_container_ip(self, container_id: str) -> Optional[str]:
         """Get container IP address"""
-        try:
-            container = self.docker_client.containers.get(container_id)
-            network_name = "mobsec_app_network"
-
-            networks = container.attrs["NetworkSettings"]["Networks"]
-            if network_name in networks:
-                return networks[network_name]["IPAddress"]
-
-            for network in networks.values():
-                if network.get("IPAddress"):
-                    return network["IPAddress"]
-
-        except Exception as e:
-            logger.error("Error getting container IP: %s", e)
-
-        return None
-
-    async def _create_emulator_table(self):
-        """Create emulator table if it doesn't exist"""
-        try:
-            async with self.engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-        except Exception as e:
-            logger.error("Failed to create emulator table: %s", e)
-            raise
+        return await self.docker_service.get_container_ip(
+            container_id, network_name="mobsec_app_network"
+        )
 
     async def _register_emulator(self, emulator_name: str, config: dict):
         """Register emulator in database"""
@@ -264,14 +224,16 @@ class EmulatorManager:
                 logger.error("Failed to register emulator %s: %s", emulator_name, e)
                 await session.rollback()
                 raise
-    
+
     async def _ensure_volume_subpath(self, volume_name: str, subpath: str) -> None:
         """Ensure a subdirectory exists inside a named volume before subpath-mounting it."""
-        self.docker_client.containers.run(
-            "busybox",
+        await self.docker_service.run_container(
+            image="busybox",
+            name=f"mobsec_volume_init_{subpath}",
             command=["mkdir", "-p", f"/vol/{subpath}"],
             volumes={volume_name: {"bind": "/vol", "mode": "rw"}},
             remove=True,
+            detach=False,
         )
 
     async def start_emulator(self, emulator_name: str) -> Dict[str, Any]:
@@ -286,20 +248,6 @@ class EmulatorManager:
         await self._register_emulator(emulator_name, config)
 
         container_name = f"emulator_{emulator_name}"
-        try:
-            existing_container = self.docker_client.containers.get(container_name)
-            logger.info("Removing existing container %s", container_name)
-            try:
-                existing_container.stop(timeout=10)
-            except Exception as exc:
-                logger.warning("Failed to stop existing container: %s", exc)
-
-            existing_container.remove()
-        except docker.errors.NotFound:
-            pass
-        except Exception as exc:
-            logger.warning("Error handling existing container: %s", exc)
-
         image_name = f"mobsec_emulator_{emulator_name}"
         ports = self._get_available_ports(emulator_name)
 
@@ -310,11 +258,7 @@ class EmulatorManager:
             raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
 
         logger.info("Building Docker image for %s...", emulator_name)
-        self.docker_client.images.build(
-            path=os.path.dirname(dockerfile_path),
-            dockerfile=dockerfile_path,
-            tag=image_name,
-        )
+        await self.docker_service.build_image(emulator_path, image_name)
 
         port_bindings = {}
         for service, external_port in ports.items():
@@ -323,9 +267,9 @@ class EmulatorManager:
 
         await self._ensure_volume_subpath("mobsec_shared_data", emulator_name)
 
-        container = self.docker_client.containers.run(
-            image_name,
-            detach=True,
+        container = await self.docker_service.run_container(
+            image=image_name,
+            name=container_name,
             privileged=True,
             network="mobsec_app_network",
             ports=port_bindings,
@@ -338,7 +282,6 @@ class EmulatorManager:
                     subpath=emulator_name,
                 )
             ],
-            name=container_name,
         )
 
         await self._update_emulator_status(emulator_name, "running", container.id)
@@ -360,15 +303,8 @@ class EmulatorManager:
                 emulator = result.scalar_one_or_none()
 
                 if emulator and emulator.container_id:
-                    try:
-                        container = self.docker_client.containers.get(
-                            emulator.container_id
-                        )
-                        container.stop()
-                        container.remove()
-                        logger.info("Stopped emulator %s", emulator_name)
-                    except Exception as e:
-                        logger.warning("Error stopping container: %s", e)
+                    await self.docker_service.stop_container(emulator.container_id)
+                    logger.info("Stopped emulator %s", emulator_name)
 
                 await self._update_emulator_status(emulator_name, "stopped", None)
                 return True
@@ -412,7 +348,6 @@ class EmulatorManager:
 
     async def list_emulators(self) -> List[Dict[str, Any]]:
         """List all emulators"""
-        await self._create_emulator_table()
 
         async with self.async_session() as session:
             stmt = select(Emulator).where(Emulator.active.is_(True))
@@ -447,8 +382,6 @@ class EmulatorManager:
         logger.info("Starting active emulators...")
 
         try:
-            await self._create_emulator_table()
-
             for emulator_name, config in self.emulators_config.items():
                 await self._register_emulator(emulator_name, config)
 
@@ -498,7 +431,7 @@ class EmulatorManager:
             logger.warning("No container ID for emulator %s", emulator_name)
             return False
 
-        container_ip = self._get_container_ip(container_id)
+        container_ip = await self._get_container_ip(container_id)
         if not container_ip:
             logger.warning("Could not get container IP for emulator %s", emulator_name)
             return False

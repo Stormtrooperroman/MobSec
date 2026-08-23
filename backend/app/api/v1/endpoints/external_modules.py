@@ -1,3 +1,4 @@
+import asyncio
 import io
 import logging
 import os
@@ -116,6 +117,11 @@ async def _get_files_info(file_ids: List[str]) -> List[Dict[str, Any]]:
 
 async def _create_tar_archive(files: List[Dict[str, Any]]) -> bytes:
     """Create tar.gz archive from files"""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _build_tar_archive_sync, files)
+
+
+def _build_tar_archive_sync(files: List[Dict[str, Any]]) -> bytes:
     tar_buffer = io.BytesIO()
 
     with tarfile.open(fileobj=tar_buffer, mode="w:gz") as tar:

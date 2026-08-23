@@ -6,8 +6,8 @@ including physical devices and emulators.
 """
 
 from .device_manager import DeviceManager
-from .scrcpy_device import Device
+from .scrcpy_device import ScrcpyDevice
 from .emulator_manager import EmulatorManager
 from .physical_device_manager import PhysicalDeviceManager
 
-__all__ = ["DeviceManager", "Device", "EmulatorManager", "PhysicalDeviceManager"]
+__all__ = ["DeviceManager", "ScrcpyDevice", "EmulatorManager", "PhysicalDeviceManager"]

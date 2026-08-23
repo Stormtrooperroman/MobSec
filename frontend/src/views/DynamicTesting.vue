@@ -122,7 +122,7 @@
 import DeviceStreamer from '@/components/DeviceStreamer.vue';
 import NotificationToast from '@/components/NotificationToast.vue';
 import WiFiConnectionModal from '@/components/modals/WiFiConnectionModal.vue';
-import axios from 'axios';
+import api from '@/services/api';
 
 export default {
   name: 'DynamicTesting',
@@ -139,7 +139,6 @@ export default {
       availableApps: [],
       notifications: [],
       showWiFiModal: false,
-      isDisconnectingWiFi: false,
     };
   },
   computed: {
@@ -196,7 +195,7 @@ export default {
     async refreshDevices() {
       this.isLoadingDevices = true;
       try {
-        const response = await axios.get('/api/v1/dynamic-testing/devices');
+        const response = await api.get('/dynamic-testing/devices');
         this.devices = response.data.map(device => ({
           id: device.udid,
           name: device.name || device.udid,
@@ -229,10 +228,10 @@ export default {
 
       try {
         if (device.isStreaming) {
-          await axios.post(`/api/v1/dynamic-testing/device/${device.id}/stop`);
+          await api.post(`/dynamic-testing/device/${device.id}/stop`);
           device.isStreaming = false;
         } else {
-          await axios.post(`/api/v1/dynamic-testing/device/${device.id}/start`);
+          await api.post(`/dynamic-testing/device/${device.id}/start`);
           device.isStreaming = true;
         }
       } catch (error) {
@@ -259,7 +258,7 @@ export default {
 
     async loadAvailableApps() {
       try {
-        const response = await axios.get('/api/v1/apps/?limit=100');
+        const response = await api.get('/apps/?limit=100');
         this.availableApps = response.data.apps.filter(app => app.file_type === 'apk');
       } catch (error) {
         console.error('Error loading apps:', error);
@@ -279,8 +278,8 @@ export default {
         formData.append('apk_file', file);
 
         try {
-          const response = await axios.post(
-            `/api/v1/dynamic-testing/device/${device.id}/install-apk-direct`,
+          const response = await api.post(
+            `/dynamic-testing/device/${device.id}/install-apk-direct`,
             formData,
             {
               headers: {
@@ -308,7 +307,7 @@ export default {
 
     async installAppByHash(device, fileHash, appName) {
       try {
-        const response = await axios.post(`/api/v1/dynamic-testing/device/${device.id}/install-app`, {
+        const response = await api.post(`/dynamic-testing/device/${device.id}/install-app`, {
           file_hash: fileHash,
           app_name: appName,
         });
@@ -327,30 +326,6 @@ export default {
           'Error',
           `Error installing app. ${error.response?.data?.detail || 'Unknown error'}`,
         );
-      }
-    },
-
-    async enableWirelessDebugging(device) {
-      if (!device.id) {
-        device.error = 'Device ID not defined';
-        device.showError = true;
-        return;
-      }
-
-      device.isLoading = true;
-      device.error = null;
-      device.showError = false;
-
-      try {
-        const response = await axios.post(`/api/v1/dynamic-testing/device/${device.id}/enable-wireless-debugging`);
-        this.addNotification('success', 'Success', `Wireless debugging enabled for ${device.name}`);
-        device.type = response.data.type;
-      } catch (error) {
-        console.error('Failed to enable wireless debugging:', error);
-        device.error = error.response?.data?.detail || 'Error enabling wireless debugging';
-        device.showError = true;
-      } finally {
-        device.isLoading = false;
       }
     },
 
@@ -404,25 +379,6 @@ export default {
         });
       }
     },
-
-    async disconnectWiFi() {
-      this.isDisconnectingWiFi = true;
-      try {
-        await axios.post('/api/v1/dynamic-testing/disconnect-wifi');
-        this.addNotification('success', 'Success', 'WiFi connection disconnected.');
-
-        await this.refreshDevices();
-      } catch (error) {
-        console.error('Failed to disconnect WiFi:', error);
-        this.addNotification(
-          'error',
-          'Error',
-          'Failed to disconnect WiFi: ' + (error.response?.data?.detail || error.message),
-        );
-      } finally {
-        this.isDisconnectingWiFi = false;
-      }
-    },
   },
 };
 </script>
@@ -431,22 +387,6 @@ export default {
 :root {
   --border-color: #e0e0e0;
   --stream-bg: #000000;
-  --wifi-status-bg: #e0f2f7;
-  --wifi-status-border: #17a2b8;
-  --wifi-status-text: #17a2b8;
-  --disconnect-btn-bg: #f44336;
-  --disconnect-btn-hover: #d32f2f;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --stream-bg: #000000;
-    --wifi-status-bg: #1a3a4a;
-    --wifi-status-border: #17a2b8;
-    --wifi-status-text: #17a2b8;
-    --disconnect-btn-bg: #f44336;
-    --disconnect-btn-hover: #d32f2f;
-  }
 }
 
 .dynamic-testing {
@@ -529,44 +469,9 @@ export default {
   color: var(--text-secondary);
 }
 
-.device-type {
-  margin-top: 0.5rem;
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-}
-
-.type-badge {
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-weight: 600;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-}
-
-.type-badge.physical {
-  background-color: #e0f2f7;
-  color: #17a2b8;
-}
-
-.type-badge.emulator {
-  background-color: #f8f9fa;
-  color: #6c757d;
-}
-
-.type-badge.unknown {
-  background-color: #f8f9fa;
-  color: #6c757d;
-}
-
 .device-actions {
   display: flex;
   gap: 1rem;
-}
-
-.physical-device-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-left: auto;
 }
 
 .device-btn {
@@ -608,26 +513,6 @@ export default {
 
 .btn-stop:hover {
   background-color: #f44336;
-  color: white;
-}
-
-.btn-wireless {
-  border-color: #28a745;
-  color: #28a745;
-}
-
-.btn-wireless:hover {
-  background-color: #28a745;
-  color: white;
-}
-
-.btn-wifi-connect {
-  border-color: #007bff;
-  color: #007bff;
-}
-
-.btn-wifi-connect:hover {
-  background-color: #007bff;
   color: white;
 }
 
@@ -845,76 +730,10 @@ export default {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
-.connection-status {
-  margin-bottom: 2rem;
-  text-align: right;
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background-color: var(--wifi-status-bg);
-  border: 1px solid var(--wifi-status-border);
-  border-radius: 6px;
-  padding: 10px 15px;
-  color: var(--wifi-status-text);
-  font-weight: 600;
-  font-size: 14px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-}
-
-.status-indicator .wifi-icon {
-  color: var(--wifi-status-text);
-  font-size: 18px;
-}
-
-.status-indicator .disconnect-btn {
-  background-color: var(--disconnect-btn-bg);
-  color: white;
-  border: none;
-  padding: 8px 12px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-  white-space: nowrap;
-}
-
-.status-indicator .disconnect-btn:hover {
-  background-color: var(--disconnect-btn-hover);
-}
-
-.status-indicator .disconnect-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.status-indicator .disconnect-btn:disabled:hover {
-  background-color: var(--disconnect-btn-bg);
-}
-
 @media (max-width: 768px) {
   .wifi-connect-btn {
     font-size: 14px;
     padding: 10px 20px;
-  }
-
-  .connection-status {
-    text-align: center;
-  }
-
-  .status-indicator {
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-  }
-
-  .status-indicator .disconnect-btn {
-    width: 100%;
-    justify-content: center;
   }
 }
 </style>

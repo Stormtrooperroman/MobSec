@@ -21,14 +21,10 @@ class PhysicalDeviceManager:
         self.logger = logging.getLogger(__name__)
         self.connected_devices: Dict[str, Dict] = {}
         self.adb_env = get_adb_env()
-        self._adb_server_started = False
 
     async def get_physical_devices(self) -> List[Dict[str, str]]:
         """Get list of connected physical devices"""
         try:
-            # Ensure ADB server is running only once
-            if not self._adb_server_started:
-                self._adb_server_started = True
 
             stdout, _, return_code = await execute_adb_devices()
 
@@ -309,7 +305,7 @@ class PhysicalDeviceManager:
             )
 
             if return_code == 0:
-                output = stdout.decode().strip()
+                output = stdout.strip()
                 if "x" in output:
                     width, height = map(int, output.split("x"))
                     return {"width": width, "height": height}

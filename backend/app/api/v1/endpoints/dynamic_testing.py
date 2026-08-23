@@ -3,6 +3,8 @@ import os
 import tempfile
 from typing import Dict, List, Optional
 
+import aiofiles
+import aiofiles.os
 from fastapi import (
     APIRouter,
     File,
@@ -276,7 +278,7 @@ async def multiplex_endpoint(websocket: WebSocket, action: Optional[str] = Query
         await websocket.accept()
         logger.info("Multiplex WebSocket connection accepted")
 
-        await websocket_manager.handle_multiplex_simple(websocket)
+        await websocket_manager.handle_multiplex_without_device(websocket)
 
     except WebSocketDisconnect:
         logger.info("Multiplex WebSocket connection closed")
@@ -317,7 +319,7 @@ async def install_app_on_device(device_id: str, request: dict):
 
         apk_path = f"{storage_dir}/{folder_path}/{original_name}"
 
-        if not os.path.exists(apk_path):
+        if not await aiofiles.os.path.exists(apk_path):
             raise HTTPException(
                 status_code=404, detail=f"APK file not found at: {apk_path}"
             )
@@ -352,10 +354,11 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
         if not apk_file.filename.lower().endswith(".apk"):
             raise HTTPException(status_code=400, detail="Only APK files are supported")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".apk") as temp_file:
-            content = await apk_file.read()
-            temp_file.write(content)
-            temp_apk_path = temp_file.name
+        fd, temp_apk_path = tempfile.mkstemp(suffix=".apk")
+        os.close(fd)
+        content = await apk_file.read()
+        async with aiofiles.open(temp_apk_path, "wb") as temp_file:
+            await temp_file.write(content)
 
         try:
             logger.info("Installing APK %s on device %s", apk_file.filename, device_id)
@@ -382,7 +385,7 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
 
         finally:
             try:
-                os.unlink(temp_apk_path)
+                await aiofiles.os.remove(temp_apk_path)
             except Exception as e:
                 logger.warning(
                     "Failed to cleanup temporary file %s: %s", temp_apk_path, str(e)

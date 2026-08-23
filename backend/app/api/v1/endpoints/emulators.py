@@ -82,29 +82,6 @@ async def stop_emulator(
         ) from e
 
 
-@router.get("/status/{emulator_name}")
-async def get_emulator_status(
-    emulator_name: str,
-    emulator_manager: EmulatorManager = Depends(get_emulator_manager),
-):
-    """Get status of a specific emulator"""
-    try:
-        status_data = await emulator_manager.get_emulator_status(emulator_name)
-        if "error" in status_data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=status_data["error"]
-            )
-        return status_data
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to get emulator status for %s: %s", emulator_name, str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get emulator status: {str(e)}",
-        ) from e
-
-
 @router.get("/list")
 async def list_emulators(
     emulator_manager: EmulatorManager = Depends(get_emulator_manager),
@@ -118,67 +95,4 @@ async def list_emulators(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list emulators: {str(e)}",
-        ) from e
-
-
-@router.post("/cleanup")
-async def cleanup_emulators(
-    emulator_manager: EmulatorManager = Depends(get_emulator_manager),
-):
-    """Clean up all emulators"""
-    try:
-        await emulator_manager.cleanup()
-        return {"success": True, "message": "All emulators cleaned up successfully"}
-    except Exception as e:
-        logger.error("Failed to cleanup emulators: %s", str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to cleanup emulators: {str(e)}",
-        ) from e
-
-
-@router.get("/logs/{emulator_name}")
-async def get_emulator_logs(
-    emulator_name: str,
-    lines: int = 100,
-    emulator_manager: EmulatorManager = Depends(get_emulator_manager),
-):
-    """Get emulator container logs"""
-    try:
-        status_data = await emulator_manager.get_emulator_status(emulator_name)
-        if "error" in status_data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=status_data["error"]
-            )
-
-        container_id = status_data.get("container_id")
-        if not container_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No container found for emulator {emulator_name}",
-            )
-
-        try:
-            container = emulator_manager.docker_client.containers.get(container_id)
-            logs = container.logs(tail=lines, timestamps=True).decode("utf-8")
-
-            return {
-                "emulator_name": emulator_name,
-                "container_id": container_id,
-                "container_status": container.status,
-                "logs": logs.split("\n"),
-            }
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to get container logs: {str(e)}",
-            ) from e
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to get logs for emulator %s: %s", emulator_name, str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get emulator logs: {str(e)}",
         ) from e

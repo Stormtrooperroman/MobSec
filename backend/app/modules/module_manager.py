@@ -1,14 +1,11 @@
 import asyncio
-import json
 import logging
 import os
 import threading
 import uuid
 from typing import Any, Dict, Optional
 
-import docker
 import yaml
-from redis import Redis
 from sqlalchemy.future import select
 
 import websockets
@@ -18,6 +15,9 @@ from urllib.parse import urlencode
 from app.core.database_manager import db_manager
 from app.models.app import ScanStatus
 from app.models.module import Module, ModuleType
+
+from app.services.docker_service import DockerService
+from app.services.redis_service import RedisService
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -45,8 +45,8 @@ class ModuleManager:
 
         self.redis_url = redis_url
         self.modules_path = modules_path
-        self.redis = Redis.from_url(redis_url, decode_responses=True)
-        self.docker_client = docker.from_env()
+        self.redis_service = RedisService(redis_url)
+        self.docker_service = DockerService()
         self.modules_config = self._load_modules_config()
         self.async_session = db_manager.session_factory
         self._initialized = True
@@ -141,94 +141,36 @@ class ModuleManager:
                 "config": module.config,
             }
 
-    async def _build_image_async(self, image_name: str, module_path: str) -> None:
-        """Build Docker image asynchronously"""
-        dockerfile_path = os.path.join(module_path, "Dockerfile")
-        if not os.path.exists(dockerfile_path):
-            raise FileNotFoundError(f"No Dockerfile found in {module_path}")
-
-        logger.info("Building Docker image %s from %s...", image_name, dockerfile_path)
-        try:
-            # Run docker build in a thread pool to not block
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: self.docker_client.images.build(
-                    path=module_path, tag=image_name
-                ),
-            )
-            logger.info("Successfully built image %s", image_name)
-        except Exception as e:
-            logger.error("Failed to build image %s: %s", image_name, str(e))
-            raise
-
-    async def _start_container_async(self, module_name: str, image_name: str) -> None:
-        """Start Docker container asynchronously"""
-        logger.info("Starting module: %s", module_name)
-        module_config = self.modules_config.get(module_name, {})
-        is_dynamic = module_config.get("type") == "dynamic"
-
-        try:
-            run_kwargs = {
-                "image": image_name,
-                "detach": True,
-                "environment": {
-                    "REDIS_URL": self.redis_url,
-                    "MODULE_NAME": module_name,
-                },
-                "volumes": {
-                    "mobsec_shared_data": {"bind": "/shared_data", "mode": "rw"}
-                },
-                "name": image_name,
-            }
-
-            if is_dynamic:
-                run_kwargs["network"] = "mobsec_app_network"
-                run_kwargs["environment"]["DATABASE_URL"] = os.getenv(
-                    "DATABASE_URL", ""
-                )
-                run_kwargs["environment"]["PORT"] = str(module_config.get("port", 8090))
-            else:
-                run_kwargs["network"] = "mobsec_app_network"
-
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: self.docker_client.containers.run(**run_kwargs),
-            )
-            logger.info("Successfully started container %s", image_name)
-        except Exception as e:
-            logger.error("Failed to start container %s: %s", image_name, str(e))
-            raise
-
     def _image_name(self, module_name: str) -> str:
         return f"mobsec_{module_name}"
-
-    async def _get_container(self, module_name: str):
-        """Fetch a module's container, or None if it doesn't exist."""
-        loop = asyncio.get_event_loop()
-        try:
-            return await loop.run_in_executor(
-                None, self.docker_client.containers.get, self._image_name(module_name)
-            )
-        except docker.errors.NotFound:
-            return None
 
     async def start_module(self, module_name: str) -> None:
         """Start a single module asynchronously"""
         image_name = self._image_name(module_name)
         module_path = os.path.join(self.modules_path, module_name)
+        module_config = self.modules_config.get(module_name, {})
+        is_dynamic = module_config.get("type") == "dynamic"
 
         try:
-            existing_container = await self._get_container(module_name)
-            if existing_container is not None:
-                await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: existing_container.remove(force=True)
-                )
-                logger.info("Removed existing container: %s", image_name)
+            await self.docker_service.build_image(module_path, image_name)
 
-            await self._build_image_async(image_name, module_path)
-            await self._start_container_async(module_name, image_name)
+            environment = {
+                "REDIS_URL": self.redis_url,
+                "MODULE_NAME": module_name,
+            }
+            if is_dynamic:
+                environment["DATABASE_URL"] = os.getenv("DATABASE_URL", "")
+                environment["PORT"] = str(module_config.get("port", 8090))
+
+            await self.docker_service.run_container(
+                image=image_name,
+                name=image_name,
+                environment=environment,
+                volumes={"mobsec_shared_data": {"bind": "/shared_data", "mode": "rw"}},
+                network="mobsec_app_network",
+            )
+            logger.info("Successfully started container %s", image_name)
+
             await self._register_module(module_name, self.modules_config[module_name])
 
         except Exception as e:
@@ -272,13 +214,7 @@ class ModuleManager:
 
     async def stop_module(self, module_name: str):
         """Stop a single module asynchronously"""
-        container = await self._get_container(module_name)
-        if container is None:
-            return
-
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: container.stop(timeout=2))
-        await loop.run_in_executor(None, lambda: container.remove(force=True))
+        await self.docker_service.stop_container(self._image_name(module_name))
 
     async def submit_task(
         self,
@@ -302,11 +238,8 @@ class ModuleManager:
                 "module_name": module_name,
             }
 
-            # Store task data in Redis
-            self.redis.set(f"task:{task_id}", json.dumps(task_data), ex=3600)
-
-            # Add task to module's queue
-            self.redis.rpush(f"module:{module_name}:queue", task_id)
+            await self.redis_service.set_task(task_id, task_data)
+            await self.redis_service.enqueue_task(module_name, task_id)
             logger.info("Submitted task %s to module %s", task_id, module_name)
 
             # Import here to avoid circular imports
@@ -334,45 +267,7 @@ class ModuleManager:
             ]
             await asyncio.gather(*stop_tasks, return_exceptions=True)
 
-            # Remove all containers and images asynchronously
-            loop = asyncio.get_event_loop()
-
-            # Get all containers
-            containers = await loop.run_in_executor(
-                None, lambda: self.docker_client.containers.list(all=True)
-            )
-
-            # Remove containers concurrently
-            container_tasks = []
-            for container in containers:
-                if container.name.startswith("mobsec_"):
-                    container_tasks.append(
-                        loop.run_in_executor(
-                            None, lambda c=container: c.remove(force=True)
-                        )
-                    )
-            if container_tasks:
-                await asyncio.gather(*container_tasks, return_exceptions=True)
-
-            # Get all images
-            images = await loop.run_in_executor(None, self.docker_client.images.list)
-
-            # Remove images concurrently
-            image_tasks = []
-            for image in images:
-                if any(tag.startswith("mobsec_") for tag in image.tags):
-                    image_tasks.append(
-                        loop.run_in_executor(
-                            None,
-                            lambda i=image: self.docker_client.images.remove(
-                                i.id, force=True
-                            ),
-                        )
-                    )
-            if image_tasks:
-                await asyncio.gather(*image_tasks, return_exceptions=True)
-
-            logger.info("Cleanup complete.")
+            await self.docker_service.cleanup_by_prefix("mobsec_")
 
     async def check_module_exists(self, module_name: str) -> bool:
         """
@@ -391,12 +286,9 @@ class ModuleManager:
             return module is not None
 
     async def _get_running_container_names(self) -> set:
-        loop = asyncio.get_event_loop()
         try:
-            containers = await loop.run_in_executor(
-                None, self.docker_client.containers.list
-            )
-            return {c.name for c in containers}
+            containers = await self.docker_service.list_containers()
+            return {c.name for c in containers if c.status == "running"}
         except Exception as e:
             logger.error("Error listing running containers: %s", str(e))
             return set()

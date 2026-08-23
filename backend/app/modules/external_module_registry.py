@@ -2,7 +2,6 @@ import logging
 import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional
-from redis import Redis
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +28,6 @@ class ExternalModuleRegistry:
         if hasattr(self, "_initialized") and self._initialized:
             return
 
-        self.redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
         self.health_check_interval = settings.MODULES_HEALTH_CHECK_INTERVAL
 
         if settings.EXTERNAL_MODULES_ENABLED:

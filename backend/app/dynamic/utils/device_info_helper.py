@@ -1,6 +1,5 @@
 import logging
 from typing import Optional
-from app.dynamic.utils.adb_utils import get_adb_env
 from app.dynamic.utils.adb_utils import execute_adb_shell
 
 logger = logging.getLogger(__name__)
@@ -21,13 +20,11 @@ class DeviceInfoHelper:
             Device IP address or None
         """
         try:
-            env = get_adb_env()
 
             # Method 1: Get IP via ip route
             stdout, _, return_code = await execute_adb_shell(
                 device_id=device_id,
                 shell_command="ip route get 1.1.1.1",
-                env=env,
             )
 
             if return_code == 0:
@@ -51,7 +48,7 @@ class DeviceInfoHelper:
                         f"| head -1 | awk '{{print $2}}' | cut -d'/' -f1"
                     )
                     stdout, _, return_code = await execute_adb_shell(
-                        device_id=device_id, shell_command=cmd, env=env
+                        device_id=device_id, shell_command=cmd
                     )
 
                     if return_code == 0:

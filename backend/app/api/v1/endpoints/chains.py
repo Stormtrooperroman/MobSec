@@ -7,7 +7,6 @@ from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import Response
 
 from app.modules.chain_manager import ChainManager
-from app.modules.module_manager import ModuleManager
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -15,11 +14,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-module_manager = ModuleManager.get_instance(
-    redis_url=os.getenv("REDIS_URL"),
-    modules_path=os.getenv("MODULES_PATH", "/app/modules"),
-)
 
 chain_manager = ChainManager.get_instance()
 

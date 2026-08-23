@@ -73,6 +73,7 @@
 <script>
 import '@/assets/app.css';
 import CreateChainModal from '@/components/modals/CreateChainModal.vue';
+import api from '@/services/api';
 
 export default {
   name: 'ChainView',
@@ -91,9 +92,8 @@ export default {
   methods: {
     async fetchChains() {
       try {
-        const response = await fetch('/api/v1/chains');
-        const data = await response.json();
-        this.chains = data;
+        const response = await api.get('/chains');
+        this.chains = response.data;
       } catch (error) {
         console.error('Error fetching chains:', error);
       }
@@ -128,27 +128,18 @@ export default {
     },
     async deleteChain() {
       try {
-        const response = await fetch(`/api/v1/chains/${this.chainToDelete.name}`, {
-          method: 'DELETE',
-        });
-
-        if (response.ok) {
-          await this.fetchChains();
-          this.showDeleteConfirm = false;
-          this.chainToDelete = null;
-        } else {
-          console.error('Error deleting chain');
-        }
+        await api.delete(`/chains/${this.chainToDelete.name}`);
+        await this.fetchChains();
+        this.showDeleteConfirm = false;
+        this.chainToDelete = null;
       } catch (error) {
         console.error('Error deleting chain:', error);
       }
     },
     async exportChain(chain) {
       try {
-        const response = await fetch(`/api/v1/chains/${chain.name}/export`);
-        if (!response.ok) throw new Error('Export failed');
-
-        const blob = await response.blob();
+        const response = await api.get(`/chains/${chain.name}/export`, { responseType: 'blob' });
+        const blob = response.data;
 
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');

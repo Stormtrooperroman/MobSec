@@ -221,7 +221,7 @@ class WebSocketManager:
         finally:
             await self.disconnect(websocket, device_id)
 
-    async def handle_multiplex_simple(self, websocket: WebSocket):
+    async def handle_multiplex_without_device(self, websocket: WebSocket):
         """
         Handles a simple multiplexed WebSocket connection without device_id
         """

@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-import json
 import logging
 import os
 import threading
@@ -9,10 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import yaml
-from redis import Redis
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.future import select
-from sqlalchemy.orm import sessionmaker
 
 from app.models.chain import (
     Chain,
@@ -21,8 +17,9 @@ from app.models.chain import (
     ModuleExecution,
     chain_modules,
 )
-
+from app.core.database_manager import db_manager
 from app.models.module import Module
+from app.services.redis_service import RedisService
 
 logger = logging.getLogger(__name__)
 
@@ -42,24 +39,15 @@ class ChainManager:
         if getattr(self, "_initialized", False):
             return
 
-        database_url = os.getenv(
-            "DATABASE_URL", "postgresql+asyncpg://postgres:password@db:5432/mobsec_db"
-        )
         redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
-        self.engine = create_async_engine(database_url, echo=True)
-        self.async_session = sessionmaker(
-            self.engine, class_=AsyncSession, expire_on_commit=False
-        )
-        self.redis = Redis.from_url(redis_url, decode_responses=True)
+        self.async_session = db_manager.session_factory
+        self.redis_service = RedisService(redis_url)
 
         # Runtime members initialised lazily
         self.chain_event_queue: Optional[asyncio.Queue] = None
-        self.loop: Optional[asyncio.AbstractEventLoop] = None
         self._queue_worker_task: Optional[asyncio.Task] = None
-        self._monitor_thread: Optional[threading.Thread] = None
-        self._monitor_stop_event = threading.Event()
-        self._pubsub = None
+        self._monitor_task: Optional[asyncio.Task] = None
         self._starting = False
         self._started = False
 
@@ -86,11 +74,11 @@ class ChainManager:
 
         self._starting = True
         try:
-            self.loop = asyncio.get_running_loop()
             if self.chain_event_queue is None:
                 self.chain_event_queue = asyncio.Queue()
 
-            self._setup_chain_event_monitor()
+            if not self._monitor_task or self._monitor_task.done():
+                self._monitor_task = asyncio.create_task(self._monitor_chain_events())
 
             if not self._queue_worker_task or self._queue_worker_task.done():
                 self._queue_worker_task = asyncio.create_task(
@@ -102,29 +90,22 @@ class ChainManager:
             self._starting = False
 
     async def shutdown(self):
-        self._monitor_stop_event.set()
+        for task in (self._monitor_task, self._queue_worker_task):
+            if task and not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
-        if self._pubsub is not None:
-            try:
-                self._pubsub.close()
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.debug("Error closing pubsub: %s", exc)
-
-        if self._queue_worker_task and not self._queue_worker_task.done():
-            self._queue_worker_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._queue_worker_task
-
+        self._monitor_task = None
         self._queue_worker_task = None
-        if self._monitor_thread and self._monitor_thread.is_alive():
-            self._monitor_thread.join(timeout=1)
-        self._monitor_thread = None
+        await self.redis_service.close()
         self._started = False
 
     async def _handle_chain_event(self, chain_task_id, next_module_index, file_hash):
         """Handle a single chain event"""
-        lock_key = f"lock:chain:{chain_task_id}:module:{next_module_index}"
-        lock_acquired = self.redis.setnx(lock_key, "locked")
+        lock_acquired = await self.redis_service.acquire_chain_module_lock(
+            chain_task_id, next_module_index
+        )
 
         if not lock_acquired:
             logger.info(
@@ -134,10 +115,15 @@ class ChainManager:
             )
             return
 
-        self.redis.expire(lock_key, 3600)
-        chain_data = json.loads(self.redis.get(f"chain:{chain_task_id}"))
+        chain_data = await self.redis_service.get_chain_state(chain_task_id)
+        if chain_data is None:
+            logger.error(
+                "Chain state missing for %s - cannot advance chain", chain_task_id
+            )
+            return
+
         modules = chain_data.get("modules", [])
-        self.redis.delete(f"chain:module:completed:{chain_task_id}")
+        await self.redis_service.delete_chain_completed_key(chain_task_id)
 
         if next_module_index >= len(modules):
             await self._complete_chain(chain_task_id)
@@ -192,43 +178,18 @@ class ChainManager:
 
             return False
 
-    def _setup_chain_event_monitor(self):
-        """Setup Redis subscription for chain events"""
-        if self._monitor_thread and self._monitor_thread.is_alive():
-            return
-
-        def monitor_chain_events():
-            pubsub = self.redis.pubsub()
-            self._pubsub = pubsub
-            pubsub.psubscribe("chain:module:completed:*")
-
-            logger.info("Starting Redis chain event monitor")
-            try:
-                for message in pubsub.listen():
-                    if self._monitor_stop_event.is_set():
-                        break
-                    if message["type"] == "pmessage":
-                        try:
-                            data = json.loads(message["data"])
-                            if self.loop and self.chain_event_queue:
-                                asyncio.run_coroutine_threadsafe(
-                                    self.chain_event_queue.put(data), self.loop
-                                )
-                        except Exception as e:
-                            logger.error(
-                                "Error adding chain event to queue: %s", str(e)
-                            )
-            finally:
-                try:
-                    pubsub.close()
-                except Exception:  # pragma: no cover - defensive
-                    pass
-
-        self._monitor_stop_event.clear()
-        self._monitor_thread = threading.Thread(
-            target=monitor_chain_events, daemon=True
-        )
-        self._monitor_thread.start()
+    async def _monitor_chain_events(self):
+        """Consume chain-completion events from Redis pub/sub."""
+        logger.info("Starting Redis chain event monitor")
+        try:
+            async for data in self.redis_service.listen_chain_events():
+                if self.chain_event_queue is not None:
+                    await self.chain_event_queue.put(data)
+        except asyncio.CancelledError:
+            logger.info("Chain event monitor stopped")
+            raise
+        except Exception as e:
+            logger.error("Chain event monitor failed: %s", str(e))
 
     async def init_db(self):
         from app.core.settings_db import init_db
@@ -295,10 +256,10 @@ class ChainManager:
                 .join(Module, Module.name == chain_modules.c.module_name)
                 .order_by(Chain.name, chain_modules.c.order)
             )
-            
+
             result = await session.execute(stmt)
             rows = result.all()
-            
+
             chains_dict = {}
             for row in rows:
                 chain_name = row.name
@@ -310,18 +271,20 @@ class ChainManager:
                         "updated_at": row.updated_at,
                         "modules": [],
                     }
-                
-                chains_dict[chain_name]["modules"].append({
-                    "module": {
-                        "name": row.module_name,
-                        "version": row.module_version,
-                        "description": row.module_description,
-                        "config": row.module_config,
-                    },
-                    "order": row.order,
-                    "parameters": row.parameters,
-                })
-            
+
+                chains_dict[chain_name]["modules"].append(
+                    {
+                        "module": {
+                            "name": row.module_name,
+                            "version": row.module_version,
+                            "description": row.module_description,
+                            "config": row.module_config,
+                        },
+                        "order": row.order,
+                        "parameters": row.parameters,
+                    }
+                )
+
             return list(chains_dict.values())
 
     async def update_chain(self, chain_name: str, new_data: dict):
@@ -472,21 +435,18 @@ class ChainManager:
 
             await session.commit()
 
-        self.redis.set(
-            f"chain:{task_id}",
-            json.dumps(
-                {
-                    "chain_name": chain_name,
-                    "file_hash": file_hash,
-                    "modules": [m["module"]["name"] for m in modules],
-                    "current_index": 0,
-                    "results": {},
-                    "file_type": file_info.get("file_type", "unknown"),
-                    "folder_path": folder,
-                    "file_name": file_info.get("original_name", ""),
-                }
-            ),
-            ex=86400,
+        await self.redis_service.set_chain_state(
+            task_id,
+            {
+                "chain_name": chain_name,
+                "file_hash": file_hash,
+                "modules": [m["module"]["name"] for m in modules],
+                "current_index": 0,
+                "results": {},
+                "file_type": file_info.get("file_type", "unknown"),
+                "folder_path": folder,
+                "file_name": file_info.get("original_name", ""),
+            },
         )
 
         await self._start_module(task_id, 0, file_hash)
@@ -499,12 +459,11 @@ class ChainManager:
 
     async def _start_module(self, chain_task_id, module_index, file_hash):
         """Start execution of a specific module in the chain"""
+        module_task_id = None
         try:
-            chain_data = self.redis.get(f"chain:{chain_task_id}")
+            chain_data = await self.redis_service.get_chain_state(chain_task_id)
             if not chain_data:
                 raise ValueError(f"Chain data not found for task {chain_task_id}")
-
-            chain_data = json.loads(chain_data)
 
             data = {
                 "folder_path": chain_data["folder_path"],
@@ -558,7 +517,19 @@ class ChainManager:
             await self._fail_module(chain_task_id, module_index, str(e))
 
             if module_task_id:
-                self.redis.delete(f"task:{module_task_id}")
+                await self.redis_service.delete_task(module_task_id)
+
+    async def _cleanup_chain_redis_state(self, chain_task_id):
+        chain_data = await self.redis_service.get_chain_state(chain_task_id)
+        file_hash = chain_data.get("file_hash") if chain_data else None
+        if chain_data and file_hash:
+            for module_name in chain_data.get("modules", []):
+                await self.redis_service.delete_result(module_name, file_hash)
+                await self.redis_service.delete_tasks_for(
+                    file_hash, module_name=module_name
+                )
+
+        await self.redis_service.delete_chain_keys(chain_task_id)
 
     async def _complete_chain(self, chain_task_id):
         """Mark chain as completed"""
@@ -574,26 +545,7 @@ class ChainManager:
                     chain_execution.completed_at = datetime.now(timezone.utc)
                     await session.commit()
 
-            chain_data = self.redis.get(f"chain:{chain_task_id}")
-            if chain_data:
-                chain_data = json.loads(chain_data)
-                file_hash = chain_data.get("file_hash")
-
-                for module_name in chain_data.get("modules", []):
-                    self.redis.delete(f"result:{module_name}:{file_hash}")
-                    for task_key in self.redis.scan_iter("task:*"):
-                        try:
-                            task_data = json.loads(self.redis.get(task_key))
-                            if (
-                                task_data.get("file_hash") == file_hash
-                                and task_data.get("module_name") == module_name
-                            ):
-                                self.redis.delete(task_key)
-                        except (json.JSONDecodeError, TypeError):
-                            continue
-
-            for key in self.redis.scan_iter(f"*{chain_task_id}*"):
-                self.redis.delete(key)
+            await self._cleanup_chain_redis_state(chain_task_id)
 
             logger.info("Chain %s completed successfully", chain_task_id)
         except Exception as e:
@@ -614,26 +566,7 @@ class ChainManager:
                     chain_execution.error_message = error_message
                     await session.commit()
 
-            chain_data = self.redis.get(f"chain:{chain_task_id}")
-            if chain_data:
-                chain_data = json.loads(chain_data)
-                file_hash = chain_data.get("file_hash")
-
-                for module_name in chain_data.get("modules", []):
-                    self.redis.delete(f"result:{module_name}:{file_hash}")
-                    for task_key in self.redis.scan_iter("task:*"):
-                        try:
-                            task_data = json.loads(self.redis.get(task_key))
-                            if (
-                                task_data.get("file_hash") == file_hash
-                                and task_data.get("module_name") == module_name
-                            ):
-                                self.redis.delete(task_key)
-                        except (json.JSONDecodeError, TypeError):
-                            continue
-
-            for key in self.redis.scan_iter(f"*{chain_task_id}*"):
-                self.redis.delete(key)
+            await self._cleanup_chain_redis_state(chain_task_id)
 
             logger.error("Chain %s failed: %s", chain_task_id, error_message)
         except Exception as e:

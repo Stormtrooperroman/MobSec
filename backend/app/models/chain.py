@@ -90,21 +90,3 @@ class ModuleExecution(Base):
 
     chain_execution = relationship("ChainExecution", back_populates="module_executions")
     module = relationship("Module", back_populates="executions")
-
-
-async def get_chain_by_name(session, chain_name: str):
-    return await session.execute(
-        select(Chain).where(Chain.name == chain_name)
-    ).scalar_one_or_none()
-
-
-async def get_chain_execution_by_id(session, execution_id: str):
-    return await session.execute(
-        select(ChainExecution).where(ChainExecution.id == execution_id)
-    ).scalar_one_or_none()
-
-
-async def get_module_by_id(session, module_name: str):
-    return await session.execute(
-        select(Module).where(Module.name == module_name)
-    ).scalar_one_or_none()

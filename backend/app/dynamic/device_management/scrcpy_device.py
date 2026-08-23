@@ -22,7 +22,7 @@ SERVER_TYPE = "web"
 PID_FILE = f"{TEMP_PATH}ws_scrcpy.pid"
 
 
-class Device:
+class ScrcpyDevice:
     def __init__(self, serial: str, state: str):
         self.serial = serial
         self.state = state
