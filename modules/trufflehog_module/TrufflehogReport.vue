@@ -9,7 +9,7 @@
     <div v-else class="findings-container">
       <div class="module-header">
         <h3 class="module-title">Secret Detection Results</h3>
-        
+
         <!-- Summary Cards -->
         <div class="summary-grid">
           <div class="summary-card">
@@ -27,18 +27,22 @@
           <div class="filters">
             <select v-model="currentDetector" class="filter-select">
               <option value="all">All Detectors</option>
-              <option v-for="detector in uniqueDetectors" 
-                      :key="detector" 
-                      :value="detector">
+              <option
+                v-for="detector in uniqueDetectors"
+                :key="detector"
+                :value="detector"
+              >
                 {{ detector }}
               </option>
             </select>
           </div>
 
           <div class="findings-list">
-            <div v-for="(finding, index) in filteredFindings" 
-                 :key="index"
-                 class="finding-card">
+            <div
+              v-for="(finding, index) in filteredFindings"
+              :key="index"
+              class="finding-card"
+            >
               <div class="finding-header">
                 <h4>{{ finding.name }}</h4>
                 <div class="badge badge-error">{{ finding.severity }}</div>
@@ -60,12 +64,17 @@
                     <strong>Detector:</strong> {{ finding.metadata.detector }}
                   </div>
                   <div class="detail-row">
-                    <strong>Entropy:</strong> {{ finding.metadata.entropy.toFixed(2) }}
+                    <strong>Entropy:</strong>
+                    {{ finding.metadata.entropy.toFixed(2) }}
                   </div>
                   <div class="detail-row">
-                    <strong>Verified:</strong> 
-                    <span :class="finding.metadata.verified ? 'verified' : 'unverified'">
-                      {{ finding.metadata.verified ? 'Yes' : 'No' }}
+                    <strong>Verified:</strong>
+                    <span
+                      :class="
+                        finding.metadata.verified ? 'verified' : 'unverified'
+                      "
+                    >
+                      {{ finding.metadata.verified ? "Yes" : "No" }}
                     </span>
                   </div>
                   <div class="secret-value">
@@ -74,7 +83,9 @@
                       <code>{{ finding.metadata.secret_value }}</code>
                     </div>
                   </div>
-                  <div class="finding-description">{{ finding.metadata.description }}</div>
+                  <div class="finding-description">
+                    {{ finding.metadata.description }}
+                  </div>
                 </div>
               </div>
             </div>
@@ -87,17 +98,17 @@
 
 <script>
 export default {
-  name: 'TrufflehogReport',
+  name: "TrufflehogReport",
   props: {
     moduleData: {
       type: Object,
-      required: true
-    }
+      required: true,
+    },
   },
   data() {
     return {
-      currentDetector: 'all'
-    }
+      currentDetector: "all",
+    };
   },
   computed: {
     hasResults() {
@@ -108,23 +119,27 @@ export default {
     },
     uniqueDetectors() {
       if (!this.moduleData?.results) return [];
-      return [...new Set(this.moduleData.results.map(r => r.metadata.detector))];
+      return [
+        ...new Set(this.moduleData.results.map((r) => r.metadata.detector)),
+      ];
     },
     filteredFindings() {
       if (!this.moduleData?.results) return [];
-      if (this.currentDetector === 'all') return this.moduleData.results;
+      if (this.currentDetector === "all") return this.moduleData.results;
       return this.moduleData.results.filter(
-        f => f.metadata.detector === this.currentDetector
+        (f) => f.metadata.detector === this.currentDetector,
       );
-    }
-  }
-}
+    },
+  },
+};
 </script>
 
 <style scoped>
 .trufflehog-report {
   width: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+    Cantarell, "Open Sans", sans-serif;
   color: #333;
 }
 
@@ -289,7 +304,7 @@ export default {
 }
 
 .secret-container code {
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 0.85rem;
   color: #e83e8c;
   line-height: 1.6;
@@ -318,19 +333,19 @@ export default {
   .summary-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .filter-select {
     width: 100%;
   }
-  
+
   .finding-header {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
   }
-  
+
   .finding-location {
     flex-direction: column;
   }
 }
-</style> 
+</style>

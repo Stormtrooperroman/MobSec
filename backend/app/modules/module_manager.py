@@ -45,8 +45,8 @@ class ModuleManager:
 
         self.redis_url = redis_url
         self.modules_path = modules_path
-        self.redis_service = RedisService(redis_url)
-        self.docker_service = DockerService()
+        self.redis_service = RedisService.get_instance(redis_url)
+        self.docker_service = DockerService.get_instance()
         self.modules_config = self._load_modules_config()
         self.async_session = db_manager.session_factory
         self._initialized = True

@@ -7,66 +7,73 @@
 
     <div v-else class="container">
       <div class="main-layout">
-        <div class="terminal-section">
-          <div class="terminal-header">
-            <span>Shell Terminal</span>
-            <div class="terminal-controls">
-              <button @click="restartTerminal" class="terminal-restart-btn" title="Restart terminal">
-                <font-awesome-icon icon="refresh" />
+        <div class="tools-section">
+          <div class="tools-tabs">
+            <div class="tab-headers">
+              <button :class="['tab-header', { active: activeTab === 'terminal' }]" @click="setActiveTab('terminal')">
+                <span class="tab-icon">
+                  <font-awesome-icon icon="terminal" />
+                </span>
+                <span class="tab-title">Terminal</span>
               </button>
-              <span class="terminal-status" :class="{ connected: terminalConnected }">
-                <font-awesome-icon
-                  icon="circle"
-                  :class="terminalConnected ? 'status-connected' : 'status-disconnected'"
+              <button
+                v-for="tool in availableTools"
+                :key="tool.ACTION"
+                :class="['tab-header', { active: activeTab === tool.ACTION }]"
+                @click="setActiveTab(tool.ACTION)"
+              >
+                <span class="tab-icon">
+                  <font-awesome-icon :icon="getToolIcon(tool)" v-if="getToolIcon(tool)" />
+                </span>
+                <span class="tab-title">{{ tool.title || tool.ACTION }}</span>
+              </button>
+            </div>
+
+            <div class="tab-content">
+              <!-- Terminal Tab -->
+              <div v-show="activeTab === 'terminal'" class="tab-pane terminal-tab-pane active">
+                <div class="terminal-header">
+                  <span>Shell Terminal</span>
+                  <div class="terminal-controls">
+                    <button @click="restartTerminal" class="terminal-restart-btn" title="Restart terminal">
+                      <font-awesome-icon icon="refresh" />
+                    </button>
+                    <span class="terminal-status" :class="{ connected: terminalConnected }">
+                      <font-awesome-icon
+                        icon="circle"
+                        :class="terminalConnected ? 'status-connected' : 'status-disconnected'"
+                      />
+                    </span>
+                  </div>
+                </div>
+                <div class="terminal-container" ref="terminalContainer"></div>
+              </div>
+
+              <!-- File Manager Tab -->
+              <div v-if="activeTab === 'file_manager'" class="tab-pane active">
+                <FileManager :device-id="deviceId" />
+              </div>
+
+              <!-- Dynamic Module Tools -->
+              <div
+                v-for="tool in dynamicTools"
+                :key="tool.ACTION"
+                v-show="activeTab === tool.ACTION"
+                class="tab-pane active"
+              >
+                <component
+                  v-if="toolComponents[tool.ACTION]"
+                  :is="toolComponents[tool.ACTION]"
+                  :device-id="deviceId"
+                  @success="handleSuccess"
+                  @error="handleError"
                 />
-              </span>
+              </div>
             </div>
           </div>
-          <div class="terminal-container" ref="terminalContainer"></div>
         </div>
 
         <div class="device-screen-area" ref="deviceScreenArea"></div>
-      </div>
-
-      <div class="tools-section" v-if="availableTools.length > 0">
-        <div class="tools-tabs">
-          <div class="tab-headers">
-            <button
-              v-for="tool in availableTools"
-              :key="tool.ACTION"
-              :class="['tab-header', { active: activeTab === tool.ACTION }]"
-              @click="setActiveTab(tool.ACTION)"
-            >
-              <span class="tab-icon">
-                <font-awesome-icon :icon="getToolIcon(tool)" v-if="getToolIcon(tool)" />
-              </span>
-              <span class="tab-title">{{ tool.title || tool.ACTION }}</span>
-            </button>
-          </div>
-
-          <div class="tab-content">
-            <!-- File Manager Tab -->
-            <div v-if="activeTab === 'file_manager'" class="tab-pane active">
-              <FileManager :device-id="deviceId" />
-            </div>
-
-            <!-- Dynamic Module Tools -->
-            <div
-              v-for="tool in dynamicTools"
-              :key="tool.ACTION"
-              v-show="activeTab === tool.ACTION"
-              class="tab-pane active"
-            >
-              <component
-                v-if="toolComponents[tool.ACTION]"
-                :is="toolComponents[tool.ACTION]"
-                :device-id="deviceId"
-                @success="handleSuccess"
-                @error="handleError"
-              />
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -125,8 +132,9 @@ export default {
       terminalInitializing: false,
       terminalConnected: false,
       deviceViewObserver: null,
-      activeTab: 'file_manager',
+      activeTab: 'terminal',
       toolComponents: {},
+      resizeObserver: null,
     };
   },
 
@@ -159,6 +167,10 @@ export default {
     if (this.resizeHandler) {
       window.removeEventListener('resize', this.resizeHandler);
       this.resizeHandler = null;
+    }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
     }
     if (this.deviceViewObserver) {
       this.deviceViewObserver.disconnect();
@@ -286,9 +298,13 @@ export default {
 
         while (retries > 0) {
           try {
-            response = await api.post(`/dynamic-testing/device/${this.deviceId}/start`, {}, {
-              signal: AbortSignal.timeout(10000),
-            });
+            response = await api.post(
+              `/dynamic-testing/device/${this.deviceId}/start`,
+              {},
+              {
+                signal: AbortSignal.timeout(10000),
+              },
+            );
 
             if (response.status === 200) {
               break;
@@ -606,11 +622,16 @@ export default {
           const resizeHandler = () => {
             if (!this.terminal || !this.fitAddon) return;
 
+            const el = this.$refs.terminalContainer;
+            if (!el || el.clientWidth === 0 || el.clientHeight === 0) {
+              return;
+            }
+
             try {
               this.fitAddon.fit();
               const { rows, cols } = this.terminal;
 
-              if (shellWs.readyState === WebSocket.OPEN) {
+              if (Number.isInteger(rows) && Number.isInteger(cols) && shellWs.readyState === WebSocket.OPEN) {
                 shellWs.send(
                   JSON.stringify({
                     type: 'shell',
@@ -629,6 +650,16 @@ export default {
 
           window.addEventListener('resize', resizeHandler);
           this.resizeHandler = resizeHandler;
+
+          if (this.resizeObserver) {
+            this.resizeObserver.disconnect();
+            this.resizeObserver = null;
+          }
+
+          this.resizeObserver = new ResizeObserver(() => {
+            resizeHandler();
+          });
+          this.resizeObserver.observe(terminalContainer);
         });
 
         shellWs.addEventListener('close', event => {
@@ -667,6 +698,11 @@ export default {
       if (this.resizeHandler) {
         window.removeEventListener('resize', this.resizeHandler);
         this.resizeHandler = null;
+      }
+
+      if (this.resizeObserver) {
+        this.resizeObserver.disconnect();
+        this.resizeObserver = null;
       }
 
       if (this.preventPageScrollHandler && this.$refs.terminalContainer) {
@@ -847,13 +883,18 @@ export default {
   background-color: #f8f9fa;
   border: 1px solid #dee2e6;
   border-radius: 8px;
-  margin-top: 1rem;
-  margin-bottom: 1rem;
+  flex: 1;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .tools-tabs {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .tab-headers {
@@ -898,29 +939,35 @@ export default {
 
 .tab-content {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   background-color: #fff;
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
+  overflow: hidden;
 }
 
 .tab-pane {
   display: none;
   padding: 1rem;
+  overflow: auto;
 }
 
 .tab-pane.active {
   display: block;
 }
 
-.terminal-section {
-  flex: 1;
-  background: #1e1e1e;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+.tab-pane.terminal-tab-pane {
+  padding: 0;
+}
+
+.tab-pane.terminal-tab-pane.active {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
-  min-width: 300px;
 }
 
 .terminal-header {
@@ -1008,7 +1055,6 @@ export default {
   border-bottom-right-radius: 8px;
   overflow: hidden;
   min-height: 400px;
-  max-height: 600px;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -1127,10 +1173,10 @@ export default {
     flex-direction: column;
   }
 
-  .terminal-section {
+  .tools-section {
     flex: none;
     width: 100%;
-    max-height: 300px;
+    max-height: 350px;
   }
 
   .terminal-container {

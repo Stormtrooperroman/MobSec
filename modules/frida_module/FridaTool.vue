@@ -3,48 +3,89 @@
     <div class="frida-header">
       <span>
         Frida Tool
-        <span class="frida-status-indicator" :class="{ 'installed': fridaInstalled, 'running': fridaRunning }">
-          <font-awesome-icon v-if="fridaRunning" icon="circle" class="status-icon running" />
-          <font-awesome-icon v-else-if="fridaInstalled" icon="circle" class="status-icon installed" />
-          <font-awesome-icon v-else icon="circle" class="status-icon not-installed" />
-          {{ fridaRunning ? 'Running' : fridaInstalled ? 'Installed' : 'Not Installed' }}
+        <span
+          class="frida-status-indicator"
+          :class="{ installed: fridaInstalled, running: fridaRunning }"
+        >
+          <font-awesome-icon
+            v-if="fridaRunning"
+            icon="circle"
+            class="status-icon running"
+          />
+          <font-awesome-icon
+            v-else-if="fridaInstalled"
+            icon="circle"
+            class="status-icon installed"
+          />
+          <font-awesome-icon
+            v-else
+            icon="circle"
+            class="status-icon not-installed"
+          />
+          {{
+            fridaRunning
+              ? "Running"
+              : fridaInstalled
+                ? "Installed"
+                : "Not Installed"
+          }}
         </span>
         <span v-if="fridaVersion" class="frida-version">
           v{{ fridaVersion }}
         </span>
       </span>
       <div class="frida-controls">
-        <button @click="refreshFridaStatus" class="frida-refresh-btn" title="Refresh status" :disabled="fridaRefreshing">
+        <button
+          @click="refreshFridaStatus"
+          class="frida-refresh-btn"
+          title="Refresh status"
+          :disabled="fridaRefreshing"
+        >
           <font-awesome-icon v-if="fridaRefreshing" icon="spinner" spin />
           <font-awesome-icon v-else icon="refresh" />
         </button>
       </div>
     </div>
-    
+
     <div class="frida-toolbar">
       <div class="frida-toolbar-left">
-        <button @click="installFrida" :disabled="fridaInstalled || fridaInstalling" class="frida-btn">
+        <button
+          @click="installFrida"
+          v-if="!fridaInstalled"
+          :disabled="fridaInstalled || fridaInstalling"
+          class="frida-btn"
+        >
           <font-awesome-icon v-if="fridaInstalling" icon="spinner" spin />
           <font-awesome-icon v-else icon="download" />
           Install Frida
         </button>
-        <button @click="startFridaServer" :disabled="!fridaInstalled || fridaRunning || fridaStarting" class="frida-btn">
+        <button
+          @click="startFridaServer"
+          v-if="!fridaRunning && fridaInstalled"
+          :disabled="!fridaInstalled || fridaRunning || fridaStarting"
+          class="frida-btn"
+        >
           <font-awesome-icon v-if="fridaStarting" icon="spinner" spin />
           <font-awesome-icon v-else icon="play" />
           Start Server
         </button>
-        <button @click="stopFridaServer" :disabled="!fridaRunning || fridaStopping" class="frida-btn">
+        <button
+          @click="stopFridaServer"
+          v-if="fridaRunning"
+          :disabled="!fridaRunning || fridaStopping"
+          class="frida-btn"
+        >
           <font-awesome-icon v-if="fridaStopping" icon="spinner" spin />
           <font-awesome-icon v-else icon="stop" />
           Stop Server
         </button>
       </div>
-      
+
       <div class="frida-toolbar-right">
         <div class="process-input-group">
-          <input 
-            v-model="targetProcessName" 
-            type="text" 
+          <input
+            v-model="targetProcessName"
+            type="text"
             placeholder="Enter process name"
             class="process-input"
             @keyup.enter="runSelectedScript"
@@ -68,13 +109,19 @@
         </button>
       </div>
     </div>
-    
+
     <div class="frida-content">
       <div class="frida-scripts">
         <div class="script-section">
           <h4>Scripts</h4>
           <div class="script-actions">
-            <input type="file" @change="loadScriptFile" accept=".js" style="display: none" ref="scriptFileInput">
+            <input
+              type="file"
+              @change="loadScriptFile"
+              accept=".js"
+              style="display: none"
+              ref="scriptFileInput"
+            />
             <button @click="$refs.scriptFileInput.click()" class="script-btn">
               <font-awesome-icon icon="folder-open" />
               Load Script
@@ -83,16 +130,24 @@
               <font-awesome-icon icon="plus" />
               New Script
             </button>
-            <button @click="loadScriptsFromWS" :disabled="scriptsLoading" class="script-btn">
+            <button
+              @click="loadScriptsFromWS"
+              :disabled="scriptsLoading"
+              class="script-btn"
+            >
               <font-awesome-icon v-if="scriptsLoading" icon="spinner" spin />
               <font-awesome-icon v-else icon="refresh" />
               Refresh Scripts
             </button>
-            
           </div>
-          
+
           <div class="scripts-list">
-            <div v-for="(script, name) in fridaScripts" :key="name" class="script-item" :data-script="name">
+            <div
+              v-for="(script, name) in fridaScripts"
+              :key="name"
+              class="script-item"
+              :data-script="name"
+            >
               <span class="script-name">{{ name }}</span>
               <div class="script-item-actions">
                 <button @click="editScript(name)" class="action-btn">
@@ -118,7 +173,10 @@
                   <font-awesome-icon icon="play" />
                   Run
                 </button>
-                <button @click="deleteScript(name)" class="action-btn delete-btn">
+                <button
+                  @click="deleteScript(name)"
+                  class="action-btn delete-btn"
+                >
                   <font-awesome-icon icon="trash" />
                   Delete
                 </button>
@@ -131,9 +189,15 @@
       <div class="frida-output" v-if="fridaOutput.length > 0">
         <h4>Output</h4>
         <div class="output-content" ref="fridaOutputContent">
-          <div v-for="(output, index) in fridaOutput" :key="index" class="output-line">
+          <div
+            v-for="(output, index) in fridaOutput"
+            :key="index"
+            class="output-line"
+          >
             <span class="output-timestamp">{{ output.timestamp }}</span>
-            <span class="output-stream" :class="output.stream">{{ output.stream }}</span>
+            <span class="output-stream" :class="output.stream">{{
+              output.stream
+            }}</span>
             <span class="output-text">{{ output.text }}</span>
           </div>
         </div>
@@ -145,7 +209,7 @@
         </div>
       </div>
     </div>
-    
+
     <!-- Script Editor Modal -->
     <ScriptEditorModal
       :show="showScriptEditor"
@@ -171,26 +235,26 @@
 </template>
 
 <script>
-import ScriptEditorModal from './ScriptEditorModal.vue'
-import AttachModal from './AttachModal.vue'
+import ScriptEditorModal from "./ScriptEditorModal.vue";
+import AttachModal from "./AttachModal.vue";
 
 export default {
-  name: 'FridaTool',
+  name: "FridaTool",
   components: {
     ScriptEditorModal,
-    AttachModal
+    AttachModal,
   },
   props: {
     deviceId: {
       type: String,
-      required: true
-    }
+      required: true,
+    },
   },
   data() {
     return {
       fridaInstalled: false,
       fridaRunning: false,
-      fridaVersion: '',
+      fridaVersion: "",
       fridaScripts: {},
       fridaProcesses: [],
       fridaOutput: [],
@@ -200,9 +264,9 @@ export default {
       showScriptEditor: false,
       editingScriptName: null,
       selectedScriptName: null,
-      newScriptName: '',
-      scriptContent: '',
-      targetProcessName: '',
+      newScriptName: "",
+      scriptContent: "",
+      targetProcessName: "",
       fridaInstalling: false,
       fridaStarting: false,
       fridaStopping: false,
@@ -219,12 +283,17 @@ export default {
     isRunButtonDisabled() {
       const disabled = !this.fridaRunning || this.isScriptRunning;
       return disabled;
-    }
+    },
   },
   watch: {
     isScriptRunning(newValue, oldValue) {
-      console.log('Script state changed:', oldValue ? 'running' : 'stopped', '=>', newValue ? 'running' : 'stopped');
-    }
+      console.log(
+        "Script state changed:",
+        oldValue ? "running" : "stopped",
+        "=>",
+        newValue ? "running" : "stopped",
+      );
+    },
   },
   async mounted() {
     await this.openFridaTool();
@@ -241,37 +310,40 @@ export default {
             return;
           }
 
-          const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const wsProtocol =
+            window.location.protocol === "https:" ? "wss:" : "ws:";
           const wsHost = window.location.host;
           const fridaWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=frida`;
 
           const fridaWs = new WebSocket(fridaWsUrl);
 
-          fridaWs.addEventListener('open', () => {
-            console.log('Frida WebSocket connected');
+          fridaWs.addEventListener("open", () => {
+            console.log("Frida WebSocket connected");
 
-            fridaWs.send(JSON.stringify({
-              type: 'frida',
-              action: 'status'
-            }));
+            fridaWs.send(
+              JSON.stringify({
+                type: "frida",
+                action: "status",
+              }),
+            );
 
             this.loadScriptsFromWS();
             resolve();
           });
 
-          fridaWs.addEventListener('message', (event) => {
+          fridaWs.addEventListener("message", (event) => {
             try {
               const message = JSON.parse(event.data);
-              if (message.type === 'frida') {
+              if (message.type === "frida") {
                 this.handleFridaMessage(message);
               }
             } catch (e) {
-              console.error('Error parsing Frida message:', e);
+              console.error("Error parsing Frida message:", e);
             }
           });
 
-          fridaWs.addEventListener('close', (event) => {
-            console.log('Frida WebSocket closed:', event.code, event.reason);
+          fridaWs.addEventListener("close", (event) => {
+            console.log("Frida WebSocket closed:", event.code, event.reason);
             this.currentFridaClient = null;
 
             if (event.code !== 1000) {
@@ -281,14 +353,14 @@ export default {
             }
           });
 
-          fridaWs.addEventListener('error', (error) => {
-            console.error('Frida WebSocket error:', error);
+          fridaWs.addEventListener("error", (error) => {
+            console.error("Frida WebSocket error:", error);
             reject(error);
           });
 
           this.currentFridaClient = fridaWs;
         } catch (error) {
-          console.error('Error opening Frida tool:', error);
+          console.error("Error opening Frida tool:", error);
           reject(error);
         }
       });
@@ -299,7 +371,7 @@ export default {
         this.currentFridaClient.close();
         this.currentFridaClient = null;
       }
-      
+
       // Reset Frida data
       this.fridaInstalled = false;
       this.fridaRunning = false;
@@ -320,74 +392,84 @@ export default {
 
     handleFridaMessage(message) {
       switch (message.action) {
-        case 'ready':
-        case 'status':
+        case "ready":
+        case "status":
           this.fridaInstalled = message.frida_installed;
           this.fridaRunning = message.frida_running;
-          this.fridaVersion = message.frida_version || '';
+          this.fridaVersion = message.frida_version || "";
           this.fridaRefreshing = false;
           break;
-        case 'install_progress':
+        case "install_progress":
           // Handle installation progress
           break;
-        case 'install_complete':
+        case "install_complete":
           this.fridaInstalled = true;
           this.fridaInstalling = false;
           break;
-        case 'server_status':
+        case "server_status":
           this.fridaRunning = message.running;
           this.fridaStarting = false;
           this.fridaStopping = false;
           break;
-        case 'script_loaded':
+        case "script_loaded":
           if (message.script_name && this._pendingScriptContent !== undefined) {
             this.fridaScripts[message.script_name] = this._pendingScriptContent;
             this._pendingScriptContent = undefined;
           }
           break;
-        case 'scripts_list':
+        case "scripts_list":
           this.fridaScripts = {};
           for (const script of message.scripts || []) {
-            this.fridaScripts[script.name] = script.content || '';
+            this.fridaScripts[script.name] = script.content || "";
           }
           this.scriptsLoading = false;
           break;
-        case 'script_deleted':
+        case "script_deleted":
           if (message.script_name) {
             delete this.fridaScripts[message.script_name];
           }
           break;
-        case 'script_started':
+        case "script_started":
           this.updateScriptState(true, message.script_name);
-          console.log('Script started:', message.script_name, 'against', message.target_process);
+          console.log(
+            "Script started:",
+            message.script_name,
+            "against",
+            message.target_process,
+          );
           break;
-        case 'script_stopped':
+        case "script_stopped":
           this.updateScriptState(false);
-          console.log('Script stopped:', message.script_name);
+          console.log("Script stopped:", message.script_name);
           break;
-        case 'script_completed':
+        case "script_completed":
           this.updateScriptState(false);
-          console.log('Script completed:', message.script_name, 'with return code:', message.return_code);
+          console.log(
+            "Script completed:",
+            message.script_name,
+            "with return code:",
+            message.return_code,
+          );
           break;
-        case 'script_output':
+        case "script_output":
           this.fridaOutput.push({
             timestamp: new Date().toLocaleTimeString(),
             text: message.output,
-            stream: message.stream || 'stdout'
+            stream: message.stream || "stdout",
           });
           this.scrollToFridaOutput();
           break;
-        case 'processes_list':
+        case "processes_list":
           this.fridaProcesses = message.processes;
           this.fridaProcessesLoading = false;
           break;
-        case 'apps_list':
+        case "apps_list":
           this.fridaApps = message.apps || [];
           this.fridaAppsLoading = false;
           break;
 
-        case 'error':
-          console.error('Frida error:', message.message);
+        case "error":
+          console.error("Frida error:", message.message);
           this.updateScriptState(false);
           this.fridaInstalling = false;
           this.fridaStarting = false;
@@ -397,69 +479,99 @@ export default {
           this.fridaAppsLoading = false;
           this.scriptsLoading = false;
           this._pendingScriptContent = undefined;
-          alert('Frida error: ' + message.message);
+          alert("Frida error: " + message.message);
           break;
       }
     },
 
     // Frida action methods
     installFrida() {
-      if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
+      if (
+        this.currentFridaClient &&
+        this.currentFridaClient.readyState === WebSocket.OPEN
+      ) {
         this.fridaInstalling = true;
-        this.currentFridaClient.send(JSON.stringify({
-          type: 'frida',
-          action: 'install'
-        }));
+        this.currentFridaClient.send(
+          JSON.stringify({
+            type: "frida",
+            action: "install",
+          }),
+        );
       }
     },
 
     startFridaServer() {
-      if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
+      if (
+        this.currentFridaClient &&
+        this.currentFridaClient.readyState === WebSocket.OPEN
+      ) {
         this.fridaStarting = true;
-        this.currentFridaClient.send(JSON.stringify({
-          type: 'frida',
-          action: 'start_server'
-        }));
+        this.currentFridaClient.send(
+          JSON.stringify({
+            type: "frida",
+            action: "start_server",
+          }),
+        );
       }
     },
 
     stopFridaServer() {
-      if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
+      if (
+        this.currentFridaClient &&
+        this.currentFridaClient.readyState === WebSocket.OPEN
+      ) {
         this.fridaStopping = true;
-        this.currentFridaClient.send(JSON.stringify({
-          type: 'frida',
-          action: 'stop_server'
-        }));
+        this.currentFridaClient.send(
+          JSON.stringify({
+            type: "frida",
+            action: "stop_server",
+          }),
+        );
       }
     },
 
     refreshFridaStatus() {
-      if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
+      if (
+        this.currentFridaClient &&
+        this.currentFridaClient.readyState === WebSocket.OPEN
+      ) {
         this.fridaRefreshing = true;
-        this.currentFridaClient.send(JSON.stringify({
-          type: 'frida',
-          action: 'status'
-        }));
+        this.currentFridaClient.send(
+          JSON.stringify({
+            type: "frida",
+            action: "status",
+          }),
+        );
       }
     },
 
     listProcesses() {
-      if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
+      if (
+        this.currentFridaClient &&
+        this.currentFridaClient.readyState === WebSocket.OPEN
+      ) {
         this.fridaProcessesLoading = true;
-        this.currentFridaClient.send(JSON.stringify({
-          type: 'frida',
-          action: 'list_processes'
-        }));
+        this.currentFridaClient.send(
+          JSON.stringify({
+            type: "frida",
+            action: "list_processes",
+          }),
+        );
       }
     },
 
     listApps() {
-      if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
+      if (
+        this.currentFridaClient &&
+        this.currentFridaClient.readyState === WebSocket.OPEN
+      ) {
         this.fridaAppsLoading = true;
-        this.currentFridaClient.send(JSON.stringify({
-          type: 'frida',
-          action: 'list_apps'
-        }));
+        this.currentFridaClient.send(
+          JSON.stringify({
+            type: "frida",
+            action: "list_apps",
+          }),
+        );
       }
     },
 
@@ -477,7 +589,7 @@ export default {
       this.fridaOutput.push({
         timestamp: new Date().toLocaleTimeString(),
         text: `Target selected: ${label}`,
-        stream: 'stdout'
+        stream: "stdout",
       });
       this.scrollToFridaOutput();
     },
@@ -488,7 +600,7 @@ export default {
         const reader = new FileReader();
         reader.onload = (e) => {
           const scriptContent = e.target.result;
-          const scriptName = file.name.replace('.js', '');
+          const scriptName = file.name.replace(".js", "");
 
           try {
             this.saveScriptViaWS(scriptName, scriptContent);
@@ -496,7 +608,7 @@ export default {
             this.fridaOutput.push({
               timestamp: new Date().toLocaleTimeString(),
               text: `Error loading script '${scriptName}': ${error.message}`,
-              stream: 'stderr'
+              stream: "stderr",
             });
           }
           this.scrollToFridaOutput();
@@ -506,7 +618,7 @@ export default {
     },
 
     createNewScript() {
-      this.newScriptName = prompt('Enter script name:');
+      this.newScriptName = prompt("Enter script name:");
       if (this.newScriptName) {
         this.editingScriptName = null;
         this.scriptContent = `import Java from "frida-java-bridge";
@@ -531,22 +643,24 @@ if (Java.available) {
     closeScriptEditor() {
       this.showScriptEditor = false;
       this.editingScriptName = null;
-      this.newScriptName = '';
-      this.scriptContent = '';
+      this.newScriptName = "";
+      this.scriptContent = "";
     },
 
     selectScript(scriptName) {
       this.selectedScriptName = scriptName;
-      
+
       // Highlight the selected script
       this.$nextTick(() => {
-        const scriptItems = document.querySelectorAll('.script-item');
-        scriptItems.forEach(item => {
-          item.classList.remove('selected');
+        const scriptItems = document.querySelectorAll(".script-item");
+        scriptItems.forEach((item) => {
+          item.classList.remove("selected");
         });
-        const selectedItem = document.querySelector(`[data-script="${scriptName}"]`);
+        const selectedItem = document.querySelector(
+          `[data-script="${scriptName}"]`,
+        );
         if (selectedItem) {
-          selectedItem.classList.add('selected');
+          selectedItem.classList.add("selected");
         }
       });
     },
@@ -556,35 +670,40 @@ if (Java.available) {
         // Show error and highlight process input
         this.showProcessError = true;
         this.highlightProcessInput();
-        
+
         // Hide error after 3 seconds
         setTimeout(() => {
           this.showProcessError = false;
         }, 3000);
-        
+
         return;
       }
-      
+
       // Run the script
-      if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
-        this.currentFridaClient.send(JSON.stringify({
-          type: 'frida',
-          action: 'run_script',
-          script_name: scriptName,
-          target_process: this.targetProcessName.trim()
-        }));
+      if (
+        this.currentFridaClient &&
+        this.currentFridaClient.readyState === WebSocket.OPEN
+      ) {
+        this.currentFridaClient.send(
+          JSON.stringify({
+            type: "frida",
+            action: "run_script",
+            script_name: scriptName,
+            target_process: this.targetProcessName.trim(),
+          }),
+        );
       }
     },
 
     highlightProcessInput() {
-      const processInput = document.querySelector('.process-input');
+      const processInput = document.querySelector(".process-input");
       if (processInput) {
-        processInput.classList.add('error-highlight');
+        processInput.classList.add("error-highlight");
         processInput.focus();
-        
+
         // Remove highlight after animation
         setTimeout(() => {
-          processInput.classList.remove('error-highlight');
+          processInput.classList.remove("error-highlight");
         }, 2000);
       }
     },
@@ -596,18 +715,23 @@ if (Java.available) {
 
     runSelectedScript() {
       if (this.targetProcessName.trim() && this.selectedScriptName) {
-        if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
-          this.currentFridaClient.send(JSON.stringify({
-            type: 'frida',
-            action: 'run_script',
-            script_name: this.selectedScriptName,
-            target_process: this.targetProcessName.trim()
-          }));
+        if (
+          this.currentFridaClient &&
+          this.currentFridaClient.readyState === WebSocket.OPEN
+        ) {
+          this.currentFridaClient.send(
+            JSON.stringify({
+              type: "frida",
+              action: "run_script",
+              script_name: this.selectedScriptName,
+              target_process: this.targetProcessName.trim(),
+            }),
+          );
         }
       } else if (!this.selectedScriptName) {
-        alert('Please select a script first');
+        alert("Please select a script first");
       } else if (!this.targetProcessName.trim()) {
-        alert('Please enter a process name');
+        alert("Please enter a process name");
       }
     },
 
@@ -621,7 +745,7 @@ if (Java.available) {
           this.fridaOutput.push({
             timestamp: new Date().toLocaleTimeString(),
             text: `Error saving script '${scriptName}': ${error.message}`,
-            stream: 'stderr'
+            stream: "stderr",
           });
           this.scrollToFridaOutput();
         }
@@ -639,21 +763,30 @@ if (Java.available) {
       const textarea = event.target;
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
-      
-      this.scriptContent = this.scriptContent.substring(0, start) + '    ' + this.scriptContent.substring(end);
-      
+
+      this.scriptContent =
+        this.scriptContent.substring(0, start) +
+        "    " +
+        this.scriptContent.substring(end);
+
       this.$nextTick(() => {
         textarea.selectionStart = textarea.selectionEnd = start + 4;
       });
     },
 
     stopCurrentScript() {
-      if (this.currentRunningScript && this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
-        this.currentFridaClient.send(JSON.stringify({
-          type: 'frida',
-          action: 'stop_script',
-          script_name: this.currentRunningScript
-        }));
+      if (
+        this.currentRunningScript &&
+        this.currentFridaClient &&
+        this.currentFridaClient.readyState === WebSocket.OPEN
+      ) {
+        this.currentFridaClient.send(
+          JSON.stringify({
+            type: "frida",
+            action: "stop_script",
+            script_name: this.currentRunningScript,
+          }),
+        );
       }
     },
 
@@ -663,12 +796,17 @@ if (Java.available) {
 
     deleteScript(scriptName) {
       if (confirm(`Are you sure you want to delete script "${scriptName}"?`)) {
-        if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
-          this.currentFridaClient.send(JSON.stringify({
-            type: 'frida',
-            action: 'delete_script',
-            script_name: scriptName
-          }));
+        if (
+          this.currentFridaClient &&
+          this.currentFridaClient.readyState === WebSocket.OPEN
+        ) {
+          this.currentFridaClient.send(
+            JSON.stringify({
+              type: "frida",
+              action: "delete_script",
+              script_name: scriptName,
+            }),
+          );
         }
         this.scrollToFridaOutput();
       }
@@ -687,7 +825,7 @@ if (Java.available) {
     updateScriptState(isRunning, scriptName = null) {
       this.isScriptRunning = isRunning;
       this.currentRunningScript = scriptName;
-      
+
       // Force Vue to update UI
       this.$nextTick(() => {
         this.$forceUpdate();
@@ -695,30 +833,40 @@ if (Java.available) {
     },
 
     loadScriptsFromWS() {
-      if (this.currentFridaClient && this.currentFridaClient.readyState === WebSocket.OPEN) {
+      if (
+        this.currentFridaClient &&
+        this.currentFridaClient.readyState === WebSocket.OPEN
+      ) {
         this.scriptsLoading = true;
-        this.currentFridaClient.send(JSON.stringify({
-          type: 'frida',
-          action: 'list_scripts',
-          include_content: true
-        }));
+        this.currentFridaClient.send(
+          JSON.stringify({
+            type: "frida",
+            action: "list_scripts",
+            include_content: true,
+          }),
+        );
       }
     },
 
     saveScriptViaWS(name, content) {
-      if (!this.currentFridaClient || this.currentFridaClient.readyState !== WebSocket.OPEN) {
-        throw new Error('Frida WebSocket is not connected');
+      if (
+        !this.currentFridaClient ||
+        this.currentFridaClient.readyState !== WebSocket.OPEN
+      ) {
+        throw new Error("Frida WebSocket is not connected");
       }
 
       this._pendingScriptContent = content;
-      this.currentFridaClient.send(JSON.stringify({
-        type: 'frida',
-        action: 'load_script',
-        script_name: name,
-        script_content: content
-      }));
-    }
-  }
+      this.currentFridaClient.send(
+        JSON.stringify({
+          type: "frida",
+          action: "load_script",
+          script_name: name,
+          script_content: content,
+        }),
+      );
+    },
+  },
 };
 </script>
 
@@ -873,9 +1021,16 @@ if (Java.available) {
 }
 
 @keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-5px); }
-  75% { transform: translateX(5px); }
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-5px);
+  }
+  75% {
+    transform: translateX(5px);
+  }
 }
 
 .process-error-overlay {
@@ -902,8 +1057,14 @@ if (Java.available) {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .frida-btn {
@@ -1221,23 +1382,21 @@ if (Java.available) {
   cursor: not-allowed;
 }
 
-
-
 @media (max-width: 1024px) {
   .frida-section {
     max-height: 350px;
   }
-  
+
   .frida-content {
     max-height: 250px;
   }
-  
+
   .frida-toolbar {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
   }
-  
+
   .process-input-group {
     min-width: auto;
   }
@@ -1249,25 +1408,25 @@ if (Java.available) {
     margin-top: 0.5rem;
     margin-bottom: 0.5rem;
   }
-  
+
   .frida-content {
     max-height: 200px;
   }
-  
+
   .frida-btn {
     flex-direction: column;
     gap: 2px;
     font-size: 10px;
     min-height: 40px;
   }
-  
+
   .script-btn {
     flex-direction: column;
     gap: 2px;
     font-size: 10px;
     min-height: 36px;
   }
-  
+
   .process-input-group {
     flex-direction: column;
     align-items: stretch;

@@ -10,7 +10,14 @@
     <div class="file-manager-path">
       <div class="current-path">
         <span class="path-label">Current Path:</span>
-        <span class="path-value">{{ fileManagerData.currentPath }}</span>
+        <input
+          type="text"
+          class="path-input"
+          v-model="pathInputValue"
+          @keyup.enter="submitPathInput"
+          @blur="submitPathInput"
+          spellcheck="false"
+        />
       </div>
     </div>
 
@@ -18,10 +25,6 @@
       <button @click="goToParentDirectory" :disabled="fileManagerData.currentPath === '/'">
         <font-awesome-icon icon="level-up-alt" /> Parent
       </button>
-      <button @click="goToQuickPath('/')"><font-awesome-icon icon="folder" /> Root</button>
-      <button @click="goToQuickPath('/data/local/tmp')"><font-awesome-icon icon="folder" /> Temp</button>
-      <button @click="goToQuickPath('/storage')"><font-awesome-icon icon="folder" /> Storage</button>
-      <button @click="refreshFileList"><font-awesome-icon icon="sync" /> Refresh</button>
       <button @click="createDirectory"><font-awesome-icon icon="folder-plus" /> New Folder</button>
       <input type="file" @change="uploadFile" style="display: none" ref="fileInput" />
       <button @click="$refs.fileInput.click()"><font-awesome-icon icon="upload" /> Upload File</button>
@@ -98,6 +101,10 @@ export default {
     return {
       currentFileManagerClient: null,
       fileManagerScrollHandler: null,
+      fileManagerReconnectTimer: null,
+      isClosingIntentionally: false,
+      isOpeningFileManager: false,
+      pathInputValue: '/data/local/tmp',
       fileManagerData: {
         currentPath: '/data/local/tmp',
         entries: [],
@@ -108,6 +115,11 @@ export default {
       },
     };
   },
+  watch: {
+    'fileManagerData.currentPath'(newPath) {
+      this.pathInputValue = newPath;
+    },
+  },
   async mounted() {
     await this.openFileManager();
   },
@@ -116,11 +128,25 @@ export default {
   },
   methods: {
     async openFileManager() {
-      try {
-        if (this.currentFileManagerClient && this.currentFileManagerClient.readyState === WebSocket.OPEN) {
-          return;
-        }
+      if (this.fileManagerReconnectTimer) {
+        clearTimeout(this.fileManagerReconnectTimer);
+        this.fileManagerReconnectTimer = null;
+      }
 
+      if (this.isOpeningFileManager) {
+        return;
+      }
+      if (
+        this.currentFileManagerClient &&
+        (this.currentFileManagerClient.readyState === WebSocket.OPEN ||
+          this.currentFileManagerClient.readyState === WebSocket.CONNECTING)
+      ) {
+        return;
+      }
+
+      this.isOpeningFileManager = true;
+
+      try {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsHost = window.location.host;
 
@@ -128,6 +154,10 @@ export default {
 
         const fileManagerContent = this.$el.querySelector('.file-manager-content');
         if (fileManagerContent) {
+          if (this.fileManagerScrollHandler) {
+            fileManagerContent.removeEventListener('wheel', this.fileManagerScrollHandler);
+          }
+
           this.fileManagerScrollHandler = event => {
             const { scrollTop, scrollHeight, clientHeight } = fileManagerContent;
             const isAtTop = scrollTop === 0;
@@ -152,7 +182,8 @@ export default {
         )}?action=file_manager`;
 
         if (this.currentFileManagerClient) {
-          this.currentFileManagerClient.close();
+          this.isClosingIntentionally = true;
+          this.currentFileManagerClient.close(1000, 'Reopening file manager connection');
           this.currentFileManagerClient = null;
         }
 
@@ -160,6 +191,7 @@ export default {
 
         fileManagerWs.addEventListener('open', () => {
           console.log('File Manager WebSocket connected');
+          this.isClosingIntentionally = false;
 
           // Request initial status and file list
           fileManagerWs.send(
@@ -185,8 +217,12 @@ export default {
         fileManagerWs.addEventListener('close', event => {
           console.log('File Manager WebSocket closed:', event.code, event.reason);
 
-          if (event.code !== 1000) {
-            setTimeout(() => {
+          const wasIntentional = this.isClosingIntentionally;
+          this.isClosingIntentionally = false;
+          const isStaleSocket = this.currentFileManagerClient !== fileManagerWs;
+          if (!wasIntentional && event.code !== 1000 && !isStaleSocket) {
+            this.fileManagerReconnectTimer = setTimeout(() => {
+              this.fileManagerReconnectTimer = null;
               this.openFileManager();
             }, 3000);
           }
@@ -199,12 +235,20 @@ export default {
         this.currentFileManagerClient = fileManagerWs;
       } catch (error) {
         console.error('Error opening file manager:', error);
+      } finally {
+        this.isOpeningFileManager = false;
       }
     },
 
     closeFileManager() {
+      if (this.fileManagerReconnectTimer) {
+        clearTimeout(this.fileManagerReconnectTimer);
+        this.fileManagerReconnectTimer = null;
+      }
+
       if (this.currentFileManagerClient) {
-        this.currentFileManagerClient.close();
+        this.isClosingIntentionally = true;
+        this.currentFileManagerClient.close(1000, 'File manager closed');
         this.currentFileManagerClient = null;
       }
 
@@ -259,6 +303,7 @@ export default {
       } else if (message.action === 'error') {
         console.error('File Manager error:', message.message);
         alert(`Error: ${message.message}`);
+        this.pathInputValue = this.fileManagerData.currentPath;
       } else if (message.action === 'download') {
         this.handleFileDownload(message);
       } else if (message.action === 'upload' || message.action === 'delete' || message.action === 'mkdir') {
@@ -285,6 +330,26 @@ export default {
         console.error('Error downloading file:', error);
         alert('Error downloading file');
       }
+    },
+
+    submitPathInput() {
+      const trimmedPath = (this.pathInputValue || '').trim();
+
+      if (!trimmedPath) {
+        this.pathInputValue = this.fileManagerData.currentPath;
+        return;
+      }
+
+      if (trimmedPath === this.fileManagerData.currentPath) {
+        return;
+      }
+
+      if (!trimmedPath.startsWith('/')) {
+        this.pathInputValue = this.fileManagerData.currentPath;
+        return;
+      }
+
+      this.navigateToDirectory(trimmedPath);
     },
 
     navigateToDirectory(path) {
@@ -501,7 +566,8 @@ export default {
   font-size: 14px;
 }
 
-.path-value {
+.path-input {
+  flex: 1;
   font-family: monospace;
   background: #fff;
   padding: 4px 8px;
@@ -509,7 +575,13 @@ export default {
   border: 1px solid #ddd;
   color: #555;
   font-size: 13px;
-  word-break: break-all;
+  min-width: 0;
+}
+
+.path-input:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
 }
 
 .file-manager-toolbar {

@@ -278,15 +278,11 @@ export default {
         formData.append('apk_file', file);
 
         try {
-          const response = await api.post(
-            `/dynamic-testing/device/${device.id}/install-apk-direct`,
-            formData,
-            {
-              headers: {
-                'Content-Type': 'multipart/form-data',
-              },
+          const response = await api.post(`/dynamic-testing/device/${device.id}/install-apk-direct`, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
             },
-          );
+          });
 
           console.log('APK installed successfully:', response.data);
           this.addNotification('success', 'Success', 'APK installed successfully');
@@ -454,9 +450,7 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  transition:
-    border-color 0.3s ease,
-    box-shadow 0.3s ease;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .device-info h3 {

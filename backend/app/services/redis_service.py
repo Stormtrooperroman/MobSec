@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 from typing import Any, AsyncIterator, Optional, Tuple
 
 from redis.asyncio import Redis
@@ -8,9 +9,33 @@ logger = logging.getLogger(__name__)
 
 
 class RedisService:
+    _instance: "RedisService" = None
+    _instance_lock = threading.Lock()
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self, redis_url: str):
+        if getattr(self, "_initialized", False):
+            if redis_url != self.redis_url:
+                logger.warning(
+                    "RedisService singleton already initialized with %s; "
+                    "ignoring different redis_url=%s",
+                    self.redis_url,
+                    redis_url,
+                )
+            return
         self.redis_url = redis_url
         self.redis = Redis.from_url(redis_url, decode_responses=True)
+        self._initialized = True
+
+    @classmethod
+    def get_instance(cls, redis_url: str) -> "RedisService":
+        return cls(redis_url)
 
     def task_key(self, task_id: str) -> str:
         return f"task:{task_id}"

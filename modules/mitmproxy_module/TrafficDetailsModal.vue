@@ -7,13 +7,13 @@
           <font-awesome-icon icon="times" />
         </button>
       </div>
-      
+
       <div class="modal-body" v-if="localEntry">
         <div class="content-loading" v-if="isLoading">
           <div class="spinner"></div>
           <span>Loading content...</span>
         </div>
-        
+
         <div class="detail-section">
           <h6>Basic Information</h6>
           <div class="detail-grid">
@@ -23,19 +23,27 @@
             </div>
             <div class="detail-item">
               <span class="detail-key">Method: </span>
-              <span class="method-badge detail-value" :class="'method-' + localEntry.method.toLowerCase()">
+              <span
+                class="method-badge detail-value"
+                :class="'method-' + localEntry.method.toLowerCase()"
+              >
                 {{ localEntry.method }}
               </span>
             </div>
             <div class="detail-item">
               <span class="detail-key">Status:</span>
-              <span class="status-badge detail-value" :class="getStatusClass(localEntry.status_code)">
+              <span
+                class="status-badge detail-value"
+                :class="getStatusClass(localEntry.status_code)"
+              >
                 {{ localEntry.status_code }}
               </span>
             </div>
             <div class="detail-item">
               <span class="detail-key">Time:</span>
-              <span class="detail-value">{{ formatTime(localEntry.timestamp) }}</span>
+              <span class="detail-value">{{
+                formatTime(localEntry.timestamp)
+              }}</span>
             </div>
           </div>
         </div>
@@ -43,8 +51,8 @@
         <div class="detail-section">
           <h6>Request Headers</h6>
           <div class="headers-list">
-            <div 
-              v-for="(value, key) in localEntry.request_headers" 
+            <div
+              v-for="(value, key) in localEntry.request_headers"
               :key="key"
               class="header-item"
             >
@@ -57,8 +65,8 @@
         <div class="detail-section">
           <h6>Response Headers</h6>
           <div class="headers-list">
-            <div 
-              v-for="(value, key) in localEntry.response_headers" 
+            <div
+              v-for="(value, key) in localEntry.response_headers"
               :key="key"
               class="header-item"
             >
@@ -73,37 +81,61 @@
             <h6>Request Content</h6>
             <div class="section-controls">
               <div class="content-view-controls" v-if="localEntry.id">
-                <button 
+                <button
                   @click="changeContentView('request', 'auto')"
-                  :class="['btn', 'btn-xs', localEntry.request_view === 'auto' ? 'btn-primary' : 'btn-outline-secondary']"
+                  :class="[
+                    'btn',
+                    'btn-xs',
+                    localEntry.request_view === 'auto'
+                      ? 'btn-primary'
+                      : 'btn-outline-secondary',
+                  ]"
                   title="Auto mode"
                 >
                   <font-awesome-icon icon="magic" />
                 </button>
-                <button 
+                <button
                   @click="changeContentView('request', 'text')"
-                  :class="['btn', 'btn-xs', localEntry.request_view === 'text' ? 'btn-primary' : 'btn-outline-secondary']"
+                  :class="[
+                    'btn',
+                    'btn-xs',
+                    localEntry.request_view === 'text'
+                      ? 'btn-primary'
+                      : 'btn-outline-secondary',
+                  ]"
                   title="Text mode"
                 >
                   <font-awesome-icon icon="font" />
                 </button>
-                <button 
+                <button
                   @click="changeContentView('request', 'hex')"
-                  :class="['btn', 'btn-xs', localEntry.request_view === 'hex' ? 'btn-primary' : 'btn-outline-secondary']"
+                  :class="[
+                    'btn',
+                    'btn-xs',
+                    localEntry.request_view === 'hex'
+                      ? 'btn-primary'
+                      : 'btn-outline-secondary',
+                  ]"
                   title="Hex mode"
                 >
                   <font-awesome-icon icon="code" />
                 </button>
-                <button 
+                <button
                   @click="changeContentView('request', 'raw')"
-                  :class="['btn', 'btn-xs', localEntry.request_view === 'raw' ? 'btn-primary' : 'btn-outline-secondary']"
+                  :class="[
+                    'btn',
+                    'btn-xs',
+                    localEntry.request_view === 'raw'
+                      ? 'btn-primary'
+                      : 'btn-outline-secondary',
+                  ]"
                   title="Raw mode"
                 >
                   <font-awesome-icon icon="file-code" />
                 </button>
               </div>
-              <button 
-                v-if="localEntry.id" 
+              <button
+                v-if="localEntry.id"
                 @click="downloadFlowContent(localEntry.id, 'request')"
                 class="btn btn-xs btn-outline-secondary"
                 title="Download request content"
@@ -112,7 +144,13 @@
               </button>
             </div>
           </div>
-          <pre class="content-block" v-if="localEntry.request_content !== null && localEntry.request_content !== undefined">{{ localEntry.request_content || '(empty body)' }}</pre>
+          <pre
+            class="content-block"
+            v-if="
+              localEntry.request_content !== null &&
+              localEntry.request_content !== undefined
+            "
+            >{{ localEntry.request_content || "(empty body)" }}</pre>
         </div>
 
         <div class="detail-section">
@@ -120,37 +158,61 @@
             <h6>Response Content</h6>
             <div class="section-controls">
               <div class="content-view-controls" v-if="localEntry.id">
-                <button 
+                <button
                   @click="changeContentView('response', 'auto')"
-                  :class="['btn', 'btn-xs', localEntry.response_view === 'auto' ? 'btn-primary' : 'btn-outline-secondary']"
+                  :class="[
+                    'btn',
+                    'btn-xs',
+                    localEntry.response_view === 'auto'
+                      ? 'btn-primary'
+                      : 'btn-outline-secondary',
+                  ]"
                   title="Auto mode"
                 >
                   <font-awesome-icon icon="magic" />
                 </button>
-                <button 
+                <button
                   @click="changeContentView('response', 'text')"
-                  :class="['btn', 'btn-xs', localEntry.response_view === 'text' ? 'btn-primary' : 'btn-outline-secondary']"
+                  :class="[
+                    'btn',
+                    'btn-xs',
+                    localEntry.response_view === 'text'
+                      ? 'btn-primary'
+                      : 'btn-outline-secondary',
+                  ]"
                   title="Text mode"
                 >
                   <font-awesome-icon icon="font" />
                 </button>
-                <button 
+                <button
                   @click="changeContentView('response', 'hex')"
-                  :class="['btn', 'btn-xs', localEntry.response_view === 'hex' ? 'btn-primary' : 'btn-outline-secondary']"
+                  :class="[
+                    'btn',
+                    'btn-xs',
+                    localEntry.response_view === 'hex'
+                      ? 'btn-primary'
+                      : 'btn-outline-secondary',
+                  ]"
                   title="Hex mode"
                 >
                   <font-awesome-icon icon="code" />
                 </button>
-                <button 
+                <button
                   @click="changeContentView('response', 'raw')"
-                  :class="['btn', 'btn-xs', localEntry.response_view === 'raw' ? 'btn-primary' : 'btn-outline-secondary']"
+                  :class="[
+                    'btn',
+                    'btn-xs',
+                    localEntry.response_view === 'raw'
+                      ? 'btn-primary'
+                      : 'btn-outline-secondary',
+                  ]"
                   title="Raw mode"
                 >
                   <font-awesome-icon icon="file-code" />
                 </button>
               </div>
-              <button 
-                v-if="localEntry.id" 
+              <button
+                v-if="localEntry.id"
                 @click="downloadFlowContent(localEntry.id, 'response')"
                 class="btn btn-xs btn-outline-secondary"
                 title="Download response content"
@@ -159,7 +221,27 @@
               </button>
             </div>
           </div>
-          <pre class="content-block" v-if="localEntry.response_content !== null && localEntry.response_content !== undefined">{{ localEntry.response_content || '(empty body)' }}</pre>
+          <pre
+            class="content-block"
+            v-if="
+              localEntry.response_content !== null &&
+              localEntry.response_content !== undefined
+            "
+            >{{ localEntry.response_content || "(empty body)" }}</pre>
+        </div>
+
+        <div class="modal-footer" v-if="localEntry">
+          <button
+            @click="deleteFlow"
+            class="btn btn-danger"
+            :disabled="isLoading"
+          >
+            <font-awesome-icon icon="trash" />
+            Delete flow
+          </button>
+          <button @click="closeModal" class="btn btn-outline-secondary">
+            Close
+          </button>
         </div>
       </div>
     </div>
@@ -168,134 +250,149 @@
 
 <script>
 export default {
-  name: 'TrafficDetailsModal',
+  name: "TrafficDetailsModal",
   props: {
     show: { type: Boolean, default: false },
     entry: { type: Object, default: null },
-    deviceId: { type: String, required: true }
+    deviceId: { type: String, required: true },
   },
-  emits: ['close', 'content-changed', 'success', 'error'],
+  emits: ["close", "content-changed", "success", "error", "delete"],
   data() {
     return {
       localEntry: null,
-      requestSourceContent: '',
-      responseSourceContent: '',
-      requestEncoding: 'utf-8',
-      responseEncoding: 'utf-8'
-    }
+      requestSourceContent: "",
+      responseSourceContent: "",
+      requestEncoding: "utf-8",
+      responseEncoding: "utf-8",
+    };
   },
   watch: {
     show(newValue) {
-      if (newValue && this.entry) this.setEntry(this.entry)
+      if (newValue && this.entry) this.setEntry(this.entry);
     },
     entry: {
       handler(newValue) {
-        if (newValue) this.setEntry(newValue)
+        if (newValue) this.setEntry(newValue);
       },
       immediate: true,
-      deep: true
-    }
+      deep: true,
+    },
   },
   methods: {
     setEntry(entry) {
-      this.localEntry = { ...entry }
-      this.requestSourceContent = structuredClone(entry.request_content) || ''
-      this.responseSourceContent = structuredClone(entry.response_content) || ''
-      this.requestEncoding = entry.request_content_encoding || 'utf-8'
-      this.responseEncoding = entry.response_content_encoding || 'utf-8'
+      this.localEntry = { ...entry };
+      this.requestSourceContent = structuredClone(entry.request_content) || "";
+      this.responseSourceContent =
+        structuredClone(entry.response_content) || "";
+      this.requestEncoding = entry.request_content_encoding || "utf-8";
+      this.responseEncoding = entry.response_content_encoding || "utf-8";
     },
     closeModal() {
-      this.$emit('close')
+      this.$emit("close");
+    },
+    deleteFlow() {
+      if (!this.localEntry || !this.localEntry.id) return;
+      const confirmed = window.confirm("Delete this flow?");
+      if (!confirmed) return;
+      this.$emit("delete", this.localEntry.id);
+      this.closeModal();
     },
     getStatusClass(statusCode) {
-      if (statusCode >= 200 && statusCode < 300) return 'status-success'
-      if (statusCode >= 300 && statusCode < 400) return 'status-warning'
-      if (statusCode >= 400 && statusCode < 500) return 'status-error'
-      if (statusCode >= 500) return 'status-critical'
-      return 'status-unknown'
+      if (statusCode >= 200 && statusCode < 300) return "status-success";
+      if (statusCode >= 300 && statusCode < 400) return "status-warning";
+      if (statusCode >= 400 && statusCode < 500) return "status-error";
+      if (statusCode >= 500) return "status-critical";
+      return "status-unknown";
     },
     async loadContent() {
       // Flow bodies arrive with get_flows/flow_add/flow_update WebSocket messages.
-      return Promise.resolve()
+      return Promise.resolve();
     },
     formatTime(timestamp) {
-      return new Date(timestamp * 1000).toLocaleString('ru-RU')
+      return new Date(timestamp * 1000).toLocaleString("ru-RU");
     },
     base64ToBytes(base64Content) {
-      const binary = atob(base64Content || '')
-      const bytes = new Uint8Array(binary.length)
+      const binary = atob(base64Content || "");
+      const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i)
+        bytes[i] = binary.charCodeAt(i);
       }
-      return bytes
+      return bytes;
     },
     contentToBytes(content, encoding) {
-      if (encoding === 'base64') {
-        return this.base64ToBytes(content)
+      if (encoding === "base64") {
+        return this.base64ToBytes(content);
       }
-      return new TextEncoder().encode(content || '')
+      return new TextEncoder().encode(content || "");
     },
     formatContent(content, encoding, viewType) {
-      if (content === null || content === undefined || content === '') {
-        return content
+      if (content === null || content === undefined || content === "") {
+        return content;
       }
-      if (viewType === 'hex') {
-        const bytes = this.contentToBytes(content, encoding)
-        return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ')
+      if (viewType === "hex") {
+        const bytes = this.contentToBytes(content, encoding);
+        return Array.from(bytes)
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join(" ");
       }
-      if (viewType === 'raw') {
-        return content
+      if (viewType === "raw") {
+        return content;
       }
- 
-      if (encoding === 'base64') {
-        const byteLength = this.base64ToBytes(content).length
-        return `[Binary content — ${byteLength} bytes, not valid UTF-8. Switch to Hex mode or use Download to inspect the raw bytes.]`
+
+      if (encoding === "base64") {
+        const byteLength = this.base64ToBytes(content).length;
+        return `[Binary content — ${byteLength} bytes, not valid UTF-8. Switch to Hex mode or use Download to inspect the raw bytes.]`;
       }
-      return content
+      return content;
     },
     changeContentView(messageType, viewType, emit = true) {
-      if (!this.localEntry) return
+      if (!this.localEntry) return;
       const sourceContent =
-        messageType === 'request'
+        messageType === "request"
           ? this.requestSourceContent
-          : this.responseSourceContent
+          : this.responseSourceContent;
       const encoding =
-        messageType === 'request'
+        messageType === "request"
           ? this.requestEncoding
-          : this.responseEncoding
-      this.localEntry[`${messageType}_view`] = viewType
-      this.localEntry[`${messageType}_content`] =
-        this.formatContent(sourceContent, encoding, viewType)
+          : this.responseEncoding;
+      this.localEntry[`${messageType}_view`] = viewType;
+      this.localEntry[`${messageType}_content`] = this.formatContent(
+        sourceContent,
+        encoding,
+        viewType,
+      );
       if (emit) {
-        this.$emit('content-changed', {
+        this.$emit("content-changed", {
           messageType,
           viewType,
-          content: this.localEntry[`${messageType}_content`]
-        })
+          content: this.localEntry[`${messageType}_content`],
+        });
       }
     },
     downloadFlowContent(flowId, messageType) {
-      if (!this.localEntry) return
-      const rawContent = messageType === 'request'
-        ? this.rawRequestContent
-        : this.rawResponseContent
-      const encoding = messageType === 'request'
-        ? this.rawRequestEncoding
-        : this.rawResponseEncoding
-      const bytes = this.contentToBytes(rawContent, encoding)
-      const blob = new Blob([bytes], { type: 'application/octet-stream' })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `${flowId}_${messageType}.data`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-      this.$emit('success', `${messageType} content downloaded`)
-    }
-  }
-}
+      if (!this.localEntry) return;
+      const rawContent =
+        messageType === "request"
+          ? this.rawRequestContent
+          : this.rawResponseContent;
+      const encoding =
+        messageType === "request"
+          ? this.rawRequestEncoding
+          : this.rawResponseEncoding;
+      const bytes = this.contentToBytes(rawContent, encoding);
+      const blob = new Blob([bytes], { type: "application/octet-stream" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${flowId}_${messageType}.data`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      this.$emit("success", `${messageType} content downloaded`);
+    },
+  },
+};
 </script>
 
 <style scoped>
@@ -305,7 +402,7 @@ export default {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -319,7 +416,7 @@ export default {
   max-height: 80vh;
   width: 90%;
   overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
 .modal-header {
@@ -542,8 +639,12 @@ export default {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .btn {
@@ -561,7 +662,7 @@ export default {
 
 .btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .btn:disabled {
@@ -585,6 +686,24 @@ export default {
   font-size: 11px;
 }
 
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid #dee2e6;
+  background: #f8f9fa;
+}
+
+.btn-danger {
+  background: #dc3545;
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #c82333;
+}
+
 @media (max-width: 768px) {
   .modal-content {
     width: 95%;
@@ -592,7 +711,7 @@ export default {
   }
 }
 
-.detail-key{
+.detail-key {
   font-weight: 600;
   color: #495057;
   min-width: 150px;
@@ -663,5 +782,4 @@ export default {
   background: #e2e3e5;
   color: #383d41;
 }
-
 </style>

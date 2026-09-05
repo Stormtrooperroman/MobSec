@@ -109,7 +109,7 @@ class PermissionsModule(StaticModule):
             "android.permission.RECEIVE_WAP_PUSH",
             "android.permission.RECEIVE_MMS",
             "android.permission.READ_EXTERNAL_STORAGE",
-            "android.permission.WRITE_EXTERNAL_STORAGE"
+            "android.permission.WRITE_EXTERNAL_STORAGE",
             "android.permission.ACCEPT_HANDOVER",
             "android.permission.ACCESS_NETWORK_STATE",
             "android.permission.ACCESS_WIFI_STATE",

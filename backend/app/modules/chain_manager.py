@@ -42,7 +42,7 @@ class ChainManager:
         redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
         self.async_session = db_manager.session_factory
-        self.redis_service = RedisService(redis_url)
+        self.redis_service = RedisService.get_instance(redis_url)
 
         # Runtime members initialised lazily
         self.chain_event_queue: Optional[asyncio.Queue] = None
@@ -98,7 +98,6 @@ class ChainManager:
 
         self._monitor_task = None
         self._queue_worker_task = None
-        await self.redis_service.close()
         self._started = False
 
     async def _handle_chain_event(self, chain_task_id, next_module_index, file_hash):
@@ -576,8 +575,12 @@ class ChainManager:
         """Mark module as failed"""
         async with self.async_session() as session:
             module_execution_id = f"{chain_task_id}_module_{module_index}"
-            module_execution = await session.execute(
-                select(ModuleExecution).where(ModuleExecution.id == module_execution_id)
+            module_execution = (
+                await session.execute(
+                    select(ModuleExecution).where(
+                        ModuleExecution.id == module_execution_id
+                    )
+                )
             ).scalar_one_or_none()
 
             if module_execution:

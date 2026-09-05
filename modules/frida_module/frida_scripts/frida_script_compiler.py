@@ -51,7 +51,7 @@ def _prepare_source(content: str, script_name: str) -> tuple[str, str]:
     if any(marker in content for marker in BRIDGE_MARKERS) or script_name.endswith(
         ".ts"
     ):
-        suffix = ".ts" if script_name.endswith(".ts") else ".ts"
+        suffix = ".ts"
         return suffix, content
 
     preamble = ""

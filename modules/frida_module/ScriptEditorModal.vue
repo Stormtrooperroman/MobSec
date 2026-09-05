@@ -2,13 +2,16 @@
   <div v-if="show" class="modal-overlay" @click="closeModal">
     <div class="modal-container script-editor-modal" @click.stop>
       <div class="modal-header">
-        <h3>{{ editingScriptName ? 'Edit Script' : 'New Script' }}: {{ editingScriptName || newScriptName }}</h3>
+        <h3>
+          {{ editingScriptName ? "Edit Script" : "New Script" }}:
+          {{ editingScriptName || newScriptName }}
+        </h3>
         <button @click="closeModal" class="modal-close-btn">&times;</button>
       </div>
       <div class="modal-body">
         <div class="script-editor-container">
-          <textarea 
-            v-model="content" 
+          <textarea
+            v-model="content"
             class="script-editor"
             placeholder="Enter your Frida script here..."
             spellcheck="false"
@@ -26,29 +29,29 @@
 
 <script>
 export default {
-  name: 'ScriptEditorModal',
+  name: "ScriptEditorModal",
   props: {
     show: {
       type: Boolean,
-      default: false
+      default: false,
     },
     editingScriptName: {
       type: String,
-      default: ''
+      default: "",
     },
     newScriptName: {
       type: String,
-      default: ''
+      default: "",
     },
     scriptContent: {
       type: String,
-      default: ''
-    }
+      default: "",
+    },
   },
-  emits: ['close', 'save'],
+  emits: ["close", "save"],
   data() {
     return {
-      content: ''
+      content: "",
     };
   },
   watch: {
@@ -59,29 +62,30 @@ export default {
       if (newVal) {
         this.content = this.scriptContent;
       }
-    }
+    },
   },
   methods: {
     closeModal() {
-      this.$emit('close');
+      this.$emit("close");
     },
 
     saveScript() {
-      this.$emit('save', this.content);
+      this.$emit("save", this.content);
     },
 
     insertTab(event) {
       const textarea = event.target;
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
-      
-      this.content = this.content.substring(0, start) + '\t' + this.content.substring(end);
-      
+
+      this.content =
+        this.content.substring(0, start) + "\t" + this.content.substring(end);
+
       this.$nextTick(() => {
         textarea.selectionStart = textarea.selectionEnd = start + 1;
       });
-    }
-  }
+    },
+  },
 };
 </script>
 
@@ -164,7 +168,7 @@ export default {
   color: #e0e0e0;
   border: none;
   padding: 20px;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
   font-size: 14px;
   line-height: 1.5;
   resize: none;
@@ -222,7 +226,7 @@ export default {
 }
 
 .modal-btn.save-btn {
-  background: #4CAF50;
+  background: #4caf50;
   color: white;
 }
 
@@ -252,14 +256,14 @@ export default {
     width: 95%;
     height: 80%;
   }
-  
+
   .modal-header h3 {
     font-size: 14px;
   }
-  
+
   .script-editor {
     font-size: 12px;
     padding: 15px;
   }
 }
-</style> 
+</style>

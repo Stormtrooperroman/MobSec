@@ -1006,39 +1006,6 @@ class MitmproxyManager:
                             },
                         )
 
-                elif action == "reboot_device":
-                    # Simple device reboot implementation
-                    try:
-
-                        _, stderr, returncode = await execute_adb_command(
-                            device_id=self.device_id, command=["reboot"]
-                        )
-
-                        success = returncode == 0
-                        await self.send_response(
-                            websocket,
-                            {
-                                "type": "mitmproxy",
-                                "action": "device_rebooted",
-                                "success": success,
-                                "message": (
-                                    "Device rebooted"
-                                    if success
-                                    else f"Reboot failed: {stderr}"
-                                ),
-                            },
-                        )
-                    except Exception as e:
-                        await self.send_response(
-                            websocket,
-                            {
-                                "type": "mitmproxy",
-                                "action": "device_rebooted",
-                                "success": False,
-                                "message": f"Reboot error: {str(e)}",
-                            },
-                        )
-
                 elif action == "resume_flow":
                     flow_id = message.get("flow_id")
                     if flow_id:

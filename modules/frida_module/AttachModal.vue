@@ -36,7 +36,11 @@
           v-model="searchQuery"
           type="text"
           class="attach-search-input"
-          :placeholder="activeTab === 'attach' ? 'Filter running processes...' : 'Filter installed apps...'"
+          :placeholder="
+            activeTab === 'attach'
+              ? 'Filter running processes...'
+              : 'Filter installed apps...'
+          "
         />
         <button
           class="attach-refresh-btn"
@@ -56,7 +60,10 @@
             <font-awesome-icon icon="spinner" spin />
             Loading processes...
           </div>
-          <div v-else-if="filteredProcesses.length === 0" class="attach-empty-state">
+          <div
+            v-else-if="filteredProcesses.length === 0"
+            class="attach-empty-state"
+          >
             <font-awesome-icon icon="inbox" />
             No running processes found
           </div>
@@ -67,7 +74,10 @@
               class="attach-item"
               :class="{ selected: selectedTarget === String(process.pid) }"
               @click="selectProcess(process)"
-              @dblclick="selectProcess(process); confirm()"
+              @dblclick="
+                selectProcess(process);
+                confirm();
+              "
             >
               <div class="attach-item-icon">
                 <font-awesome-icon icon="microchip" />
@@ -77,7 +87,11 @@
                 <div class="attach-item-meta">PID: {{ process.pid }}</div>
               </div>
               <div class="attach-item-action">
-                <font-awesome-icon v-if="selectedTarget === String(process.pid)" icon="check-circle" class="selected-icon" />
+                <font-awesome-icon
+                  v-if="selectedTarget === String(process.pid)"
+                  icon="check-circle"
+                  class="selected-icon"
+                />
                 <font-awesome-icon v-else icon="chevron-right" />
               </div>
             </div>
@@ -99,9 +113,14 @@
               v-for="app in filteredApps"
               :key="app.identifier"
               class="attach-item"
-              :class="{ selected: selectedTarget === ('package:' + app.identifier) }"
+              :class="{
+                selected: selectedTarget === 'package:' + app.identifier,
+              }"
               @click="selectApp(app)"
-              @dblclick="selectApp(app); confirm()"
+              @dblclick="
+                selectApp(app);
+                confirm();
+              "
             >
               <div class="attach-item-icon">
                 <img
@@ -123,7 +142,11 @@
                 <span v-else class="pid-badge pid-stopped">&mdash;</span>
               </div>
               <div class="attach-item-action">
-                <font-awesome-icon v-if="selectedTarget === ('package:' + app.identifier)" icon="check-circle" class="selected-icon" />
+                <font-awesome-icon
+                  v-if="selectedTarget === 'package:' + app.identifier"
+                  icon="check-circle"
+                  class="selected-icon"
+                />
                 <font-awesome-icon v-else icon="chevron-right" />
               </div>
             </div>
@@ -151,14 +174,18 @@
           No target selected
         </div>
         <div class="attach-modal-actions">
-          <button class="attach-btn attach-btn-cancel" @click="close">Cancel</button>
+          <button class="attach-btn attach-btn-cancel" @click="close">
+            Cancel
+          </button>
           <button
             class="attach-btn attach-btn-confirm"
             :disabled="!canConfirm"
             @click="confirm"
           >
-            <font-awesome-icon :icon="activeTab === 'start' ? 'rocket' : 'link'" />
-            {{ activeTab === 'start' ? 'Start & Attach' : 'Attach' }}
+            <font-awesome-icon
+              :icon="activeTab === 'start' ? 'rocket' : 'link'"
+            />
+            {{ activeTab === "start" ? "Start & Attach" : "Attach" }}
           </button>
         </div>
       </div>
@@ -168,56 +195,60 @@
 
 <script>
 export default {
-  name: 'AttachModal',
+  name: "AttachModal",
   props: {
     show: {
       type: Boolean,
-      default: false
+      default: false,
     },
     processes: {
       type: Array,
-      default: () => []
+      default: () => [],
     },
     apps: {
       type: Array,
-      default: () => []
+      default: () => [],
     },
     processesLoading: {
       type: Boolean,
-      default: false
+      default: false,
     },
     appsLoading: {
       type: Boolean,
-      default: false
-    }
+      default: false,
+    },
   },
-  emits: ['close', 'confirm', 'refresh-processes', 'refresh-apps'],
+  emits: ["close", "confirm", "refresh-processes", "refresh-apps"],
   data() {
     return {
-      activeTab: 'attach',
-      searchQuery: '',
+      activeTab: "attach",
+      searchQuery: "",
       selectedTarget: null,
-      selectedLabel: '',
-      manualTarget: '',
+      selectedLabel: "",
+      manualTarget: "",
     };
   },
   computed: {
     isLoading() {
-      return this.activeTab === 'attach' ? this.processesLoading : this.appsLoading;
+      return this.activeTab === "attach"
+        ? this.processesLoading
+        : this.appsLoading;
     },
     filteredProcesses() {
       const q = this.searchQuery.trim().toLowerCase();
       if (!q) return this.processes;
-      return this.processes.filter(p =>
-        (p.name || '').toLowerCase().includes(q) || String(p.pid).includes(q)
+      return this.processes.filter(
+        (p) =>
+          (p.name || "").toLowerCase().includes(q) || String(p.pid).includes(q),
       );
     },
     filteredApps() {
       const q = this.searchQuery.trim().toLowerCase();
       if (!q) return this.apps;
-      return this.apps.filter(a =>
-        (a.identifier || '').toLowerCase().includes(q) ||
-        (a.name || '').toLowerCase().includes(q)
+      return this.apps.filter(
+        (a) =>
+          (a.identifier || "").toLowerCase().includes(q) ||
+          (a.name || "").toLowerCase().includes(q),
       );
     },
     canConfirm() {
@@ -226,58 +257,58 @@ export default {
     currentSelectionLabel() {
       if (this.selectedTarget) return this.selectedLabel;
       if (this.manualTarget.trim()) return this.manualTarget.trim();
-      return '';
-    }
+      return "";
+    },
   },
   watch: {
     show(newValue) {
       if (newValue) {
         this.resetState();
-        this.$emit('refresh-processes');
+        this.$emit("refresh-processes");
       }
     },
     manualTarget(newValue) {
       if (newValue) {
         this.selectedTarget = null;
-        this.selectedLabel = '';
+        this.selectedLabel = "";
       }
-    }
+    },
   },
   methods: {
     resetState() {
-      this.searchQuery = '';
+      this.searchQuery = "";
       this.selectedTarget = null;
-      this.selectedLabel = '';
-      this.manualTarget = '';
-      this.activeTab = 'attach';
+      this.selectedLabel = "";
+      this.manualTarget = "";
+      this.activeTab = "attach";
     },
     switchTab(tab) {
       if (this.activeTab === tab) return;
       this.activeTab = tab;
-      this.searchQuery = '';
+      this.searchQuery = "";
       this.selectedTarget = null;
-      this.selectedLabel = '';
-      this.manualTarget = '';
-      if (tab === 'start' && this.apps.length === 0) {
-        this.$emit('refresh-apps');
+      this.selectedLabel = "";
+      this.manualTarget = "";
+      if (tab === "start" && this.apps.length === 0) {
+        this.$emit("refresh-apps");
       }
     },
     refresh() {
-      if (this.activeTab === 'attach') {
-        this.$emit('refresh-processes');
+      if (this.activeTab === "attach") {
+        this.$emit("refresh-processes");
       } else {
-        this.$emit('refresh-apps');
+        this.$emit("refresh-apps");
       }
     },
     selectProcess(process) {
       this.selectedTarget = String(process.pid);
       this.selectedLabel = `${process.name} (PID ${process.pid})`;
-      this.manualTarget = '';
+      this.manualTarget = "";
     },
     selectApp(app) {
       this.selectedTarget = `package:${app.identifier}`;
       this.selectedLabel = app.name || app.identifier;
-      this.manualTarget = '';
+      this.manualTarget = "";
     },
     confirmManual() {
       if (this.manualTarget.trim()) {
@@ -290,15 +321,16 @@ export default {
 
       if (!target && this.manualTarget.trim()) {
         const manual = this.manualTarget.trim();
-        target = this.activeTab === 'start' && !manual.startsWith('package:')
-          ? `package:${manual}`
-          : manual;
+        target =
+          this.activeTab === "start" && !manual.startsWith("package:")
+            ? `package:${manual}`
+            : manual;
         label = manual;
       }
 
       if (!target) return;
 
-      this.$emit('confirm', {
+      this.$emit("confirm", {
         target,
         mode: this.activeTab,
         label: label || target,
@@ -306,9 +338,9 @@ export default {
       this.close();
     },
     close() {
-      this.$emit('close');
-    }
-  }
+      this.$emit("close");
+    },
+  },
 };
 </script>
 

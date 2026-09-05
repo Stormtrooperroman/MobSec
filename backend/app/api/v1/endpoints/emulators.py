@@ -14,7 +14,7 @@ router = APIRouter()
 def get_emulator_manager():
     redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
     emulators_path = os.getenv("EMULATORS_PATH", "/app/emulators")
-    return EmulatorManager(redis_url, emulators_path)
+    return EmulatorManager.get_instance(redis_url, emulators_path)
 
 
 @router.post("/start")

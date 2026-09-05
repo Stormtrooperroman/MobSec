@@ -4,15 +4,17 @@
       <span>
         Network Traffic Monitoring
         <span class="user-info">
-          [{{ status.proxy_running ? 'Active' : 'Inactive' }}]
+          [{{ status.proxy_running ? "Active" : "Inactive" }}]
         </span>
       </span>
     </div>
-    
+
     <div class="traffic-monitor-path">
       <div class="current-path">
         <span class="path-label">Proxy Status:</span>
-        <span class="path-value" :class="statusClass">{{ proxyStatusText }}</span>
+        <span class="path-value" :class="statusClass">{{
+          proxyStatusText
+        }}</span>
       </div>
       <div class="current-path" v-if="status.device_ip">
         <span class="path-label">Device IP:</span>
@@ -29,73 +31,30 @@
     </div>
 
     <div class="traffic-monitor-toolbar">
-      <button 
-        @click="startProxy" 
+      <button
+        @click="startProxy"
         v-if="!status.proxy_running"
         :disabled="isLoading"
         class="toolbar-btn"
       >
         <font-awesome-icon icon="play" /> Start Proxy
       </button>
-      
-      <button 
-        @click="stopProxy" 
+
+      <button
+        @click="stopProxy"
         v-if="status.proxy_running"
         :disabled="isLoading"
         class="toolbar-btn"
       >
         <font-awesome-icon icon="stop" /> Stop Proxy
       </button>
-      
-      <button 
-        @click="configureProxy" 
-        v-if="!status.proxy_configured"
-        :disabled="!status.proxy_running || isLoading"
-        class="toolbar-btn"
+
+      <button
+        @click="toggleSideMenu"
+        class="toolbar-btn side-menu-toggle-btn"
+        title="Device & Certificate Actions"
       >
-        <font-awesome-icon icon="cog" /> Configure on Device
-      </button>
-      
-      <button 
-        @click="disableProxy" 
-        v-if="status.proxy_configured"
-        :disabled="isLoading"
-        class="toolbar-btn"
-      >
-        <font-awesome-icon icon="unlink" /> Disable Proxy
-      </button>
-      
-      <button 
-        @click="generateCertificate" 
-        :disabled="isLoading"
-        class="toolbar-btn"
-      >
-        <font-awesome-icon icon="certificate" /> Generate Certificate
-      </button>
-      
-      <button 
-        @click="installCertificate" 
-        :disabled="isLoading"
-        class="toolbar-btn"
-      >
-        <font-awesome-icon icon="download" /> Install Certificate
-      </button>
-      
-      <button 
-        @click="downloadCertificate" 
-        :disabled="isLoading"
-        class="toolbar-btn"
-      >
-        <font-awesome-icon icon="file-download" /> Download Certificate
-      </button>
-      
-      <button 
-        @click="rebootDevice" 
-        :disabled="isLoading"
-        class="toolbar-btn"
-        title="Reboot device to apply certificates"
-      >
-        <font-awesome-icon icon="power-off" /> Reboot Device
+        <font-awesome-icon icon="bars" /> Device Actions
       </button>
     </div>
 
@@ -103,28 +62,25 @@
       <div class="traffic-header">
         <h4>Captured Traffic</h4>
         <div class="traffic-controls">
-          <button 
-            @click="refreshTraffic" 
+          <button
+            @click="refreshTraffic"
             :disabled="isLoading"
             class="control-btn"
           >
             <font-awesome-icon icon="sync" /> Refresh
           </button>
-          
-          <button 
-            @click="clearTraffic" 
+
+          <button
+            @click="clearTraffic"
             :disabled="isLoading"
             class="control-btn"
           >
             <font-awesome-icon icon="trash" /> Clear
           </button>
 
-          <a 
-            @click="exportTraffic('json')"
-            class="control-btn"
-          >
-            <font-awesome-icon icon="download" />  Export
-        </a>
+          <a @click="exportTraffic('json')" class="control-btn">
+            <font-awesome-icon icon="download" /> Export
+          </a>
         </div>
       </div>
 
@@ -150,43 +106,68 @@
               <th class="sortable-header" @click="toggleSort('timestamp')">
                 <div class="header-content">
                   <span>Time</span>
-                  <span class="sort-indicator" :class="getSortClass('timestamp')">
+                  <span
+                    class="sort-indicator"
+                    :class="getSortClass('timestamp')"
+                  >
                     <font-awesome-icon icon="sort" />
                   </span>
                 </div>
               </th>
-              <th class="sortable-header filterable-header" @click="toggleMethodFilter">
+              <th
+                class="sortable-header filterable-header"
+                @click="toggleMethodFilter"
+              >
                 <div class="header-content">
                   <span>Method</span>
-                  <span class="filter-indicator" :class="{ 'active': filters.method }">
+                  <span
+                    class="filter-indicator"
+                    :class="{ active: filters.method }"
+                  >
                     <font-awesome-icon icon="filter" />
                   </span>
                 </div>
                 <div class="header-dropdown" v-show="showMethodDropdown">
                   <div class="dropdown-content">
-                    <label v-for="method in availableMethods" :key="method" class="dropdown-item">
-                      <input 
-                        type="checkbox" 
-                        :value="method" 
+                    <label
+                      v-for="method in availableMethods"
+                      :key="method"
+                      class="dropdown-item"
+                    >
+                      <input
+                        type="checkbox"
+                        :value="method"
                         :checked="selectedMethods.includes(method)"
                         @click.stop="toggleMethod(method)"
                       />
                       <span>{{ method }}</span>
                     </label>
                     <div class="dropdown-actions">
-                      <button @click="clearMethodFilter" class="clear-btn">Clear</button>
+                      <button @click="clearMethodFilter" class="clear-btn">
+                        Clear
+                      </button>
                     </div>
                   </div>
                 </div>
               </th>
-              <th class="sortable-header filterable-header" @click="toggleHostFilter">
+              <th
+                class="sortable-header filterable-header"
+                @click="toggleHostFilter"
+              >
                 <div class="header-content">
                   <span>Host</span>
                   <div class="header-controls">
-                    <span class="sort-indicator" :class="getSortClass('host')" @click.stop="toggleSort('host')">
+                    <span
+                      class="sort-indicator"
+                      :class="getSortClass('host')"
+                      @click.stop="toggleSort('host')"
+                    >
                       <font-awesome-icon icon="sort" />
                     </span>
-                    <span class="filter-indicator" :class="{ 'active': filters.host }">
+                    <span
+                      class="filter-indicator"
+                      :class="{ active: filters.host }"
+                    >
                       <font-awesome-icon icon="filter" />
                     </span>
                   </div>
@@ -194,9 +175,9 @@
                 <div class="header-dropdown" v-show="showHostDropdown">
                   <div class="dropdown-content">
                     <div class="host-filter-input">
-                      <input 
-                        v-model="filters.host" 
-                        type="text" 
+                      <input
+                        v-model="filters.host"
+                        type="text"
                         placeholder="Enter hostname..."
                         class="filter-input"
                         @input="applyFilters"
@@ -204,32 +185,46 @@
                       />
                     </div>
                     <div class="dropdown-actions">
-                      <button @click="clearHostFilter" class="clear-btn">Clear</button>
+                      <button @click="clearHostFilter" class="clear-btn">
+                        Clear
+                      </button>
                     </div>
                   </div>
                 </div>
               </th>
               <th>Path</th>
-              <th class="sortable-header filterable-header" @click="toggleStatusFilter">
+              <th
+                class="sortable-header filterable-header"
+                @click="toggleStatusFilter"
+              >
                 <div class="header-content">
                   <span>Status</span>
-                  <span class="filter-indicator" :class="{ 'active': filters.status }">
+                  <span
+                    class="filter-indicator"
+                    :class="{ active: filters.status }"
+                  >
                     <font-awesome-icon icon="filter" />
                   </span>
                 </div>
                 <div class="header-dropdown" v-show="showStatusDropdown">
                   <div class="dropdown-content">
-                    <label v-for="status in availableStatuses" :key="status.value" class="dropdown-item">
-                      <input 
-                        type="checkbox" 
-                        :value="status.value" 
+                    <label
+                      v-for="status in availableStatuses"
+                      :key="status.value"
+                      class="dropdown-item"
+                    >
+                      <input
+                        type="checkbox"
+                        :value="status.value"
                         :checked="selectedStatuses.includes(status.value)"
                         @click.stop="toggleStatus(status.value)"
                       />
                       <span>{{ status.label }}</span>
                     </label>
                     <div class="dropdown-actions">
-                      <button @click="clearStatusFilter" class="clear-btn">Clear</button>
+                      <button @click="clearStatusFilter" class="clear-btn">
+                        Clear
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -238,65 +233,66 @@
               <th class="sortable-header" @click="toggleSort('duration')">
                 <div class="header-content">
                   <span>Duration</span>
-                  <span class="sort-indicator" :class="getSortClass('duration')">
+                  <span
+                    class="sort-indicator"
+                    :class="getSortClass('duration')"
+                  >
                     <font-awesome-icon icon="sort" />
                   </span>
                 </div>
               </th>
-              <th>Actions</th>
             </tr>
           </thead>
           <tbody v-if="filteredTraffic.length > 0">
-            <tr 
-              v-for="(entry, index) in paginatedTraffic" 
+            <tr
+              v-for="(entry, index) in paginatedTraffic"
               :key="index"
-              @click="selectEntry(entry)"
-              :class="{ 'selected': selectedEntry === entry }"
+              @click="viewDetails(entry)"
+              :class="{ selected: selectedEntry === entry }"
               class="traffic-row"
             >
               <td>{{ formatTime(entry.timestamp) }}</td>
               <td>
-                <span class="method-badge" :class="'method-' + entry.method.toLowerCase()">
+                <span
+                  class="method-badge"
+                  :class="'method-' + entry.method.toLowerCase()"
+                >
                   {{ entry.method }}
                 </span>
               </td>
               <td>{{ entry.host }}</td>
-              <td class="path-cell" :title="entry.path">{{ truncatePath(entry.path) }}</td>
+              <td class="path-cell" :title="entry.path">
+                {{ truncatePath(entry.path) }}
+              </td>
               <td>
-                <span class="status-badge" :class="getStatusClass(entry.status_code)">
+                <span
+                  class="status-badge"
+                  :class="getStatusClass(entry.status_code)"
+                >
                   {{ entry.status_code }}
                 </span>
               </td>
-              <td>{{ formatSize(entry.request_size + entry.response_size) }}</td>
-              <td>{{ formatDuration(entry.duration) }}</td>
               <td>
-                <div class="action-buttons">
-                  <button 
-                    @click.stop="viewDetails(entry)" 
-                    class="action-btn"
-                    title="View details"
-                  >
-                    <font-awesome-icon icon="eye" />
-                  </button>
-                  <button 
-                    @click.stop="killFlow(entry.id)" 
-                    class="action-btn delete-btn"
-                    title="Stop flow"
-                  >
-                    <font-awesome-icon icon="times" />
-                  </button>
-                </div>
+                {{ formatSize(entry.request_size + entry.response_size) }}
               </td>
+              <td>{{ formatDuration(entry.duration) }}</td>
             </tr>
           </tbody>
           <tbody v-else>
             <tr>
-              <td colspan="8" class="no-traffic">
+              <td colspan="7" class="no-traffic">
                 <font-awesome-icon icon="inbox" />
                 <p v-if="trafficData.length === 0">No traffic captured</p>
                 <p v-else>No traffic matches current filters</p>
-                <small v-if="trafficData.length === 0">Start proxy and configure device to capture traffic</small>
-                <small v-else>Try adjusting your filters or <a @click="clearFilters" class="clear-filters-link">clear all filters</a></small>
+                <small v-if="trafficData.length === 0"
+                  >Start proxy and configure device to capture traffic</small
+                >
+                <small v-else
+                  >Try adjusting your filters or
+                  <a @click="clearFilters" class="clear-filters-link"
+                    >clear all filters</a
+                  ></small
+                >
               </td>
             </tr>
           </tbody>
@@ -304,23 +300,26 @@
       </div>
 
       <div class="pagination" v-if="totalPages > 1">
-        <button 
-          @click="currentPage--" 
+        <button
+          @click="currentPage--"
           :disabled="currentPage === 1"
           class="control-btn"
         >
           <font-awesome-icon icon="chevron-left" />
         </button>
-        
+
         <span class="pagination-info">
           Page {{ currentPage }} of {{ totalPages }}
-          <span v-if="filteredTraffic.length !== trafficData.length" class="pagination-note">
+          <span
+            v-if="filteredTraffic.length !== trafficData.length"
+            class="pagination-note"
+          >
             ({{ filteredTraffic.length }} filtered)
           </span>
         </span>
-        
-        <button 
-          @click="currentPage++" 
+
+        <button
+          @click="currentPage++"
           :disabled="currentPage === totalPages"
           class="control-btn"
         >
@@ -337,34 +336,99 @@
       @close="closeModal"
       @success="handleModalSuccess"
       @error="handleModalError"
+      @delete="killFlow"
     />
 
     <!-- Loading overlay -->
     <div class="loading-overlay" v-if="isLoading">
       <div class="spinner"></div>
     </div>
+
+    <transition name="slide-panel">
+      <div
+        class="side-menu-overlay"
+        v-if="showSideMenu"
+        @click.self="closeSideMenu"
+      >
+        <div class="side-menu-panel">
+          <div class="side-menu-header">
+            <span>Device & Certificate Actions</span>
+            <button
+              class="side-menu-close-btn"
+              @click="closeSideMenu"
+              title="Close"
+            >
+              <font-awesome-icon icon="times" />
+            </button>
+          </div>
+          <div class="side-menu-body">
+            <button
+              @click="configureProxy"
+              v-if="!status.proxy_configured"
+              :disabled="!status.proxy_running || isLoading"
+              class="side-menu-btn"
+            >
+              <font-awesome-icon icon="cog" /> Configure on Device
+            </button>
+
+            <button
+              @click="disableProxy"
+              v-if="status.proxy_configured"
+              :disabled="isLoading"
+              class="side-menu-btn"
+            >
+              <font-awesome-icon icon="unlink" /> Disable Proxy
+            </button>
+
+            <button
+              @click="installCertificate"
+              :disabled="isLoading"
+              class="side-menu-btn"
+            >
+              <font-awesome-icon icon="download" /> Install Certificate
+            </button>
+
+            <button
+              @click="generateCertificate"
+              :disabled="isLoading"
+              class="side-menu-btn"
+            >
+              <font-awesome-icon icon="certificate" /> Generate Certificate
+            </button>
+
+            <button
+              @click="downloadCertificate"
+              :disabled="isLoading"
+              class="side-menu-btn"
+            >
+              <font-awesome-icon icon="file-download" /> Download Certificate
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script>
-import TrafficDetailsModal from './TrafficDetailsModal.vue'
+import TrafficDetailsModal from "./TrafficDetailsModal.vue";
 
 export default {
-  name: 'TrafficMonitorTool',
+  name: "TrafficMonitorTool",
   components: {
-    TrafficDetailsModal
+    TrafficDetailsModal,
   },
   props: {
     deviceId: {
       type: String,
-      required: true
+      required: true,
     },
     websocket: {
       type: Object,
-      default: null
-    }
+      default: null,
+    },
   },
-  
+
   data() {
     return {
       isLoading: false,
@@ -375,7 +439,7 @@ export default {
         device_ip: null,
         proxy_port: 8082,
         proxy_host: "0.0.0.0",
-        proxy_configured: false
+        proxy_configured: false,
       },
       trafficData: [],
       filteredTraffic: [],
@@ -389,457 +453,487 @@ export default {
       closingWebSocket: false,
       reconnectTimer: null,
       filters: {
-        host: '',
-        method: '',
-        status: ''
+        host: "",
+        method: "",
+        status: "",
       },
-      sortBy: 'timestamp_desc',
+      sortBy: "timestamp_desc",
       showExportMenu: false,
+      showSideMenu: false,
       showMethodDropdown: false,
       showStatusDropdown: false,
       showHostDropdown: false,
       selectedMethods: [],
       selectedStatuses: [],
-      availableMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'],
+      availableMethods: [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "PATCH",
+        "HEAD",
+        "OPTIONS",
+      ],
       availableStatuses: [
-        { value: '2xx', label: '2xx Success' },
-        { value: '3xx', label: '3xx Redirect' },
-        { value: '4xx', label: '4xx Client Error' },
-        { value: '5xx', label: '5xx Server Error' }
-      ]
-    }
+        { value: "2xx", label: "2xx Success" },
+        { value: "3xx", label: "3xx Redirect" },
+        { value: "4xx", label: "4xx Client Error" },
+        { value: "5xx", label: "5xx Server Error" },
+      ],
+    };
   },
 
   computed: {
     proxyStatusText() {
-      return this.status.proxy_running ? 'Running' : 'Stopped'
+      return this.status.proxy_running ? "Running" : "Stopped";
     },
-    
+
     statusClass() {
-      return this.status.proxy_running ? 'status-success' : 'status-error'
+      return this.status.proxy_running ? "status-success" : "status-error";
     },
 
     uniqueHosts() {
-      const hosts = new Set(this.trafficData.map(entry => entry.host))
-      return hosts.size
+      const hosts = new Set(this.trafficData.map((entry) => entry.host));
+      return hosts.size;
     },
 
     httpsCount() {
-      return this.trafficData.filter(entry => entry.scheme === 'https').length
+      return this.trafficData.filter((entry) => entry.scheme === "https")
+        .length;
     },
 
     httpCount() {
-      return this.trafficData.filter(entry => entry.scheme === 'http').length
+      return this.trafficData.filter((entry) => entry.scheme === "http").length;
     },
 
     httpCountFiltered() {
-      return this.filteredTraffic.filter(entry => entry.scheme === 'http').length
+      return this.filteredTraffic.filter((entry) => entry.scheme === "http")
+        .length;
     },
 
     totalPages() {
-      return Math.ceil(this.filteredTraffic.length / this.itemsPerPage)
+      return Math.ceil(this.filteredTraffic.length / this.itemsPerPage);
     },
 
     paginatedTraffic() {
-      const start = (this.currentPage - 1) * this.itemsPerPage
-      const end = start + this.itemsPerPage
-      return this.filteredTraffic.slice(start, end)
-    }
+      const start = (this.currentPage - 1) * this.itemsPerPage;
+      const end = start + this.itemsPerPage;
+      return this.filteredTraffic.slice(start, end);
+    },
   },
 
   mounted() {
-    this.openMitmproxyWebSocket()
-    this.startAutoRefresh()
-    this.applyFilters()
-    
-    this.selectedMethods = []
-    this.selectedStatuses = []
-    
-    document.addEventListener('click', this.handleClickOutside)
+    this.openMitmproxyWebSocket();
+    this.startAutoRefresh();
+    this.applyFilters();
+
+    this.selectedMethods = [];
+    this.selectedStatuses = [];
+
+    document.addEventListener("click", this.handleClickOutside);
   },
 
   beforeUnmount() {
-    this.closingWebSocket = true
-    this.closeMitmproxyWebSocket()
-    this.stopAutoRefresh()
-    
-    document.removeEventListener('click', this.handleClickOutside)
+    this.closingWebSocket = true;
+    this.closeMitmproxyWebSocket();
+    this.stopAutoRefresh();
+
+    document.removeEventListener("click", this.handleClickOutside);
   },
 
   methods: {
     sendMitmproxyAction(action, payload = {}) {
-      if (!this.mitmproxyWebSocket || this.mitmproxyWebSocket.readyState !== WebSocket.OPEN) {
-        this.$emit('error', 'Mitmproxy WebSocket is disconnected')
-        return false
+      if (
+        !this.mitmproxyWebSocket ||
+        this.mitmproxyWebSocket.readyState !== WebSocket.OPEN
+      ) {
+        this.$emit("error", "Mitmproxy WebSocket is disconnected");
+        return false;
       }
 
-      this.mitmproxyWebSocket.send(JSON.stringify({
-        type: 'mitmproxy',
-        action,
-        device_id: this.deviceId,
-        ...payload
-      }))
-      return true
+      this.mitmproxyWebSocket.send(
+        JSON.stringify({
+          type: "mitmproxy",
+          action,
+          device_id: this.deviceId,
+          ...payload,
+        }),
+      );
+      return true;
     },
 
     applyFilters() {
-      let filtered = [...this.trafficData]
-      
+      let filtered = [...this.trafficData];
+
       if (this.filters.host) {
-        filtered = filtered.filter(entry => 
-          entry.host.toLowerCase().includes(this.filters.host.toLowerCase())
-        )
+        filtered = filtered.filter((entry) =>
+          entry.host.toLowerCase().includes(this.filters.host.toLowerCase()),
+        );
       }
-      
+
       if (this.filters.method) {
-        if (this.filters.method.includes(',')) {
-          const methods = this.filters.method.split(',')
-          filtered = filtered.filter(entry => methods.includes(entry.method))
+        if (this.filters.method.includes(",")) {
+          const methods = this.filters.method.split(",");
+          filtered = filtered.filter((entry) => methods.includes(entry.method));
         } else {
-          filtered = filtered.filter(entry => entry.method === this.filters.method)
+          filtered = filtered.filter(
+            (entry) => entry.method === this.filters.method,
+          );
         }
       }
-      
+
       if (this.filters.status) {
-        if (this.filters.status.includes(',')) {
-          const statuses = this.filters.status.split(',')
-          filtered = filtered.filter(entry => {
-            const statusCode = Math.floor(entry.status_code / 100)
-            return statuses.some(status => parseInt(status.charAt(0)) === statusCode)
-          })
+        if (this.filters.status.includes(",")) {
+          const statuses = this.filters.status.split(",");
+          filtered = filtered.filter((entry) => {
+            const statusCode = Math.floor(entry.status_code / 100);
+            return statuses.some(
+              (status) => parseInt(status.charAt(0)) === statusCode,
+            );
+          });
         } else {
-          const statusCode = parseInt(this.filters.status.charAt(0))
-          filtered = filtered.filter(entry => 
-            Math.floor(entry.status_code / 100) === statusCode
-          )
+          const statusCode = parseInt(this.filters.status.charAt(0));
+          filtered = filtered.filter(
+            (entry) => Math.floor(entry.status_code / 100) === statusCode,
+          );
         }
       }
-      
-      this.applySorting(filtered)
-      
-      this.currentPage = 1
+
+      this.applySorting(filtered);
+
+      this.currentPage = 1;
     },
 
     applySorting(data = null) {
-      const dataToSort = data || this.filteredTraffic
+      const dataToSort = data || this.filteredTraffic;
       if (!Array.isArray(dataToSort)) {
-        console.error('applySorting: dataToSort is not an array:', dataToSort)
-        return
+        console.error("applySorting: dataToSort is not an array:", dataToSort);
+        return;
       }
-      let sorted = [...dataToSort]
-      
-      const [field, direction] = this.sortBy.split('_')
-      
+      let sorted = [...dataToSort];
+
+      const [field, direction] = this.sortBy.split("_");
+
       sorted.sort((a, b) => {
-        let aVal, bVal
-        
+        let aVal, bVal;
+
         switch (field) {
-          case 'timestamp':
-            aVal = a.timestamp
-            bVal = b.timestamp
-            break
-          case 'host':
-            aVal = a.host.toLowerCase()
-            bVal = b.host.toLowerCase()
-            break
-          case 'method':
-            aVal = a.method.toLowerCase()
-            bVal = b.method.toLowerCase()
-            break
-          case 'status':
-            aVal = a.status_code
-            bVal = b.status_code
-            break
-          case 'duration':
-            aVal = a.duration || 0
-            bVal = b.duration || 0
-            break
+          case "timestamp":
+            aVal = a.timestamp;
+            bVal = b.timestamp;
+            break;
+          case "host":
+            aVal = a.host.toLowerCase();
+            bVal = b.host.toLowerCase();
+            break;
+          case "method":
+            aVal = a.method.toLowerCase();
+            bVal = b.method.toLowerCase();
+            break;
+          case "status":
+            aVal = a.status_code;
+            bVal = b.status_code;
+            break;
+          case "duration":
+            aVal = a.duration || 0;
+            bVal = b.duration || 0;
+            break;
           default:
-            return 0
+            return 0;
         }
-        
-        if (direction === 'asc') {
-          return aVal > bVal ? 1 : aVal < bVal ? -1 : 0
+
+        if (direction === "asc") {
+          return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
         } else {
-          return aVal < bVal ? 1 : aVal > bVal ? -1 : 0
+          return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
         }
-      })
-      
-      this.filteredTraffic = sorted
+      });
+
+      this.filteredTraffic = sorted;
     },
 
     clearFilters() {
       this.filters = {
-        host: '',
-        method: '',
-        status: ''
-      }
-      this.sortBy = 'timestamp_desc'
-      this.selectedMethods = []
-      this.selectedStatuses = []
-      this.showMethodDropdown = false
-      this.showStatusDropdown = false
-      this.showHostDropdown = false
-      this.applyFilters()
+        host: "",
+        method: "",
+        status: "",
+      };
+      this.sortBy = "timestamp_desc";
+      this.selectedMethods = [];
+      this.selectedStatuses = [];
+      this.showMethodDropdown = false;
+      this.showStatusDropdown = false;
+      this.showHostDropdown = false;
+      this.applyFilters();
     },
 
     toggleSort(field) {
-      const [currentField, currentDirection] = this.sortBy.split('_')
-      
+      const [currentField, currentDirection] = this.sortBy.split("_");
+
       if (currentField === field) {
-        this.sortBy = currentDirection === 'asc' ? `${field}_desc` : `${field}_asc`
+        this.sortBy =
+          currentDirection === "asc" ? `${field}_desc` : `${field}_asc`;
       } else {
-        this.sortBy = `${field}_desc`
+        this.sortBy = `${field}_desc`;
       }
-      
-      this.applySorting()
+
+      this.applySorting();
     },
 
     getSortClass(field) {
-      const [currentField, currentDirection] = this.sortBy.split('_')
+      const [currentField, currentDirection] = this.sortBy.split("_");
       if (currentField === field) {
-        return currentDirection === 'asc' ? 'sort-asc' : 'sort-desc'
+        return currentDirection === "asc" ? "sort-asc" : "sort-desc";
       }
-      return ''
+      return "";
     },
 
     toggleMethodFilter() {
-      this.showMethodDropdown = !this.showMethodDropdown
-      this.showStatusDropdown = false
-      this.showHostDropdown = false
+      this.showMethodDropdown = !this.showMethodDropdown;
+      this.showStatusDropdown = false;
+      this.showHostDropdown = false;
     },
 
     toggleStatusFilter() {
-      this.showStatusDropdown = !this.showStatusDropdown
-      this.showMethodDropdown = false
-      this.showHostDropdown = false
+      this.showStatusDropdown = !this.showStatusDropdown;
+      this.showMethodDropdown = false;
+      this.showHostDropdown = false;
     },
 
     toggleHostFilter() {
-      this.showHostDropdown = !this.showHostDropdown
-      this.showMethodDropdown = false
-      this.showStatusDropdown = false
+      this.showHostDropdown = !this.showHostDropdown;
+      this.showMethodDropdown = false;
+      this.showStatusDropdown = false;
     },
 
     clearHostFilter() {
-      this.filters.host = ''
-      this.applyFilters()
+      this.filters.host = "";
+      this.applyFilters();
     },
 
     toggleMethod(method) {
-      console.log('toggleMethod called with:', method)
-      const index = this.selectedMethods.indexOf(method)
+      console.log("toggleMethod called with:", method);
+      const index = this.selectedMethods.indexOf(method);
       if (index > -1) {
-        this.selectedMethods.splice(index, 1)
+        this.selectedMethods.splice(index, 1);
       } else {
-        this.selectedMethods.push(method)
+        this.selectedMethods.push(method);
       }
-      console.log('selectedMethods after toggle:', this.selectedMethods)
-      this.applyMethodFilter()
+      console.log("selectedMethods after toggle:", this.selectedMethods);
+      this.applyMethodFilter();
     },
 
     toggleStatus(status) {
-      console.log('toggleStatus called with:', status)
-      const index = this.selectedStatuses.indexOf(status)
+      console.log("toggleStatus called with:", status);
+      const index = this.selectedStatuses.indexOf(status);
       if (index > -1) {
-        this.selectedStatuses.splice(index, 1)
+        this.selectedStatuses.splice(index, 1);
       } else {
-        this.selectedStatuses.push(status)
+        this.selectedStatuses.push(status);
       }
-      console.log('selectedStatuses after toggle:', this.selectedStatuses)
-      this.applyStatusFilter()
+      console.log("selectedStatuses after toggle:", this.selectedStatuses);
+      this.applyStatusFilter();
     },
 
     applyMethodFilter() {
-      console.log('applyMethodFilter called, selectedMethods:', this.selectedMethods)
+      console.log(
+        "applyMethodFilter called, selectedMethods:",
+        this.selectedMethods,
+      );
       if (this.selectedMethods.length === 0) {
-        this.filters.method = ''
+        this.filters.method = "";
       } else {
-        this.filters.method = this.selectedMethods.join(',')
+        this.filters.method = this.selectedMethods.join(",");
       }
-      console.log('filters.method set to:', this.filters.method)
-      this.applyFilters()
+      console.log("filters.method set to:", this.filters.method);
+      this.applyFilters();
     },
 
     applyStatusFilter() {
-      console.log('applyStatusFilter called, selectedStatuses:', this.selectedStatuses)
+      console.log(
+        "applyStatusFilter called, selectedStatuses:",
+        this.selectedStatuses,
+      );
       if (this.selectedStatuses.length === 0) {
-        this.filters.status = ''
+        this.filters.status = "";
       } else {
-        this.filters.status = this.selectedStatuses.join(',')
+        this.filters.status = this.selectedStatuses.join(",");
       }
-      console.log('filters.status set to:', this.filters.status)
-      this.applyFilters()
+      console.log("filters.status set to:", this.filters.status);
+      this.applyFilters();
     },
 
     clearMethodFilter() {
-      this.selectedMethods = []
-      this.filters.method = ''
-      this.applyFilters()
+      this.selectedMethods = [];
+      this.filters.method = "";
+      this.applyFilters();
     },
 
     clearStatusFilter() {
-      this.selectedStatuses = []
-      this.filters.status = ''
-      this.applyFilters()
+      this.selectedStatuses = [];
+      this.filters.status = "";
+      this.applyFilters();
     },
 
     handleClickOutside(event) {
-      if (!event.target.closest('.filterable-header')) {
-        this.showMethodDropdown = false
-        this.showStatusDropdown = false
-        this.showHostDropdown = false
+      if (!event.target.closest(".filterable-header")) {
+        this.showMethodDropdown = false;
+        this.showStatusDropdown = false;
+        this.showHostDropdown = false;
       }
     },
 
     sendWebSocketAction(action, payload = {}) {
-      if (!this.mitmproxyWebSocket || this.mitmproxyWebSocket.readyState !== WebSocket.OPEN) {
-        this.$emit('error', 'Mitmproxy WebSocket is not connected')
-        return false
+      if (
+        !this.mitmproxyWebSocket ||
+        this.mitmproxyWebSocket.readyState !== WebSocket.OPEN
+      ) {
+        this.$emit("error", "Mitmproxy WebSocket is not connected");
+        return false;
       }
 
-      this.mitmproxyWebSocket.send(JSON.stringify({
-        type: 'mitmproxy',
-        action,
-        device_id: this.deviceId,
-        ...payload
-      }))
-      return true
+      this.mitmproxyWebSocket.send(
+        JSON.stringify({
+          type: "mitmproxy",
+          action,
+          device_id: this.deviceId,
+          ...payload,
+        }),
+      );
+      return true;
     },
 
     checkStatus() {
-      this.sendWebSocketAction('get_state')
+      this.sendWebSocketAction("get_state");
+    },
+
+    toggleSideMenu() {
+      this.showSideMenu = !this.showSideMenu;
+    },
+
+    closeSideMenu() {
+      this.showSideMenu = false;
     },
 
     startProxy() {
-      this.isLoading = this.sendWebSocketAction('start_proxy')
+      this.isLoading = this.sendWebSocketAction("start_proxy");
     },
 
     stopProxy() {
-      this.isLoading = this.sendWebSocketAction('stop_proxy')
+      this.isLoading = this.sendWebSocketAction("stop_proxy");
     },
 
     configureProxy() {
-      this.isLoading = this.sendWebSocketAction('configure_proxy')
+      this.isLoading = this.sendWebSocketAction("configure_proxy");
     },
 
     disableProxy() {
-      this.isLoading = this.sendWebSocketAction('disable_proxy')
+      this.isLoading = this.sendWebSocketAction("disable_proxy");
     },
 
     generateCertificate() {
-      this.isLoading = this.sendWebSocketAction('generate_certificate')
+      this.isLoading = this.sendWebSocketAction("generate_certificate");
     },
 
     installCertificate() {
-      this.isLoading = this.sendWebSocketAction('install_certificate')
+      this.isLoading = this.sendWebSocketAction("install_certificate");
     },
 
     downloadCertificate() {
-      this.sendWebSocketAction('download_certificate')
-    },
-
-    rebootDevice() {
-      this.isLoading = this.sendWebSocketAction('reboot_device')
+      this.sendWebSocketAction("download_certificate");
     },
 
     refreshTraffic() {
-      this.isLoading = this.sendWebSocketAction('get_flows')
+      this.isLoading = this.sendWebSocketAction("get_flows");
     },
 
     clearTraffic() {
-      this.isLoading = this.sendWebSocketAction('clear_flows')
+      this.isLoading = this.sendWebSocketAction("clear_flows");
     },
 
     exportTraffic(format) {
-      this.showExportMenu = false
-      this.isLoading = this.sendWebSocketAction('export_flows', { format })
-    },
-
-    killFlow(flowId) {
-      this.isLoading = this.sendWebSocketAction('kill_flow', { flow_id: flowId })
+      this.showExportMenu = false;
+      this.isLoading = this.sendWebSocketAction("export_flows", { format });
     },
 
     downloadBase64File(data) {
-      const binary = window.atob(data.content || '')
-      const bytes = new Uint8Array(binary.length)
+      const binary = window.atob(data.content || "");
+      const bytes = new Uint8Array(binary.length);
       for (let index = 0; index < binary.length; index += 1) {
-        bytes[index] = binary.charCodeAt(index)
+        bytes[index] = binary.charCodeAt(index);
       }
-      const blob = new Blob([bytes], { type: data.mime_type || 'application/octet-stream' })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = data.filename || 'mitmproxy-download'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
+      const blob = new Blob([bytes], {
+        type: data.mime_type || "application/octet-stream",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = data.filename || "mitmproxy-download";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
     },
 
     selectEntry(entry) {
-      this.selectedEntry = entry
+      this.selectedEntry = entry;
     },
 
     async viewDetails(entry) {
       try {
-        this.isLoading = true
-        
-        this.selectedEntry = { ...entry }
-        this.selectedEntry.request_view = 'auto'
-        this.selectedEntry.response_view = 'auto'
-        this.showDetailsModal = true
+        this.isLoading = true;
+
+        this.selectedEntry = { ...entry };
+        this.selectedEntry.request_view = "auto";
+        this.selectedEntry.response_view = "auto";
+        this.showDetailsModal = true;
       } catch (error) {
-        console.error('Error opening flow details:', error)
-        this.selectedEntry = { ...entry }
-        this.showDetailsModal = true
+        console.error("Error opening flow details:", error);
+        this.selectedEntry = { ...entry };
+        this.showDetailsModal = true;
       } finally {
-        this.isLoading = false
+        this.isLoading = false;
       }
     },
 
-
-
     killFlow(flowId) {
-      this.isLoading = this.sendWebSocketAction('kill_flow', { flow_id: flowId })
+      this.isLoading = this.sendWebSocketAction("kill_flow", {
+        flow_id: flowId,
+      });
     },
-
-
 
     closeModal() {
-      this.showDetailsModal = false
+      this.showDetailsModal = false;
     },
 
-
     handleModalSuccess(message) {
-      this.$emit('success', message);
+      this.$emit("success", message);
     },
 
     handleModalError(message) {
-      this.$emit('error', message);
+      this.$emit("error", message);
     },
 
     setupWebSocketHandlers() {
       if (this.websocket) {
-        this.websocket.addEventListener('message', (event) => {
+        this.websocket.addEventListener("message", (event) => {
           try {
-            const data = JSON.parse(event.data)
-            if (data.type === 'mitmproxy') {
-              this.handleWebSocketMessage(data)
+            const data = JSON.parse(event.data);
+            if (data.type === "mitmproxy") {
+              this.handleWebSocketMessage(data);
             }
           } catch (error) {
-            console.error('Error parsing websocket message:', error)
+            console.error("Error parsing websocket message:", error);
           }
-        })
+        });
       }
     },
 
     handleWebSocketMessage(data) {
-      console.log('Received mitmproxy message:', data)
-      
+      console.log("Received mitmproxy message:", data);
 
       switch (data.action) {
-        case 'ready':
+        case "ready":
           this.status = {
             proxy_running: false,
             cert_installed: data.cert_installed,
@@ -847,12 +941,12 @@ export default {
             device_ip: data.device_ip,
             proxy_port: data.proxy_port,
             proxy_host: data.proxy_host,
-            proxy_configured: data.proxy_configured || false
-          }
-          break
-          
-        case 'state':
-          this.isLoading = false
+            proxy_configured: data.proxy_configured || false,
+          };
+          break;
+
+        case "state":
+          this.isLoading = false;
           if (data.data) {
             this.status = {
               proxy_running: data.data.is_running || false,
@@ -862,362 +956,363 @@ export default {
               proxy_port: data.data.proxy_port || 8082,
               proxy_host: data.data.proxy_host || "0.0.0.0",
               backend_ip: data.data.backend_ip,
-              proxy_configured: data.data.proxy_configured || false
-            }
+              proxy_configured: data.data.proxy_configured || false,
+            };
           }
-          break
-          
-        case 'flows':
-          this.isLoading = false
+          break;
+
+        case "flows":
+          this.isLoading = false;
           if (data.data && Array.isArray(data.data)) {
             if (data.data.length > 0 || this.trafficData.length === 0) {
-              this.trafficData = data.data.map(flow => this.convertFlowToTrafficEntry(flow))
-              this.applyFilters()
+              this.trafficData = data.data.map((flow) =>
+                this.convertFlowToTrafficEntry(flow),
+              );
+              this.applyFilters();
             }
           }
-          break
-          
-        case 'clear_flows':
-          this.isLoading = false
+          break;
+
+        case "clear_flows":
+          this.isLoading = false;
           if (data.success) {
-            this.trafficData = []
-            this.filteredTraffic = []
-            this.$emit('success', 'Traffic cleared')
+            this.trafficData = [];
+            this.filteredTraffic = [];
+            this.$emit("success", "Traffic cleared");
           }
-          break
-          
-        case 'proxy_start_result':
-          this.isLoading = false
-          this.status.proxy_running = data.success
+          break;
+
+        case "proxy_start_result":
+          this.isLoading = false;
+          this.status.proxy_running = data.success;
           if (data.success) {
-            this.$emit('success', 'Proxy started successfully')
-            this.startAutoRefresh()
+            this.$emit("success", "Proxy started successfully");
+            this.startAutoRefresh();
           } else {
-            this.$emit('error', 'Error starting proxy')
+            this.$emit("error", "Error starting proxy");
           }
-          break
-          
-        case 'proxy_stop_result':
-          this.isLoading = false
-          this.status.proxy_running = !data.success
+          break;
+
+        case "proxy_stop_result":
+          this.isLoading = false;
+          this.status.proxy_running = !data.success;
           if (!this.status.proxy_running) {
-            this.$emit('success', 'Proxy stopped successfully')
-            this.stopAutoRefresh()
+            this.$emit("success", "Proxy stopped successfully");
+            this.stopAutoRefresh();
           } else {
-            this.$emit('error', 'Error stopping proxy')
+            this.$emit("error", "Error stopping proxy");
           }
-          break
-          
-        case 'certificate_generated':
-          this.isLoading = false
+          break;
+
+        case "certificate_generated":
+          this.isLoading = false;
           if (data.success) {
-            this.$emit('success', 'Certificate generated successfully')
+            this.$emit("success", "Certificate generated successfully");
           } else {
-            this.$emit('error', 'Error generating certificate')
+            this.$emit("error", "Error generating certificate");
           }
-          break
-          
-        case 'certificate_installed':
-          this.isLoading = false
-          this.status.cert_installed = data.success
+          break;
+
+        case "certificate_installed":
+          this.isLoading = false;
+          this.status.cert_installed = data.success;
           if (data.success) {
-            this.$emit('success', 'Certificate installed on device')
+            this.$emit("success", "Certificate installed on device");
           } else {
-            this.$emit('error', 'Error installing certificate')
+            this.$emit("error", "Error installing certificate");
           }
-          break
-          
-        case 'certificate_installed_reboot_needed':
-          this.status.cert_installed = true
-          this.$emit('info', data.message + ' Device reboot recommended.')
-          break
-          
-        case 'certificate_warning':
-          this.$emit('warning', data.message)
-          break
-          
-        case 'certificate_error':
-          this.$emit('error', data.message)
-          break
-          
-        case 'proxy_configured':
-          this.isLoading = false
-          this.status.proxy_configured = data.success
+          break;
+
+        case "certificate_installed_reboot_needed":
+          this.status.cert_installed = true;
+          this.$emit("info", data.message + " Device reboot recommended.");
+          break;
+
+        case "certificate_warning":
+          this.$emit("warning", data.message);
+          break;
+
+        case "certificate_error":
+          this.$emit("error", data.message);
+          break;
+
+        case "proxy_configured":
+          this.isLoading = false;
+          this.status.proxy_configured = data.success;
           if (data.success) {
-            this.$emit('success', 'Proxy configured on device')
+            this.$emit("success", "Proxy configured on device");
           } else {
-            this.$emit('error', 'Error configuring proxy')
+            this.$emit("error", "Error configuring proxy");
           }
-          break
-          
-        case 'proxy_disabled':
-          this.isLoading = false
-          this.status.proxy_configured = !data.success
+          break;
+
+        case "proxy_disabled":
+          this.isLoading = false;
+          this.status.proxy_configured = !data.success;
           if (data.success) {
-            this.$emit('success', 'Proxy disabled on device')
+            this.$emit("success", "Proxy disabled on device");
           } else {
-            this.$emit('error', 'Error disabling proxy')
+            this.$emit("error", "Error disabling proxy");
           }
-          break
-          
-        case 'proxy_port_updated':
+          break;
+
+        case "proxy_port_updated":
           if (data.proxy_port) {
-            this.status.proxy_port = data.proxy_port
+            this.status.proxy_port = data.proxy_port;
           }
           if (data.backend_ip) {
-            this.status.backend_ip = data.backend_ip
+            this.status.backend_ip = data.backend_ip;
           }
-          this.status.proxy_configured = true
-          this.$emit('success', `Proxy configured: ${data.proxy_setting}`)
-          break
-          
-        case 'device_rebooted':
-          this.isLoading = false
-          if (data.success) {
-            this.$emit('success', data.message)
-            setTimeout(() => {
-              this.checkStatus()
-            }, 3000)
-          } else {
-            this.$emit('error', data.message)
-          }
-          break
-          
-        case 'certificate_download':
-        case 'flows_export':
-          this.isLoading = false
-          if (data.success && data.content) {
-            this.downloadBase64File(data)
-            this.$emit('success', data.message || 'Download ready')
-          } else {
-            this.$emit('error', data.message || 'Download failed')
-          }
-          break
+          this.status.proxy_configured = true;
+          this.$emit("success", `Proxy configured: ${data.proxy_setting}`);
+          break;
 
-        case 'flow_killed':
-          this.isLoading = false
+        case "certificate_download":
+        case "flows_export":
+          this.isLoading = false;
+          if (data.success && data.content) {
+            this.downloadBase64File(data);
+            this.$emit("success", data.message || "Download ready");
+          } else {
+            this.$emit("error", data.message || "Download failed");
+          }
+          break;
+
+        case "flow_killed":
+          this.isLoading = false;
           if (data.success) {
-            this.$emit('success', 'Flow stopped')
-            const index = this.trafficData.findIndex(entry => entry.id === data.flow_id)
+            this.$emit("success", "Flow stopped");
+            const index = this.trafficData.findIndex(
+              (entry) => entry.id === data.flow_id,
+            );
             if (index !== -1) {
-              this.trafficData.splice(index, 1)
+              this.trafficData.splice(index, 1);
             }
           } else {
-            this.$emit('error', 'Error stopping flow')
+            this.$emit("error", "Error stopping flow");
           }
-          break
-          
-        case 'flow_add':
-        case 'flow_created': 
+          break;
+
+        case "flow_add":
+        case "flow_created":
           if (data.flow && data.device_id === this.deviceId) {
-            const flowSummary = this.convertFlowToTrafficEntry(data.flow)
+            const flowSummary = this.convertFlowToTrafficEntry(data.flow);
             // Add new traffic to the end by default (unless sorted differently)
-            this.trafficData.push(flowSummary) 
-            
+            this.trafficData.push(flowSummary);
+
             if (this.trafficData.length > 1000) {
-              this.trafficData = this.trafficData.slice(0, 1000)
+              this.trafficData = this.trafficData.slice(0, 1000);
             }
-            
-            this.applyFilters()
+
+            this.applyFilters();
           }
-          break
-          
-        case 'flow_update':
-        case 'flow_updated': 
+          break;
+
+        case "flow_update":
+        case "flow_updated":
           if (data.flow && data.device_id === this.deviceId) {
-            const index = this.trafficData.findIndex(entry => entry.id === data.flow.id)
+            const index = this.trafficData.findIndex(
+              (entry) => entry.id === data.flow.id,
+            );
             if (index !== -1) {
-              const updatedEntry = this.convertFlowToTrafficEntry(data.flow)
-              this.trafficData.splice(index, 1, updatedEntry)
+              const updatedEntry = this.convertFlowToTrafficEntry(data.flow);
+              this.trafficData.splice(index, 1, updatedEntry);
             } else {
-              const flowSummary = this.convertFlowToTrafficEntry(data.flow)
-              this.trafficData.push(flowSummary)
+              const flowSummary = this.convertFlowToTrafficEntry(data.flow);
+              this.trafficData.push(flowSummary);
             }
-            this.applyFilters()
+            this.applyFilters();
           }
-          break
-          
-        case 'flow_remove':
-        case 'flow_deleted':
+          break;
+
+        case "flow_remove":
+        case "flow_deleted":
           if (data.flow && data.device_id === this.deviceId) {
-            const index = this.trafficData.findIndex(entry => entry.id === data.flow.id)
+            const index = this.trafficData.findIndex(
+              (entry) => entry.id === data.flow.id,
+            );
             if (index !== -1) {
-              this.trafficData.splice(index, 1)
-              console.log(`Removed flow: ${data.flow.id}`)
+              this.trafficData.splice(index, 1);
+              console.log(`Removed flow: ${data.flow.id}`);
             }
-            this.applyFilters()
+            this.applyFilters();
           }
-          break
-          
-        case 'error':
-          this.$emit('error', data.message || 'Unknown error')
-          break
-          
+          break;
+
+        case "error":
+          this.$emit("error", data.message || "Unknown error");
+          break;
+
         default:
-          console.log('Unknown mitmproxy action:', data.action)
+          console.log("Unknown mitmproxy action:", data.action);
       }
     },
 
-
-
     convertFlowToTrafficEntry(flow) {
-      const request = flow.request || {}
-      const response = flow.response || {}
-      
-      let duration = 0
+      const request = flow.request || {};
+      const response = flow.response || {};
+
+      let duration = 0;
       if (request.timestamp_start && request.timestamp_end) {
-        duration = request.timestamp_end - request.timestamp_start
+        duration = request.timestamp_end - request.timestamp_start;
       }
-      
-              return {
-          id: flow.id,
-          timestamp: flow.timestamp_created || Date.now() / 1000,
-          method: request.method || 'UNKNOWN',
-          url: `${request.scheme || 'http'}://${request.host || ''}${request.path || ''}`,
-          host: request.host || '',
-          path: request.path || '',
-          status_code: response.status_code || 0,
-          request_size: request.contentLength || 0,
-          response_size: response.contentLength || 0,
-          duration: duration,
-          scheme: request.scheme || 'http',
-          port: request.port || 80,
-          request_headers: Object.fromEntries(request.headers || []),
-          response_headers: Object.fromEntries(response.headers || []),
-          request_content: request.content || '',
-          response_content: response.content || '',
-          request_view: 'auto', 
-          response_view: 'auto', 
-          type: flow.type || 'http',
-          client_conn: flow.client_conn || null,
-          server_conn: flow.server_conn || null,
-          error: flow.error || null
-        }
+
+      return {
+        id: flow.id,
+        timestamp: flow.timestamp_created || Date.now() / 1000,
+        method: request.method || "UNKNOWN",
+        url: `${request.scheme || "http"}://${request.host || ""}${request.path || ""}`,
+        host: request.host || "",
+        path: request.path || "",
+        status_code: response.status_code || 0,
+        request_size: request.contentLength || 0,
+        response_size: response.contentLength || 0,
+        duration: duration,
+        scheme: request.scheme || "http",
+        port: request.port || 80,
+        request_headers: Object.fromEntries(request.headers || []),
+        response_headers: Object.fromEntries(response.headers || []),
+        request_content: request.content || "",
+        response_content: response.content || "",
+        request_view: "auto",
+        response_view: "auto",
+        type: flow.type || "http",
+        client_conn: flow.client_conn || null,
+        server_conn: flow.server_conn || null,
+        error: flow.error || null,
+      };
     },
 
     startAutoRefresh() {
-      this.stopAutoRefresh()
-      if (this.status.proxy_running && this.mitmproxyWebSocket && this.mitmproxyWebSocket.readyState === WebSocket.OPEN) {
-        this.mitmproxyWebSocket.send(JSON.stringify({
-          type: "mitmproxy",
-          action: "get_state",
-          device_id: this.deviceId
-        }))
+      this.stopAutoRefresh();
+      if (
+        this.status.proxy_running &&
+        this.mitmproxyWebSocket &&
+        this.mitmproxyWebSocket.readyState === WebSocket.OPEN
+      ) {
+        this.mitmproxyWebSocket.send(
+          JSON.stringify({
+            type: "mitmproxy",
+            action: "get_state",
+            device_id: this.deviceId,
+          }),
+        );
       }
-      
-      this.autoRefresh = true
+
+      this.autoRefresh = true;
     },
 
     stopAutoRefresh() {
       if (this.refreshInterval) {
-        clearInterval(this.refreshInterval)
-        this.refreshInterval = null
+        clearInterval(this.refreshInterval);
+        this.refreshInterval = null;
       }
-      this.autoRefresh = false
+      this.autoRefresh = false;
     },
 
     formatTime(timestamp) {
-      return new Date(timestamp * 1000).toLocaleString('ru-RU')
+      return new Date(timestamp * 1000).toLocaleString("ru-RU");
     },
 
     formatSize(bytes) {
-      if (bytes === 0) return '0 B'
-      const k = 1024
-      const sizes = ['B', 'KB', 'MB', 'GB']
-      const i = Math.floor(Math.log(bytes) / Math.log(k))
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+      if (bytes === 0) return "0 B";
+      const k = 1024;
+      const sizes = ["B", "KB", "MB", "GB"];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
     },
 
     formatDuration(duration) {
       if (duration < 1) {
-        return Math.round(duration * 1000) + 'ms'
+        return Math.round(duration * 1000) + "ms";
       }
-      return duration.toFixed(2) + 's'
+      return duration.toFixed(2) + "s";
     },
 
     truncatePath(path) {
-      return path.length > 50 ? path.substring(0, 50) + '...' : path
+      return path.length > 50 ? path.substring(0, 50) + "..." : path;
     },
 
     getStatusClass(statusCode) {
-      if (statusCode >= 200 && statusCode < 300) return 'status-success'
-      if (statusCode >= 300 && statusCode < 400) return 'status-warning'
-      if (statusCode >= 400 && statusCode < 500) return 'status-error'
-      if (statusCode >= 500) return 'status-critical'
-      return 'status-unknown'
+      if (statusCode >= 200 && statusCode < 300) return "status-success";
+      if (statusCode >= 300 && statusCode < 400) return "status-warning";
+      if (statusCode >= 400 && statusCode < 500) return "status-error";
+      if (statusCode >= 500) return "status-critical";
+      return "status-unknown";
     },
 
     openMitmproxyWebSocket() {
       try {
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const wsHost = window.location.host
-        const mitmproxyWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=mitmproxy`
-        
+        const wsProtocol =
+          window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsHost = window.location.host;
+        const mitmproxyWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=mitmproxy`;
+
         if (this.mitmproxyWebSocket) {
-          this.mitmproxyWebSocket.close()
-          this.mitmproxyWebSocket = null
+          this.mitmproxyWebSocket.close();
+          this.mitmproxyWebSocket = null;
         }
-        
-        this.mitmproxyWebSocket = new WebSocket(mitmproxyWsUrl)
-        
-        this.mitmproxyWebSocket.addEventListener('open', () => {
-          console.log('Mitmproxy WebSocket connected')
-          
-          this.mitmproxyWebSocket.send(JSON.stringify({
-            type: 'mitmproxy',
-            action: 'get_state',
-            device_id: this.deviceId
-          }))
-        })
-        
-        this.mitmproxyWebSocket.addEventListener('message', (event) => {
+
+        this.mitmproxyWebSocket = new WebSocket(mitmproxyWsUrl);
+
+        this.mitmproxyWebSocket.addEventListener("open", () => {
+          console.log("Mitmproxy WebSocket connected");
+
+          this.mitmproxyWebSocket.send(
+            JSON.stringify({
+              type: "mitmproxy",
+              action: "get_state",
+              device_id: this.deviceId,
+            }),
+          );
+        });
+
+        this.mitmproxyWebSocket.addEventListener("message", (event) => {
           try {
-            const message = JSON.parse(event.data)
-            if (message.type === 'mitmproxy') {
-              this.handleWebSocketMessage(message)
+            const message = JSON.parse(event.data);
+            if (message.type === "mitmproxy") {
+              this.handleWebSocketMessage(message);
             }
           } catch (e) {
-            console.error('Error parsing mitmproxy message:', e)
+            console.error("Error parsing mitmproxy message:", e);
           }
-        })
-        
-        this.mitmproxyWebSocket.addEventListener('close', (event) => {
-          console.log('Mitmproxy WebSocket closed:', event.code, event.reason)
-          
+        });
+
+        this.mitmproxyWebSocket.addEventListener("close", (event) => {
+          console.log("Mitmproxy WebSocket closed:", event.code, event.reason);
+
           if (event.code !== 1000 && !this.closingWebSocket) {
             this.reconnectTimer = setTimeout(() => {
-              this.openMitmproxyWebSocket()
-            }, 3000)
+              this.openMitmproxyWebSocket();
+            }, 3000);
           }
-        })
-        
-        this.mitmproxyWebSocket.addEventListener('error', (error) => {
-          console.error('Mitmproxy WebSocket error:', error)
-        })
-        
+        });
+
+        this.mitmproxyWebSocket.addEventListener("error", (error) => {
+          console.error("Mitmproxy WebSocket error:", error);
+        });
       } catch (error) {
-        console.error('Error opening mitmproxy WebSocket:', error)
+        console.error("Error opening mitmproxy WebSocket:", error);
       }
     },
 
     closeMitmproxyWebSocket() {
       if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer)
-        this.reconnectTimer = null
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
       }
       if (this.mitmproxyWebSocket) {
-        this.mitmproxyWebSocket.close()
-        this.mitmproxyWebSocket = null
+        this.mitmproxyWebSocket.close();
+        this.mitmproxyWebSocket = null;
       }
     },
-
-
-  }
-}
+  },
+};
 </script>
 
 <style scoped>
 .traffic-monitor {
+  position: relative;
   margin-top: 0;
   margin-bottom: 0;
   background: #f5f5f5;
@@ -1226,7 +1321,7 @@ export default {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
 }
 
 .traffic-monitor-header {
@@ -1249,6 +1344,112 @@ export default {
   color: #666;
   font-size: 0.9em;
   margin-left: 8px;
+}
+
+.side-menu-toggle-btn {
+  margin-left: auto;
+}
+
+.side-menu-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 1500;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.side-menu-panel {
+  width: 320px;
+  max-width: 85vw;
+  height: 100%;
+  background: #ffffff;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+}
+
+.side-menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  background: #2d2d2d;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.side-menu-close-btn {
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.side-menu-close-btn:hover {
+  opacity: 0.75;
+}
+
+.side-menu-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.side-menu-btn {
+  padding: 10px 14px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.side-menu-btn:hover:not(:disabled) {
+  background: #f0f0f0;
+  border-color: #999;
+}
+
+.side-menu-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.slide-panel-enter-active,
+.slide-panel-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.slide-panel-enter-active .side-menu-panel,
+.slide-panel-leave-active .side-menu-panel {
+  transition: transform 0.25s ease;
+}
+
+.slide-panel-enter-from,
+.slide-panel-leave-to {
+  opacity: 0;
+}
+
+.slide-panel-enter-from .side-menu-panel,
+.slide-panel-leave-to .side-menu-panel {
+  transform: translateX(100%);
 }
 
 .traffic-monitor-path {
@@ -1318,7 +1519,7 @@ export default {
 .toolbar-btn:hover:not(:disabled) {
   background: #f0f0f0;
   transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .toolbar-btn:disabled {
@@ -1389,7 +1590,9 @@ export default {
   border-radius: 4px;
   font-size: 13px;
   background: white;
-  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  transition:
+    border-color 0.15s ease-in-out,
+    box-shadow 0.15s ease-in-out;
 }
 
 .filter-input:focus,
@@ -1444,7 +1647,7 @@ export default {
   background: white;
   border: 1px solid #dee2e6;
   border-radius: 4px;
-  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
   z-index: 1000;
 }
 
@@ -1591,7 +1794,7 @@ export default {
   background: white;
   border: 1px solid #dee2e6;
   border-radius: 4px;
-  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
   z-index: 1000;
   overflow-y: auto;
   white-space: nowrap;
@@ -1846,15 +2049,19 @@ td.no-traffic small {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 1024px) {
   .traffic-monitor {
     max-height: 700px;
   }
-  
+
   .traffic-monitor-content {
     max-height: 450px;
   }
@@ -1866,46 +2073,51 @@ td.no-traffic small {
     margin-top: 0.5rem;
     margin-bottom: 0.5rem;
   }
-  
+
   .traffic-monitor-content {
     max-height: 300px;
   }
-  
+
   .traffic-monitor-header {
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
   }
-  
+
   .traffic-monitor-path {
     flex-direction: column;
     gap: 10px;
   }
-  
+
   .traffic-monitor-toolbar {
     flex-direction: column;
   }
-  
+
+  .side-menu-panel {
+    width: 100%;
+    max-width: 100vw;
+  }
+
   .traffic-controls {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
   }
-  
+
   .traffic-filters {
     padding: 10px;
   }
-  
+
   .filter-row {
     flex-direction: column;
     gap: 10px;
   }
-  
+
   .filter-group {
     min-width: auto;
     width: 100%;
   }
-  
+
   .clear-filters-btn {
     margin-left: 0;
     width: 100%;

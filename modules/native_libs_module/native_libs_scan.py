@@ -61,7 +61,11 @@ class NativeLibsModule(StaticModule):
                             f"Failed to analyze library {file_name}: {str(e)}"
                         )
                         results["results"]["libraries"].append(
-                            {"name": file_name, "error": str(e)}
+                            {
+                                "name": file_name,
+                                "architecture": self.extract_architecture(file_name),
+                                "error": str(e),
+                            }
                         )
 
             # Count valid architectures (exclude entries with errors)
@@ -73,7 +77,7 @@ class NativeLibsModule(StaticModule):
                 results["results"]["libraries"]
             )
             results["results"]["summary"]["architectures"] = self.count_architectures(
-                valid_libs
+                results["results"]["libraries"]
             )
 
             return results
@@ -89,7 +93,14 @@ class NativeLibsModule(StaticModule):
                 },
             }
 
+    def extract_architecture(self, lib_name: str) -> str:
+        parts = lib_name.split("/")
+        if len(parts) >= 3 and parts[0] == "lib":
+            return parts[1]
+        return "unknown"
+
     def analyze_native_lib(self, lib_data: bytes, lib_name: str) -> Dict[str, Any]:
+        architecture = self.extract_architecture(lib_name)
         try:
             # Save library temporarily for analysis
             temp_path = f"/tmp/{os.path.basename(lib_name)}"
@@ -102,7 +113,12 @@ class NativeLibsModule(StaticModule):
             # Only analyze ELF files
             if "ELF" not in file_type:
                 os.remove(temp_path)
-                return {"name": lib_name, "error": "Not an ELF file", "type": file_type}
+                return {
+                    "name": lib_name,
+                    "architecture": architecture,
+                    "error": "Not an ELF file",
+                    "type": file_type,
+                }
 
             # Analyze with LIEF
             try:
@@ -112,14 +128,13 @@ class NativeLibsModule(StaticModule):
 
                 result = {
                     "name": lib_name,
+                    "architecture": architecture,
                     "type": file_type,
                     "symbols": len(binary.exported_functions),
                     "imported_functions": len(binary.imported_functions),
                     "sections": len(binary.sections),
                     "has_debug_symbols": self.has_debug_symbols(binary),
-                    "imported_libraries": [
-                        lib.name for lib in binary.imported_libraries
-                    ],
+                    "imported_libraries": [lib for lib in binary.libraries],
                     "exported_functions": [
                         func.name for func in binary.exported_functions
                     ],
@@ -127,6 +142,7 @@ class NativeLibsModule(StaticModule):
             except Exception as e:
                 result = {
                     "name": lib_name,
+                    "architecture": architecture,
                     "error": f"LIEF analysis failed: {str(e)}",
                     "type": file_type,
                 }
@@ -137,11 +153,11 @@ class NativeLibsModule(StaticModule):
 
         except Exception as e:
             logger.warning(f"Error analyzing library {lib_name}: {str(e)}")
-            return {"name": lib_name, "error": str(e)}
+            return {"name": lib_name, "architecture": architecture, "error": str(e)}
 
     def has_debug_symbols(self, binary) -> bool:
         return any(
-            section.type == lief.ELF.SECTION_TYPES.SYMTAB for section in binary.sections
+            section.type == lief.ELF.Section.TYPE.SYMTAB for section in binary.sections
         )
 
     def count_architectures(self, lib_details: List[Dict]) -> Dict[str, int]:

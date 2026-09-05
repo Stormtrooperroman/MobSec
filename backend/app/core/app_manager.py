@@ -5,6 +5,7 @@ import shutil
 import zipfile
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from pathlib import Path
 
 import aiofiles
 from fastapi import UploadFile
@@ -141,11 +142,24 @@ class AsyncStorageService:
 
     def _extract_zip_file(self, zip_path: str, folder_path: str):
         """Extract ZIP file to source_code folder"""
-        source_code_path = os.path.join(folder_path, "source_code")
-        os.makedirs(source_code_path, exist_ok=True)
+        source_code_path = Path(folder_path) / "source_code"
+        source_code_path.mkdir(parents=True, exist_ok=True)
+
         try:
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                zip_ref.extractall(source_code_path)
+                for member in zip_ref.infolist():
+                    target_path = (source_code_path / member.filename).resolve()
+                    if not str(target_path).startswith(str(source_code_path.resolve())):
+                        logger.warning(
+                            f"Skipping potentially malicious file: {member.filename}"
+                        )
+                        continue
+
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    with zip_ref.open(member) as source:
+                        target_path.write_bytes(source.read())
+
             logger.info("Successfully extracted ZIP file to %s", source_code_path)
         except Exception as e:
             logger.error("Error extracting ZIP file: %s", str(e))

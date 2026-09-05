@@ -19,7 +19,7 @@ class ReportGenerator:
     def __init__(self):
         redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
-        self.redis_service = RedisService(redis_url)
+        self.redis_service = RedisService.get_instance(redis_url)
         self.running = False
         self._task: Optional[asyncio.Task] = None
 
@@ -52,8 +52,6 @@ class ReportGenerator:
                 pass
             except Exception as e:
                 logger.debug("Report generator task ended with: %s", e)
-
-        await self.redis_service.close()
 
     async def _monitor_results_events(self):
         """Process new results as modules write them, via Redis keyspace

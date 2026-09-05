@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import subprocess
+import threading
 from typing import Any, Dict, List, Optional
 
 from docker.types import Mount
@@ -19,15 +20,40 @@ logger = logging.getLogger(__name__)
 
 
 class EmulatorManager:
+    _instance: "EmulatorManager" = None
+    _instance_lock = threading.Lock()
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
 
     def __init__(self, redis_url: str, emulators_path: str):
+        if getattr(self, "_initialized", False):
+            return
         self.redis_url = redis_url
         self.emulators_path = emulators_path
-        self.docker_service = DockerService()
+        self.docker_service = DockerService.get_instance()
         self.emulators_config = self._load_emulators_config()
         self.base_ports = {"adb": 5555, "frida": 27042, "scrcpy": 8886}
 
         self.async_session = db_manager.session_factory
+        self._initialized = True
+
+    @classmethod
+    def get_instance(
+        cls, redis_url: Optional[str] = None, emulators_path: Optional[str] = None
+    ) -> "EmulatorManager":
+        if cls._instance is None:
+            if redis_url is None or emulators_path is None:
+                raise ValueError(
+                    "EmulatorManager.get_instance requires redis_url and "
+                    "emulators_path on first call"
+                )
+            return cls(redis_url, emulators_path)
+        return cls._instance
 
     async def _wait_for_android_boot(
         self, host: str, port: int, timeout: int = 120
