@@ -362,6 +362,46 @@
             </button>
           </div>
           <div class="side-menu-body">
+            <div class="side-menu-info" v-if="status.version">
+              <span class="side-menu-info-label">mitmproxy</span>
+              <span class="side-menu-info-value">{{ status.version }}</span>
+            </div>
+
+            <div class="side-menu-section">
+              <div class="side-menu-section-title">
+                TLS Certificate Signing
+              </div>
+              <label class="side-menu-toggle">
+                <input
+                  type="checkbox"
+                  :checked="status.emudhra"
+                  :disabled="isLoading"
+                  @change="setCertSigning('emudhra', $event.target.checked)"
+                />
+                <span>eMudhra</span>
+              </label>
+              <label class="side-menu-toggle">
+                <input
+                  type="checkbox"
+                  :checked="status.emudhra_old"
+                  :disabled="isLoading"
+                  @change="setCertSigning('emudhra_old', $event.target.checked)"
+                />
+                <span>eMudhra (old trust stores)</span>
+              </label>
+              <small class="side-menu-hint">
+                Signs intercepted TLS certificates with the compromised eMudhra
+                intermediate CA. Restart the proxy to apply.
+              </small>
+              <button
+                @click="restartProxy"
+                :disabled="!status.proxy_running || isLoading"
+                class="side-menu-btn"
+              >
+                <font-awesome-icon icon="sync" /> Restart Proxy
+              </button>
+            </div>
+
             <button
               @click="configureProxy"
               v-if="!status.proxy_configured"
@@ -440,6 +480,9 @@ export default {
         proxy_port: 8082,
         proxy_host: "0.0.0.0",
         proxy_configured: false,
+        version: null,
+        emudhra: false,
+        emudhra_old: false,
       },
       trafficData: [],
       filteredTraffic: [],
@@ -831,6 +874,29 @@ export default {
       this.isLoading = this.sendWebSocketAction("disable_proxy");
     },
 
+    setCertSigning(option, checked) {
+      let { emudhra, emudhra_old } = this.status;
+      if (option === "emudhra") {
+        emudhra = checked;
+        if (!checked) {
+          emudhra_old = false;
+        }
+      } else {
+        emudhra_old = checked;
+        if (checked) {
+          emudhra = true;
+        }
+      }
+      this.isLoading = this.sendWebSocketAction("set_cert_signing", {
+        emudhra,
+        emudhra_old,
+      });
+    },
+
+    restartProxy() {
+      this.isLoading = this.sendWebSocketAction("restart_proxy");
+    },
+
     generateCertificate() {
       this.isLoading = this.sendWebSocketAction("generate_certificate");
     },
@@ -949,6 +1015,7 @@ export default {
           this.isLoading = false;
           if (data.data) {
             this.status = {
+              version: data.data.version,
               proxy_running: data.data.is_running || false,
               cert_installed: data.data.cert_installed || false,
               su_available: data.data.su_available || false,
@@ -957,6 +1024,8 @@ export default {
               proxy_host: data.data.proxy_host || "0.0.0.0",
               backend_ip: data.data.backend_ip,
               proxy_configured: data.data.proxy_configured || false,
+              emudhra: data.data.emudhra || false,
+              emudhra_old: data.data.emudhra_old || false,
             };
           }
           break;
@@ -1053,6 +1122,31 @@ export default {
             this.$emit("success", "Proxy disabled on device");
           } else {
             this.$emit("error", "Error disabling proxy");
+          }
+          break;
+
+        case "cert_signing_updated":
+          this.isLoading = false;
+          if (data.success) {
+            this.status.emudhra = data.emudhra;
+            this.status.emudhra_old = data.emudhra_old;
+            const note = this.status.proxy_running
+              ? " Restart the proxy to apply."
+              : "";
+            this.$emit("success", `Certificate signing updated.${note}`);
+          } else {
+            this.$emit("error", "Error updating certificate signing");
+          }
+          break;
+
+        case "proxy_restart_result":
+          this.isLoading = false;
+          this.status.proxy_running = data.success;
+          if (data.success) {
+            this.$emit("success", "Proxy restarted");
+            this.startAutoRefresh();
+          } else {
+            this.$emit("error", "Error restarting proxy");
           }
           break;
 
@@ -1430,6 +1524,59 @@ export default {
 .side-menu-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.side-menu-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f0f0f0;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.side-menu-info-label {
+  font-weight: 600;
+  color: #333;
+}
+
+.side-menu-info-value {
+  font-family: monospace;
+  color: #555;
+}
+
+.side-menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+}
+
+.side-menu-section-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #333;
+}
+
+.side-menu-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.side-menu-toggle input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.side-menu-hint {
+  font-size: 11px;
+  color: #6c757d;
+  line-height: 1.4;
 }
 
 .slide-panel-enter-active,

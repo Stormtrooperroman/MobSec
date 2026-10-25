@@ -3,7 +3,6 @@ from typing import List, Callable
 
 from mitmproxy import master, options, log, optmanager
 from mitmproxy import addons
-from mitmproxy.addons import errorcheck
 from mitmproxy.addons import eventstore
 from mitmproxy.addons import intercept
 from mitmproxy.addons import readfile
@@ -42,7 +41,6 @@ class WebMaster(master.Master):
             readfile.ReadFileStdin(),
             self.view,
             self.events,
-            errorcheck.ErrorCheck(),
         )
 
     def add_flow_callback(self, callback: Callable):

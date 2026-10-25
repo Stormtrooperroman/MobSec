@@ -9,7 +9,7 @@ import base64
 from typing import Dict, Any, List, Optional
 from fastapi import WebSocket
 
-from mitmproxy import options, flow, certs
+from mitmproxy import options, flow, certs, version
 from mitmproxy import flowfilter
 from mitmproxy.http import HTTPFlow
 from mitmproxy.tcp import TCPFlow
@@ -229,6 +229,10 @@ class MitmproxyManager:
         self.device_ip = None
         self.backend_ip = None
 
+        saved = _cert_signing_prefs.get(device_id, {})
+        self.emudhra = saved.get("emudhra", False)
+        self.emudhra_old = saved.get("emudhra_old", False)
+
         # Mitmproxy components
         self.master_instance: Optional[WebMaster] = None
         self.proxy_task = None
@@ -292,6 +296,8 @@ class MitmproxyManager:
             )
             self.master_instance = WebMaster(opts, with_termlog=False)
 
+            self._apply_cert_signing_options()
+
             # Add callbacks
             self.master_instance.add_flow_callback(self._handle_flow_event)
             self.master_instance.add_event_callback(self._handle_log_event)
@@ -301,6 +307,39 @@ class MitmproxyManager:
         except Exception as e:
             logger.error("Error initializing mitmproxy master: %s", e)
             raise
+
+    def _apply_cert_signing_options(self):
+        if self.master_instance is None:
+            return
+        self.master_instance.options.update(
+            emudhra=self.emudhra,
+            emudhra_old=self.emudhra_old,
+        )
+        logger.info(
+            "Applied cert signing options: emudhra=%s, emudhra_old=%s",
+            self.emudhra,
+            self.emudhra_old,
+        )
+
+    async def set_cert_signing_options(
+        self, emudhra: bool, emudhra_old: bool
+    ) -> bool:
+        self.emudhra = bool(emudhra or emudhra_old)
+        self.emudhra_old = bool(emudhra_old)
+        if self.emudhra_old:
+            self.emudhra = True
+        _cert_signing_prefs[self.device_id] = {
+            "emudhra": self.emudhra,
+            "emudhra_old": self.emudhra_old,
+        }
+        if self.master_instance is not None:
+            self._apply_cert_signing_options()
+        return True
+
+    async def restart_proxy(self) -> bool:
+        logger.info("Restarting proxy for device %s", self.device_id)
+        await self.stop_proxy()
+        return await self.start_proxy()
 
     def _handle_flow_event(self, event_type: str, flow_obj):
         """Handle flow events"""
@@ -864,6 +903,34 @@ class MitmproxyManager:
                         },
                     )
 
+                elif action == "set_cert_signing":
+                    emudhra = bool(message.get("emudhra", False))
+                    emudhra_old = bool(message.get("emudhra_old", False))
+                    success = await self.set_cert_signing_options(
+                        emudhra, emudhra_old
+                    )
+                    await self.send_response(
+                        websocket,
+                        {
+                            "type": "mitmproxy",
+                            "action": "cert_signing_updated",
+                            "success": success,
+                            "emudhra": self.emudhra,
+                            "emudhra_old": self.emudhra_old,
+                        },
+                    )
+
+                elif action == "restart_proxy":
+                    success = await self.restart_proxy()
+                    await self.send_response(
+                        websocket,
+                        {
+                            "type": "mitmproxy",
+                            "action": "proxy_restart_result",
+                            "success": success,
+                        },
+                    )
+
                 elif action == "force_cleanup":
                     await self._safe_release_port()
                     await self.send_response(
@@ -1096,7 +1163,7 @@ class MitmproxyManager:
         try:
 
             state = {
-                "version": "mitmproxy",
+                "version": version.VERSION,
                 "proxy_port": self.proxy_port,
                 "proxy_host": self.proxy_host,
                 "backend_ip": self.backend_ip,
@@ -1108,6 +1175,8 @@ class MitmproxyManager:
                 "proxy_configured": self.proxy_configured,
                 "port_available": await self._check_port_available(self.proxy_port),
                 "port_listening": self._check_port_listening(self.proxy_port),
+                "emudhra": self.emudhra,
+                "emudhra_old": self.emudhra_old,
             }
 
             return state
@@ -1679,6 +1748,9 @@ class MitmproxyManager:
 
 _mitmproxy_managers: Dict[str, MitmproxyManager] = {}
 _manager_lock = asyncio.Lock()
+
+
+_cert_signing_prefs: Dict[str, Dict[str, bool]] = {}
 
 
 async def get_mitmproxy_manager(device_id: str) -> MitmproxyManager:
