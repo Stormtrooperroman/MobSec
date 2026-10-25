@@ -177,6 +177,13 @@ class ModuleManager:
             logger.error("Failed to start module %s: %s", module_name, str(e))
             raise
 
+    async def remove_container(self, module_name: str):
+        name = self._image_name(module_name)
+        running_names = await self._get_running_container_names()
+        if name in running_names:
+            self.stop_module(module_name)
+        await self.docker_service.remove_container(name)
+
     async def start_modules(self) -> None:
         """Start all modules concurrently"""
         module_dirs = []

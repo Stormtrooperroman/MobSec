@@ -165,6 +165,8 @@ async def rebuild_module(module_id: str) -> Dict:
         # Stop the module if it's running
         await module_manager.stop_module(module_name)
 
+        await module_manager.remove_container(module_name)
+
         # Start the module (this will rebuild the image and start a new container)
         await module_manager.start_module(module_name)
 

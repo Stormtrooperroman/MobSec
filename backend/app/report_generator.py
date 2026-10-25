@@ -153,7 +153,6 @@ class ReportGenerator:
             logger.warning("File not found in database: %s", file_hash)
             return None
 
-        logger.info("File info structure: %s", type(file_info))
 
         if not isinstance(file_info, dict) or file_info.get("scan_results") is None:
             logger.info(
