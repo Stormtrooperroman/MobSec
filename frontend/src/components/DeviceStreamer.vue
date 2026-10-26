@@ -3,74 +3,77 @@
     <div v-if="error" class="error-message">
       {{ error }}
     </div>
-    <div v-else-if="!isConnected && !error" class="connecting-message">
-      Connecting to device...
-    </div>
-    
-        <div v-else class="container">
+    <div v-else-if="!isConnected && !error" class="connecting-message">Connecting to device...</div>
+
+    <div v-else class="container">
       <div class="main-layout">
-        <div class="terminal-section">
-          <div class="terminal-header">
-            <span>Shell Terminal</span>
-            <div class="terminal-controls">
-              <button @click="restartTerminal" class="terminal-restart-btn" title="Restart terminal">
-                <font-awesome-icon icon="refresh" />
+        <div class="tools-section">
+          <div class="tools-tabs">
+            <div class="tab-headers">
+              <button :class="['tab-header', { active: activeTab === 'terminal' }]" @click="setActiveTab('terminal')">
+                <span class="tab-icon">
+                  <font-awesome-icon icon="terminal" />
+                </span>
+                <span class="tab-title">Terminal</span>
               </button>
-              <span class="terminal-status" :class="{ 'connected': terminalConnected }">
-                <font-awesome-icon 
-                  icon="circle" 
-                  :class="terminalConnected ? 'status-connected' : 'status-disconnected'" 
+              <button
+                v-for="tool in availableTools"
+                :key="tool.ACTION"
+                :class="['tab-header', { active: activeTab === tool.ACTION }]"
+                @click="setActiveTab(tool.ACTION)"
+              >
+                <span class="tab-icon">
+                  <font-awesome-icon :icon="getToolIcon(tool)" v-if="getToolIcon(tool)" />
+                </span>
+                <span class="tab-title">{{ tool.title || tool.ACTION }}</span>
+              </button>
+            </div>
+
+            <div class="tab-content">
+              <!-- Terminal Tab -->
+              <div v-show="activeTab === 'terminal'" class="tab-pane terminal-tab-pane active">
+                <div class="terminal-header">
+                  <span>Shell Terminal</span>
+                  <div class="terminal-controls">
+                    <button @click="restartTerminal" class="terminal-restart-btn" title="Restart terminal">
+                      <font-awesome-icon icon="refresh" />
+                    </button>
+                    <span class="terminal-status" :class="{ connected: terminalConnected }">
+                      <font-awesome-icon
+                        icon="circle"
+                        :class="terminalConnected ? 'status-connected' : 'status-disconnected'"
+                      />
+                    </span>
+                  </div>
+                </div>
+                <div class="terminal-container" ref="terminalContainer"></div>
+              </div>
+
+              <!-- File Manager Tab -->
+              <div v-if="activeTab === 'file_manager'" class="tab-pane active">
+                <FileManager :device-id="deviceId" />
+              </div>
+
+              <!-- Dynamic Module Tools -->
+              <div
+                v-for="tool in dynamicTools"
+                :key="tool.ACTION"
+                v-show="activeTab === tool.ACTION"
+                class="tab-pane active"
+              >
+                <component
+                  v-if="toolComponents[tool.ACTION]"
+                  :is="toolComponents[tool.ACTION]"
+                  :device-id="deviceId"
+                  @success="handleSuccess"
+                  @error="handleError"
                 />
-              </span>
+              </div>
             </div>
           </div>
-          <div class="terminal-container" ref="terminalContainer"></div>
         </div>
 
-        <div class="device-screen-area" ref="deviceScreenArea">
-        </div>
-      </div>
-
-      <div class="tools-section" v-if="availableTools.length > 0">
-        <div class="tools-tabs">
-          <div class="tab-headers">
-            <button 
-              v-for="tool in availableTools" 
-              :key="tool.ACTION"
-              :class="['tab-header', { 'active': activeTab === tool.ACTION }]"
-              @click="setActiveTab(tool.ACTION)"
-            >
-              <span class="tab-icon">
-                <font-awesome-icon 
-                  :icon="getToolIcon(tool.ACTION)" 
-                  v-if="getToolIcon(tool.ACTION)"
-                />
-              </span>
-              <span class="tab-title">{{ tool.title || tool.ACTION }}</span>
-            </button>
-          </div>
-          
-          <div class="tab-content">
-            <!-- File Manager Tab -->
-            <div v-if="activeTab === 'file_manager'" class="tab-pane active">
-              <FileManager :device-id="deviceId" />
-            </div>
-            
-            <!-- Frida Tab -->
-            <div v-if="activeTab === 'frida'" class="tab-pane active">
-              <FridaTool :device-id="deviceId" />
-            </div>
-            
-            <!-- Traffic Monitor Tab -->
-            <div v-if="activeTab === 'traffic_monitor'" class="tab-pane active">
-              <TrafficMonitor 
-                :device-id="deviceId" 
-                @success="handleSuccess"
-                @error="handleError"
-              />
-            </div>
-          </div>
-        </div>
+        <div class="device-screen-area" ref="deviceScreenArea"></div>
       </div>
     </div>
   </div>
@@ -80,9 +83,11 @@
 import '@/assets/app.css';
 import '@/assets/devicelist.css';
 import '@/ws-scrcpy/style/morebox.css';
+import * as Vue from 'vue';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
+import { loadModule } from 'vue3-sfc-loader';
 
 import { StreamClientScrcpy } from '@/ws-scrcpy/app/googDevice/client/StreamClientScrcpy';
 import { ACTION } from '@/ws-scrcpy/common/Action';
@@ -90,32 +95,27 @@ import { ACTION } from '@/ws-scrcpy/common/Action';
 import { MsePlayer } from '@/ws-scrcpy/app/player/MsePlayer';
 import { WebCodecsPlayer } from '@/ws-scrcpy/app/player/WebCodecsPlayer';
 import { TinyH264Player } from '@/ws-scrcpy/app/player/TinyH264Player';
-import { BroadwayPlayer } from '@/ws-scrcpy/app/player/BroadwayPlayer';
 
 import { FileListingClient } from '@/ws-scrcpy/app/googDevice/client/FileListingClient';
 
 import FileManager from './tools/FileManager.vue';
-import FridaTool from './tools/FridaTool.vue';
-import TrafficMonitor from './tools/TrafficMonitor.vue';
+import api from '@/services/api';
 
 // Register available players
 StreamClientScrcpy.registerPlayer(TinyH264Player);
 StreamClientScrcpy.registerPlayer(MsePlayer);
 StreamClientScrcpy.registerPlayer(WebCodecsPlayer);
-StreamClientScrcpy.registerPlayer(BroadwayPlayer);
 
 export default {
   name: 'DeviceStreamer',
   components: {
     FileManager,
-    FridaTool,
-    TrafficMonitor
   },
   props: {
     deviceId: {
       type: String,
-      required: true
-    }
+      required: true,
+    },
   },
   data() {
     return {
@@ -132,17 +132,25 @@ export default {
       terminalInitializing: false,
       terminalConnected: false,
       deviceViewObserver: null,
-      activeTab: 'file_manager',
+      activeTab: 'terminal',
+      toolComponents: {},
+      resizeObserver: null,
     };
+  },
+
+  computed: {
+    dynamicTools() {
+      return this.availableTools.filter(tool => tool.moduleName);
+    },
   },
 
   async mounted() {
     // Check WebAssembly support before initializing
     if (typeof WebAssembly !== 'object' || typeof WebAssembly.instantiate !== 'function') {
-              this.error = 'WebAssembly is not supported in this browser';
+      this.error = 'WebAssembly is not supported in this browser';
       return;
     }
-    
+
     await this.initializeComponents();
   },
   beforeUnmount() {
@@ -160,6 +168,10 @@ export default {
       window.removeEventListener('resize', this.resizeHandler);
       this.resizeHandler = null;
     }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
     if (this.deviceViewObserver) {
       this.deviceViewObserver.disconnect();
       this.deviceViewObserver = null;
@@ -172,34 +184,40 @@ export default {
       this.activeTab = tabName;
     },
 
-    getToolIcon(action) {
-      const icons = {
-        'file_manager': 'folder',
-        'frida': 'bug',
-        'traffic_monitor': 'network-wired'
-      };
-      return icons[action] || 'tool';
+    getToolIcon(tool) {
+      return tool.icon || (tool.ACTION === 'file_manager' ? 'folder' : 'plug');
     },
 
-    async initializeMitmproxy() {
+    async fetchAvailableTools() {
+      const tools = [
+        {
+          title: 'File Manager',
+          ACTION: 'file_manager',
+          client: FileListingClient,
+          icon: 'folder',
+        },
+      ];
+
       try {
-        const statusResponse = await fetch(`/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/status`);
-        const statusData = await statusResponse.json();
-        
-        if (statusData.status === 'success') {
-          if (!statusData.data.proxy_running) {
-            const startResponse = await fetch(`/api/v1/dynamic-testing/device/${this.deviceId}/mitmproxy/start`, {
-              method: 'POST'
-            });
-            
-            if (startResponse.ok) {
-              console.log('Mitmproxy started successfully');
-            }
-          }
-        }
+        const response = await api.get('/modules/?module_type=dynamic');
+        const modules = response.data;
+
+        modules.forEach(module => {
+          const view = module.view || {};
+          const moduleKey = module.map_name || module.name;
+          tools.push({
+            title: view.title || module.title || module.name,
+            ACTION: moduleKey,
+            client: null,
+            moduleName: moduleKey,
+            icon: view.icon,
+          });
+        });
       } catch (error) {
-        console.error('Error initializing mitmproxy:', error);
+        console.error('Error fetching dynamic modules:', error);
       }
+
+      return tools;
     },
 
     handleSuccess(message) {
@@ -209,22 +227,86 @@ export default {
     handleError(message) {
       this.$emit('error', message);
     },
-    
+
+    async loadDynamicToolComponents() {
+      const toolsWithModule = this.availableTools.filter(tool => tool.moduleName);
+      if (toolsWithModule.length === 0) {
+        return;
+      }
+
+      try {
+        const uiInfoResponse = await api.get('/modules/module-ui-info');
+        const moduleUiInfo = uiInfoResponse.data;
+
+        await Promise.all(
+          toolsWithModule.map(async tool => {
+            const moduleKey = tool.moduleName;
+            if (!moduleUiInfo[moduleKey]?.has_custom_ui) {
+              return;
+            }
+
+            try {
+              const response = await api.get(`/modules/module-ui-component/${moduleKey}`);
+              const { component_content, component_name } = response.data;
+              const component = await this.loadVueModuleComponent(moduleKey, component_name, component_content);
+              this.toolComponents[tool.ACTION] = component;
+            } catch (error) {
+              console.error(`Error loading custom UI for module ${moduleKey}:`, error);
+            }
+          }),
+        );
+      } catch (error) {
+        console.error('Error loading dynamic tool components:', error);
+      }
+    },
+
+    async loadVueModuleComponent(moduleName, componentName, mainContent) {
+      const moduleBaseUrl = `/modules/module-vue-file/${moduleName}`;
+
+      const options = {
+        moduleCache: {
+          vue: Vue,
+        },
+        async getFile(url) {
+          const filename = url.split('/').pop();
+          if (filename === `${componentName}.vue`) {
+            return {
+              getContentData: async () => mainContent,
+            };
+          }
+
+          const response = await api.get(`${moduleBaseUrl}/${filename}`);
+          const data = response.data;
+          return {
+            getContentData: async () => data.content,
+          };
+        },
+        addStyle(textContent) {
+          const style = document.createElement('style');
+          style.textContent = textContent;
+          document.head.appendChild(style);
+        },
+      };
+
+      return loadModule(`/${componentName}.vue`, options);
+    },
+
     async initializeComponents() {
       try {
-        await this.initializeMitmproxy();
-        
         let retries = 3;
         let response;
-        
+
         while (retries > 0) {
           try {
-            response = await fetch(`/api/v1/dynamic-testing/device/${this.deviceId}/start`, {
-              method: 'POST',
-              signal: AbortSignal.timeout(10000)
-            });
-            
-            if (response.ok) {
+            response = await api.post(
+              `/dynamic-testing/device/${this.deviceId}/start`,
+              {},
+              {
+                signal: AbortSignal.timeout(10000),
+              },
+            );
+
+            if (response.status === 200) {
               break;
             }
           } catch (error) {
@@ -237,31 +319,21 @@ export default {
             throw error;
           }
         }
-        
-        if (!response?.ok) {
+
+        if (!response || response.status !== 200) {
           throw new Error('Failed to start device server');
         }
 
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsHost = window.location.host;
-        const wsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=stream`;
-        
-        let playerName = 'tinyh264';
-        
-        if (typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported) {
-          if (MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"')) {
-            playerName = 'mse';
-            console.log('Using MSE player (preferred)');
-          }
-        }
-        
-        if (typeof VideoDecoder !== 'undefined') {
-          playerName = 'webcodecs';
-          console.log('Using WebCodecs player (best performance)');
-        }
-        
+        const wsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(
+          this.deviceId,
+        )}?action=stream`;
+
+        let playerName = 'webcodecs';
+
         console.log('Selected player:', playerName);
-        
+
         const urlParams = new URLSearchParams();
         urlParams.set('action', ACTION.STREAM_SCRCPY);
         urlParams.set('udid', this.deviceId);
@@ -271,14 +343,17 @@ export default {
         console.log('Starting StreamClientScrcpy with WebSocket URL:', wsUrl);
 
         const players = StreamClientScrcpy.getPlayers();
-        console.log('Registered players:', players.map(p => p.playerCodeName));
-        
+        console.log(
+          'Registered players:',
+          players.map(p => p.playerCodeName),
+        );
+
         if (players.length === 0) {
           throw new Error('No video players registered');
         }
 
         await this.$nextTick();
-        
+
         this.streamClient = StreamClientScrcpy.start(urlParams);
 
         setTimeout(() => {
@@ -297,48 +372,32 @@ export default {
               this.moveExistingDeviceViews();
             }, 1000);
           });
-          
-          this.streamClient.streamReceiver.on('disconnected', (event) => {
+
+          this.streamClient.streamReceiver.on('disconnected', event => {
             console.error('StreamReceiver disconnected:', event);
             if (event.code !== 1000) {
               this.error = 'Connection to device lost';
               this.isConnected = false;
             }
           });
-          
         }
-        
+
         if (this.streamClient && this.streamClient.player) {
           console.log('Player state:', this.streamClient.player.getState());
           console.log('Player type:', this.streamClient.player.constructor.name);
         }
 
-        this.availableTools = [
-          {
-            title: 'File Manager',
-            ACTION: 'file_manager',
-            client: FileListingClient
-          },
-          {
-            title: 'Frida',
-            ACTION: 'frida',
-            client: null
-          },
-          {
-            title: 'Traffic Monitor',
-            ACTION: 'traffic_monitor',
-            client: null
-          }
-        ];
+        this.availableTools = await this.fetchAvailableTools();
 
         this.isConnected = true;
         console.log('StreamClientScrcpy started successfully');
+
+        await this.loadDynamicToolComponents();
 
         await this.$nextTick();
         this.initializeTerminal();
 
         this.setupDeviceViewObserver();
-
       } catch (error) {
         console.error('Failed to initialize components:', error);
         this.error = error.message || 'Failed to initialize video stream';
@@ -348,16 +407,16 @@ export default {
     setupDeviceViewObserver() {
       this.moveExistingDeviceViews();
 
-      this.deviceViewObserver = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          mutation.addedNodes.forEach((node) => {
+      this.deviceViewObserver = new MutationObserver(mutations => {
+        mutations.forEach(mutation => {
+          mutation.addedNodes.forEach(node => {
             if (node.nodeType === Node.ELEMENT_NODE) {
               if (node.classList && node.classList.contains('device-view')) {
                 this.moveDeviceViewToContainer(node);
               }
               const childDeviceViews = node.querySelectorAll && node.querySelectorAll('.device-view');
               if (childDeviceViews && childDeviceViews.length > 0) {
-                childDeviceViews.forEach((childView) => {
+                childDeviceViews.forEach(childView => {
                   this.moveDeviceViewToContainer(childView);
                 });
               }
@@ -368,7 +427,7 @@ export default {
 
       this.deviceViewObserver.observe(this.$el, {
         childList: true,
-        subtree: true
+        subtree: true,
       });
 
       setTimeout(() => {
@@ -382,8 +441,8 @@ export default {
 
     moveExistingDeviceViews() {
       const deviceViews = this.$el.querySelectorAll('.device-view');
-      
-      deviceViews.forEach((deviceView) => {
+
+      deviceViews.forEach(deviceView => {
         if (deviceView.parentNode !== this.$refs.deviceScreenArea) {
           this.moveDeviceViewToContainer(deviceView);
         }
@@ -391,7 +450,11 @@ export default {
     },
 
     moveDeviceViewToContainer(deviceView) {
-      if (this.$refs.deviceScreenArea && deviceView.parentNode && deviceView.parentNode !== this.$refs.deviceScreenArea) {
+      if (
+        this.$refs.deviceScreenArea &&
+        deviceView.parentNode &&
+        deviceView.parentNode !== this.$refs.deviceScreenArea
+      ) {
         try {
           this.$refs.deviceScreenArea.appendChild(deviceView);
         } catch (error) {
@@ -405,18 +468,20 @@ export default {
         if (this.terminalInitializing || this.currentShellClient) {
           return;
         }
-        
+
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsHost = window.location.host;
-        const shellWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(this.deviceId)}?action=shell`;
-        
+        const shellWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(
+          this.deviceId,
+        )}?action=shell`;
+
         this.terminalInitializing = true;
-        
+
         if (this.currentShellClient) {
           this.currentShellClient.close();
           this.currentShellClient = null;
         }
-        
+
         const shellWs = new WebSocket(shellWsUrl);
         shellWs.binaryType = 'arraybuffer';
 
@@ -426,15 +491,15 @@ export default {
               console.error('Terminal container not found');
               return;
             }
-            
+
             this.$refs.terminalContainer.innerHTML = '';
-            
+
             this.terminal = new Terminal({
               cursorBlink: true,
               fontSize: 12,
               theme: {
                 background: '#1e1e1e',
-                foreground: '#ffffff'
+                foreground: '#ffffff',
               },
               convertEol: true,
               fontFamily: 'monospace',
@@ -453,7 +518,7 @@ export default {
               rightClickSelectsWord: false,
               macOptionIsMeta: false,
               macOptionClickForcesSelection: false,
-              scrollbarWidth: 8
+              scrollbarWidth: 8,
             });
 
             this.terminal.onData(data => {
@@ -463,7 +528,7 @@ export default {
               }
             });
 
-            shellWs.addEventListener('message', (event) => {
+            shellWs.addEventListener('message', event => {
               if (event.data instanceof ArrayBuffer) {
                 const uint8Array = new Uint8Array(event.data);
                 const text = new TextDecoder().decode(uint8Array);
@@ -472,36 +537,35 @@ export default {
                 this.terminal.write(event.data);
               }
             });
-            
+
             this.fitAddon = new FitAddon();
             this.fitAddon.activate(this.terminal);
-            
+
             this.terminal.open(this.$refs.terminalContainer);
-            
+
             if (this.fitAddon) {
               this.fitAddon.fit();
             }
-            
+
             this.terminalConnected = true;
-            
           } catch (error) {
             console.error('Error initializing terminal:', error);
             this.terminalInitializing = false;
             this.terminalConnected = false;
             return;
           }
-          
+
           this.terminalInitializing = false;
-          
+
           const terminalContainer = this.$refs.terminalContainer;
-          this.preventPageScrollHandler = (event) => {
+          this.preventPageScrollHandler = event => {
             const viewport = terminalContainer.querySelector('.xterm-viewport');
             if (!viewport) return;
-            
+
             const { scrollTop, scrollHeight, clientHeight } = viewport;
             const isAtTop = scrollTop === 0;
             const isAtBottom = scrollTop + clientHeight >= scrollHeight;
-            
+
             if (event.deltaY < 0 && isAtTop) {
               event.preventDefault();
               event.stopPropagation();
@@ -512,60 +576,72 @@ export default {
               event.stopPropagation();
             }
           };
-          
+
           terminalContainer.addEventListener('wheel', this.preventPageScrollHandler, { passive: false });
-          
+
           const { rows, cols } = this.terminal;
-          shellWs.send(JSON.stringify({
-            type: 'shell',
-            data: {
-              type: 'start',
-              rows,
-              cols
-            }
-          }));
-          
+          shellWs.send(
+            JSON.stringify({
+              type: 'shell',
+              data: {
+                type: 'start',
+                rows,
+                cols,
+              },
+            }),
+          );
+
           this.terminal.focus();
-          
-          this.terminalCopyHandler = (event) => {
+
+          this.terminalCopyHandler = event => {
             if (event.ctrlKey && event.shiftKey && event.key === 'C') {
               event.preventDefault();
               event.stopPropagation();
-              
+
               const selection = this.terminal.getSelection();
               if (selection) {
-                navigator.clipboard.writeText(selection).then(() => {
-                  // Text copied successfully
-                }).catch(() => {
-                  const textArea = document.createElement('textarea');
-                  textArea.value = selection;
-                  document.body.appendChild(textArea);
-                  textArea.select();
-                  document.execCommand('copy');
-                  document.body.removeChild(textArea);
-                });
+                navigator.clipboard
+                  .writeText(selection)
+                  .then(() => {
+                    // Text copied successfully
+                  })
+                  .catch(() => {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = selection;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                  });
               }
             }
           };
-          
+
           terminalContainer.addEventListener('keydown', this.terminalCopyHandler);
-          
+
           const resizeHandler = () => {
             if (!this.terminal || !this.fitAddon) return;
-            
+
+            const el = this.$refs.terminalContainer;
+            if (!el || el.clientWidth === 0 || el.clientHeight === 0) {
+              return;
+            }
+
             try {
               this.fitAddon.fit();
               const { rows, cols } = this.terminal;
-              
-              if (shellWs.readyState === WebSocket.OPEN) {
-                shellWs.send(JSON.stringify({
-                  type: 'shell',
-                  data: {
-                    type: 'resize',
-                    rows,
-                    cols
-                  }
-                }));
+
+              if (Number.isInteger(rows) && Number.isInteger(cols) && shellWs.readyState === WebSocket.OPEN) {
+                shellWs.send(
+                  JSON.stringify({
+                    type: 'shell',
+                    data: {
+                      type: 'resize',
+                      rows,
+                      cols,
+                    },
+                  }),
+                );
               }
             } catch (error) {
               console.warn('Error in resize handler:', error);
@@ -574,9 +650,19 @@ export default {
 
           window.addEventListener('resize', resizeHandler);
           this.resizeHandler = resizeHandler;
+
+          if (this.resizeObserver) {
+            this.resizeObserver.disconnect();
+            this.resizeObserver = null;
+          }
+
+          this.resizeObserver = new ResizeObserver(() => {
+            resizeHandler();
+          });
+          this.resizeObserver.observe(terminalContainer);
         });
 
-        shellWs.addEventListener('close', (event) => {
+        shellWs.addEventListener('close', event => {
           console.log('Shell WebSocket closed:', event.code, event.reason);
           this.terminalConnected = false;
           if (this.terminal && !this.terminal.isDisposed) {
@@ -587,7 +673,7 @@ export default {
           }
         });
 
-        shellWs.addEventListener('error', (error) => {
+        shellWs.addEventListener('error', error => {
           console.error('Shell WebSocket error:', error);
           this.terminalConnected = false;
           if (this.terminal && !this.terminal.isDisposed) {
@@ -596,7 +682,6 @@ export default {
         });
 
         this.currentShellClient = shellWs;
-        
       } catch (error) {
         console.error('Error initializing terminal:', error);
         this.terminalInitializing = false;
@@ -604,32 +689,32 @@ export default {
       }
     },
 
-
-
-
-
-
     closeTerminal() {
       if (this.currentShellClient) {
         this.currentShellClient.close();
         this.currentShellClient = null;
       }
-      
+
       if (this.resizeHandler) {
         window.removeEventListener('resize', this.resizeHandler);
         this.resizeHandler = null;
       }
-      
+
+      if (this.resizeObserver) {
+        this.resizeObserver.disconnect();
+        this.resizeObserver = null;
+      }
+
       if (this.preventPageScrollHandler && this.$refs.terminalContainer) {
         this.$refs.terminalContainer.removeEventListener('wheel', this.preventPageScrollHandler);
         this.preventPageScrollHandler = null;
       }
-      
+
       if (this.terminalCopyHandler && this.$refs.terminalContainer) {
         this.$refs.terminalContainer.removeEventListener('keydown', this.terminalCopyHandler);
         this.terminalCopyHandler = null;
       }
-      
+
       if (this.terminal) {
         try {
           this.terminal.clear();
@@ -639,16 +724,16 @@ export default {
         }
         this.terminal = null;
       }
-      
+
       this.fitAddon = null;
-      
+
       if (this.$refs.terminalContainer) {
         this.$refs.terminalContainer.innerHTML = '';
         while (this.$refs.terminalContainer.firstChild) {
           this.$refs.terminalContainer.removeChild(this.$refs.terminalContainer.firstChild);
         }
       }
-      
+
       this.terminalInitializing = false;
       this.terminalConnected = false;
     },
@@ -665,28 +750,24 @@ export default {
       }
     },
 
-
-
-
-    
     cleanupStreamElements() {
       const container = this.$el || document.querySelector('.dynamic-testing');
       if (!container) return;
-      
+
       const deviceViews = container.querySelectorAll('.device-view');
       deviceViews.forEach(element => {
         if (element.parentElement) {
           element.parentElement.removeChild(element);
         }
       });
-      
+
       const moreBoxes = container.querySelectorAll('.more-box');
       moreBoxes.forEach(element => {
         if (element.parentElement) {
           element.parentElement.removeChild(element);
         }
       });
-      
+
       const bodyDeviceViews = document.body.querySelectorAll('.device-view');
       bodyDeviceViews.forEach(element => {
         const nameBox = element.querySelector('.text-with-shadow');
@@ -802,13 +883,18 @@ export default {
   background-color: #f8f9fa;
   border: 1px solid #dee2e6;
   border-radius: 8px;
-  margin-top: 1rem;
-  margin-bottom: 1rem;
+  flex: 1;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .tools-tabs {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .tab-headers {
@@ -853,29 +939,35 @@ export default {
 
 .tab-content {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   background-color: #fff;
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
+  overflow: hidden;
 }
 
 .tab-pane {
   display: none;
   padding: 1rem;
+  overflow: auto;
 }
 
 .tab-pane.active {
   display: block;
 }
 
-.terminal-section {
-  flex: 1;
-  background: #1e1e1e;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+.tab-pane.terminal-tab-pane {
+  padding: 0;
+}
+
+.tab-pane.terminal-tab-pane.active {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
-  min-width: 300px;
 }
 
 .terminal-header {
@@ -963,7 +1055,6 @@ export default {
   border-bottom-right-radius: 8px;
   overflow: hidden;
   min-height: 400px;
-  max-height: 600px;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -1058,8 +1149,6 @@ export default {
   height: 100% !important;
 }
 
-
-
 .device-screen-area {
   flex: 0 0 auto;
   display: flex;
@@ -1083,18 +1172,18 @@ export default {
   .main-layout {
     flex-direction: column;
   }
-  
-  .terminal-section {
+
+  .tools-section {
     flex: none;
     width: 100%;
-    max-height: 300px;
+    max-height: 350px;
   }
-  
+
   .terminal-container {
     min-height: 250px;
     max-height: 300px;
   }
-  
+
   .device-screen-area {
     min-height: 300px;
     width: 100%;
@@ -1106,12 +1195,12 @@ export default {
   .main-layout {
     gap: 0.5rem;
   }
-  
+
   .tools-section {
     margin-top: 0.5rem;
     margin-bottom: 0.5rem;
   }
-  
+
   .device-screen-area {
     min-height: 250px;
     width: 100%;

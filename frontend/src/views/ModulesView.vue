@@ -1,39 +1,42 @@
 <template>
-  <div class="modules-container">
-    <div class="header">
-      <h2>Available Modules</h2>
+  <div class="modules-container page-card">
+    <div class="header page-header">
+      <h2 class="page-title-main">Available Modules</h2>
     </div>
 
     <div v-if="externalModules.length > 0" class="modules-section">
       <h3 class="section-title">External Modules</h3>
-      <div class="modules-grid">
-        <div v-for="module in externalModules" :key="module.module_id" class="module-card external-module-card">
-          <div class="module-content">
-            <div class="module-header">
-              <h3>
-                {{ module.config.name }}
-                <span class="external-badge">External</span>
-              </h3>
-              <div class="status-container">
-                <span :class="['status-badge', module.status === 'active' ? 'active' : 'inactive']">
-                  <font-awesome-icon :icon="module.status === 'active' ? 'check-circle' : 'times-circle'" />
-                  {{ module.status === 'active' ? 'Active' : 'Inactive' }}
-                </span>
+      <div v-for="group in externalModulesByType" :key="'ext-' + group.type" class="module-type-group">
+        <h4 class="module-type-title">{{ formatType(group.type) }}</h4>
+        <div class="modules-grid">
+          <div v-for="module in group.modules" :key="module.id" class="module-card external-module-card">
+            <div class="module-content">
+              <div class="module-header">
+                <h3>
+                  {{ module.name }}
+                  <span class="external-badge">External</span>
+                </h3>
+                <div class="status-container">
+                  <span :class="['status-badge', module.active ? 'active' : 'inactive']">
+                    <font-awesome-icon :icon="module.active ? 'check-circle' : 'times-circle'" />
+                    {{ module.active ? 'Active' : 'Inactive' }}
+                  </span>
+                </div>
               </div>
-            </div>
-            <p class="module-description">{{ module.config.description }}</p>
-            <div class="module-details">
-              <div class="detail-item">
-                <span class="detail-label">ID:</span>
-                <span class="detail-value">{{ module.module_id }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Version:</span>
-                <span class="detail-value">{{ module.config.version }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Formats:</span>
-                <span class="detail-value">{{ module.config.input_formats.join(', ') }}</span>
+              <p class="module-description">{{ module.description }}</p>
+              <div class="module-details">
+                <div class="detail-item">
+                  <span class="detail-label">ID:</span>
+                  <span class="detail-value">{{ module.id }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Version:</span>
+                  <span class="detail-value">{{ module.version || 'N/A' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Formats:</span>
+                  <span class="detail-value">{{ module.input_formats ? module.input_formats.join(', ') : 'All' }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -42,52 +45,55 @@
     </div>
 
     <div class="modules-section">
-      <h3 v-if="externalModules.length > 0" class="section-title">Internal Modules</h3>
-      <div class="modules-grid">
-        <div v-for="module in modules" :key="module.id" class="module-card">
-          <div class="module-content">
-            <div class="module-header">
-              <h3>{{ module.name }}</h3>
-              <div class="status-container">
-                <span :class="['status-badge', module.active ? 'active' : 'inactive']">
-                  <font-awesome-icon :icon="module.active ? 'check-circle' : 'times-circle'" />
-                  {{ module.active ? 'Active' : 'Inactive' }}
-                </span>
+      <h3 v-if="internalModules.length > 0" class="section-title">Internal Modules</h3>
+      <div v-for="group in internalModulesByType" :key="'int-' + group.type" class="module-type-group">
+        <h4 class="module-type-title">{{ formatType(group.type) }}</h4>
+        <div class="modules-grid">
+          <div v-for="module in group.modules" :key="module.id" class="module-card">
+            <div class="module-content">
+              <div class="module-header">
+                <h3>{{ module.name }}</h3>
+                <div class="status-container">
+                  <span :class="['status-badge', module.active ? 'active' : 'inactive']">
+                    <font-awesome-icon :icon="module.active ? 'check-circle' : 'times-circle'" />
+                    {{ module.active ? 'Active' : 'Inactive' }}
+                  </span>
+                </div>
+              </div>
+              <p class="module-description">{{ module.description }}</p>
+              <div class="module-details">
+                <div class="detail-item">
+                  <span class="detail-label">ID:</span>
+                  <span class="detail-value">{{ module.id }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Version:</span>
+                  <span class="detail-value">{{ module.version || 'N/A' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Formats:</span>
+                  <span class="detail-value">{{ module.input_formats ? module.input_formats.join(', ') : 'All' }}</span>
+                </div>
               </div>
             </div>
-            <p class="module-description">{{ module.description }}</p>
-            <div class="module-details">
-              <div class="detail-item">
-                <span class="detail-label">ID:</span>
-                <span class="detail-value">{{ module.id }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Version:</span>
-                <span class="detail-value">{{ module.version || 'N/A' }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Formats:</span>
-                <span class="detail-value">{{ module.input_formats ? module.input_formats.join(', ') : 'All' }}</span>
-              </div>
+            <div class="button-container">
+              <button
+                class="action-button"
+                :class="module.active ? 'warning' : 'success'"
+                @click="toggleModule(module)"
+                :disabled="module.isLoading"
+              >
+                <font-awesome-icon
+                  :icon="module.isLoading ? 'spinner' : module.active ? 'stop' : 'play'"
+                  :spin="module.isLoading"
+                />
+                {{ module.active ? 'Deactivate' : 'Activate' }}
+              </button>
+              <button class="action-button rebuild" @click="rebuildModule(module)" :disabled="module.isRebuilding">
+                <font-awesome-icon icon="sync" :spin="module.isRebuilding" />
+                Rebuild
+              </button>
             </div>
-          </div>
-          <div class="button-container">
-            <button
-              class="action-button"
-              :class="module.active ? 'warning' : 'success'"
-              @click="toggleModule(module)"
-              :disabled="module.isLoading"
-            >
-              <font-awesome-icon
-                :icon="module.isLoading ? 'spinner' : module.active ? 'stop' : 'play'"
-                :spin="module.isLoading"
-              />
-              {{ module.active ? 'Deactivate' : 'Activate' }}
-            </button>
-            <button class="action-button rebuild" @click="rebuildModule(module)" :disabled="module.isRebuilding">
-              <font-awesome-icon icon="sync" :spin="module.isRebuilding" />
-              Rebuild
-            </button>
           </div>
         </div>
       </div>
@@ -155,21 +161,57 @@
 </template>
 
 <script>
+import '@/assets/app.css';
+import api from '@/services/api';
+
 export default {
   name: 'ModulesView',
   data() {
     return {
-      modules: [],
-      externalModules: [],
+      allModules: [],
       emulators: [],
     };
   },
+  computed: {
+    internalModules() {
+      return this.allModules.filter(module => module.is_external == false);
+    },
+    externalModules() {
+      return this.allModules.filter(module => module.is_external == true);
+    },
+    internalModulesByType() {
+      return this.groupByType(this.internalModules);
+    },
+    externalModulesByType() {
+      return this.groupByType(this.externalModules);
+    },
+  },
   methods: {
+    groupByType(list) {
+      const groups = {};
+      for (const module of list) {
+        const type = module.module_type || 'static';
+        if (!groups[type]) {
+          groups[type] = [];
+        }
+        groups[type].push(module);
+      }
+      return Object.keys(groups)
+        .sort()
+        .map(type => ({ type, modules: groups[type] }));
+    },
+    formatType(type) {
+      if (!type) return 'Static';
+      return type
+        .toString()
+        .split(/[_-]/)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    },
     async fetchModules() {
       try {
-        const response = await fetch('/api/v1/modules');
-        const data = await response.json();
-        this.modules = data.map(module => ({
+        const response = await api.get('/modules');
+        this.allModules = response.data.map(module => ({
           ...module,
           isLoading: false,
           isRebuilding: false,
@@ -178,24 +220,13 @@ export default {
         console.error('Error fetching modules:', error);
       }
     },
-    async fetchExternalModules() {
-      try {
-        const response = await fetch('/api/v1/external-modules');
-        const data = await response.json();
-        this.externalModules = data;
-      } catch (error) {
-        console.error('Error fetching external modules:', error);
-      }
-    },
     async toggleModule(module) {
       if (module.isLoading) return;
 
       module.isLoading = true;
       try {
-        const response = await fetch(`/api/v1/modules/${module.id}/toggle`, {
-          method: 'POST',
-        });
-        if (response.ok) {
+        const response = await api.post(`/modules/${module.id}/toggle`);
+        if (response.status === 200) {
           module.active = !module.active;
         }
       } catch (error) {
@@ -209,10 +240,8 @@ export default {
 
       module.isRebuilding = true;
       try {
-        const response = await fetch(`/api/v1/modules/${module.id}/rebuild`, {
-          method: 'POST',
-        });
-        if (response.ok) {
+        const response = await api.post(`/modules/${module.id}/rebuild`);
+        if (response.status === 200) {
           await this.fetchModules();
         }
       } catch (error) {
@@ -223,9 +252,8 @@ export default {
     },
     async fetchEmulators() {
       try {
-        const response = await fetch('/api/v1/emulators/list');
-        const data = await response.json();
-        this.emulators = data.emulators.map(emulator => ({
+        const response = await api.get('/emulators/list');
+        this.emulators = response.data.emulators.map(emulator => ({
           ...emulator,
           isLoading: false,
         }));
@@ -238,20 +266,13 @@ export default {
 
       emulator.isLoading = true;
       try {
-        const endpoint = emulator.status === 'running' ? '/api/v1/emulators/stop' : '/api/v1/emulators/start';
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ name: emulator.name }),
-        });
-        
-        if (response.ok) {
+        const endpoint = emulator.status === 'running' ? '/emulators/stop' : '/emulators/start';
+        const response = await api.post(endpoint, { name: emulator.name });
+
+        if (response.status === 200) {
           await this.fetchEmulators();
         } else {
-          const error = await response.json();
-          console.error('Error toggling emulator:', error);
+          console.error('Error toggling emulator:', response.data);
         }
       } catch (error) {
         console.error('Error toggling emulator:', error);
@@ -262,40 +283,12 @@ export default {
   },
   mounted() {
     this.fetchModules();
-    this.fetchExternalModules();
     this.fetchEmulators();
-    
-
   },
 };
 </script>
 
 <style>
-.modules-container {
-  background-color: white;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  border-radius: 12px;
-  padding: 32px;
-  max-width: 1400px;
-  margin: 0 auto;
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 32px;
-  padding-bottom: 16px;
-  border-bottom: 2px solid #f3f4f6;
-}
-
-.header h2 {
-  font-size: 28px;
-  font-weight: 700;
-  color: #1f2937;
-  margin: 0;
-}
-
 .modules-grid {
   display: grid;
   gap: 24px;
@@ -449,6 +442,23 @@ export default {
   background-color: #f5f3ff;
 }
 
+.module-type-group {
+  margin-bottom: 28px;
+}
+
+.module-type-group:last-child {
+  margin-bottom: 0;
+}
+
+.module-type-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 12px 0;
+}
+
 .external-badge {
   display: inline-block;
   margin-left: 8px;
@@ -497,6 +507,4 @@ export default {
   border-radius: 4px;
   font-weight: 500;
 }
-
-
 </style>

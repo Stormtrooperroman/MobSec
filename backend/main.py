@@ -12,6 +12,8 @@ from app.dynamic.device_management.emulator_manager import EmulatorManager
 from app.modules.chain_manager import ChainManager
 from app.modules.module_manager import ModuleManager
 from app.report_generator import start_report_generator, stop_report_generator
+from app.services.redis_service import RedisService
+from app.dynamic.utils.adb_utils import ensure_adb_server
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +22,7 @@ module_manager = ModuleManager.get_instance(
     modules_path=os.getenv("MODULES_PATH", "/app/modules"),
 )
 
-emulator_manager = EmulatorManager(
+emulator_manager = EmulatorManager.get_instance(
     redis_url=os.getenv("REDIS_URL"),
     emulators_path=os.getenv("EMULATORS_PATH", "/app/emulators"),
 )
@@ -50,10 +52,14 @@ async def initialize_background_services():
     """Initialize modules, chains, and emulators in the background."""
     try:
         await chain_manager.startup()
-        await module_manager.start_modules()
+        await ensure_adb_server()
+        modules_task = asyncio.create_task(module_manager.start_modules())
+        emulators_task = asyncio.create_task(emulator_manager.start_active_emulators())
+
+        await modules_task
         await chain_manager.start()
 
-        await emulator_manager.start_active_emulators()
+        await emulators_task
 
     except Exception as e:
         logger.error("Error during background initialization: %s", e)
@@ -64,8 +70,6 @@ async def startup_event():
     await init_db()
 
     await start_report_generator()
-
-    await chain_manager.startup()
 
     asyncio.create_task(initialize_background_services())
 
@@ -88,6 +92,9 @@ async def shutdown_event():
 
             module_registry.shutdown()
             logger.info("External modules registry shutdown")
+
+        redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+        await RedisService.get_instance(redis_url).close()
 
         logger.info("Shutdown sequence completed successfully")
 

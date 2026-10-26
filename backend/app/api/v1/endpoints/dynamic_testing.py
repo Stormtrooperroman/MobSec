@@ -1,10 +1,10 @@
-import json
 import logging
 import os
 import tempfile
-import time
 from typing import Dict, List, Optional
 
+import aiofiles
+import aiofiles.os
 from fastapi import (
     APIRouter,
     File,
@@ -14,14 +14,12 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.core.app_manager import AsyncStorageService
+from app.modules.module_manager import ModuleManager
 from app.dynamic.communication.websocket_manager import WebSocketManager
 from app.dynamic.device_management.device_manager import DeviceManager
-from app.dynamic.tools.frida_manager import FridaManager
 from app.dynamic.tools.file_manager import FileManager
-from app.dynamic.tools.mitmproxy_manager import get_mitmproxy_manager
 from app.dynamic.tools.remote_shell import RemoteShell
 from app.dynamic.utils.app_installer import AppInstaller
 
@@ -66,6 +64,25 @@ async def start_device_server(device_id: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.post("/device/{device_id}/stop")
+async def stop_device_server(device_id: str):
+    """
+    Stop the scrcpy server on the specified device
+    """
+    device_manager = DeviceManager()
+    device = await device_manager.get_device(device_id)
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    try:
+        await device.kill_server()
+
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.websocket("/ws/{device_id}")
 async def websocket_endpoint(
     websocket: WebSocket, device_id: str, action: Optional[str] = Query(None)
@@ -73,6 +90,25 @@ async def websocket_endpoint(
     """
     Main WebSocket endpoint for interacting with the device
     """
+    module_manager = ModuleManager.get_instance()
+    if action in module_manager.module_name_mappings:
+        module_name = module_manager.module_name_mappings[action]
+
+        exists = await module_manager.check_module_exists(module_name)
+
+        if not exists:
+            await websocket.close(code=4004, reason="Module not found")
+            return
+
+        query_params = dict(websocket.query_params)
+        await module_manager.proxy_websocket(
+            websocket=websocket,
+            module_name=module_name,
+            device_id=device_id,
+            query_params=query_params,
+        )
+        return
+
     try:
         device_manager = DeviceManager()
         device = await device_manager.get_device(device_id)
@@ -122,7 +158,8 @@ async def websocket_endpoint(
                 return
 
             logger.info(
-                "Shell started successfully for device %s, waiting for messages...", device_id
+                "Shell started successfully for device %s, waiting for messages...",
+                device_id,
             )
 
             try:
@@ -137,10 +174,10 @@ async def websocket_endpoint(
                         if message["type"] == "websocket.receive":
                             if "bytes" in message:
                                 logger.info(
-                                    "Received bytes message: %s bytes", len(message['bytes'])
+                                    "Received bytes message: %s bytes",
+                                    len(message["bytes"]),
                                 )
                                 try:
-                                    # Decode with explicit encoding and error handling
                                     decoded_data = message["bytes"].decode(
                                         "utf-8", errors="replace"
                                     )
@@ -196,7 +233,8 @@ async def websocket_endpoint(
                                 await file_manager.handle_message(message["text"])
                             elif "bytes" in message:
                                 logger.info(
-                                    "Received bytes message: %s bytes", len(message["bytes"])
+                                    "Received bytes message: %s bytes",
+                                    len(message["bytes"]),
                                 )
                         else:
                             logger.info("Unknown message type: %s", message["type"])
@@ -211,130 +249,6 @@ async def websocket_endpoint(
                 logger.error("Error in file manager session: %s", str(e))
             finally:
                 await file_manager.stop()
-
-        elif action == "frida":
-            logger.info("Starting Frida session for device %s", device_id)
-            frida_manager = FridaManager(websocket, device_id)
-            if not await frida_manager.start():
-                logger.error("Failed to start Frida manager for device %s", device_id)
-                await websocket.close(code=4000, reason="Failed to start Frida manager")
-                return
-
-            logger.info(
-                "Frida manager started successfully for device %s, waiting for messages...",
-                device_id,
-            )
-
-            try:
-                while True:
-                    try:
-                        message = await websocket.receive()
-                        logger.info("Received WebSocket message: %s", message)
-
-                        if message["type"] == "websocket.disconnect":
-                            logger.info("WebSocket disconnect received")
-                            break
-                        if message["type"] == "websocket.receive":
-                            if "text" in message:
-                                logger.info(
-                                    "Received text message: %s", message["text"]
-                                )
-                                await frida_manager.handle_message(message["text"])
-                            elif "bytes" in message:
-                                logger.info(
-                                    "Received bytes message: %s bytes", len(message["bytes"])
-                                )
-                        else:
-                            logger.info("Unknown message type: %s", message["type"])
-                    except Exception as e:
-                        logger.error("Error processing WebSocket message: %s", str(e))
-                        break
-            except WebSocketDisconnect:
-                logger.info("Frida WebSocket disconnected for device %s", device_id)
-            except Exception as e:
-                logger.error("Error in Frida session: %s", str(e))
-            finally:
-                await frida_manager.stop()
-
-        elif action == "mitmproxy":
-            logger.info("Starting Mitmproxy session for device %s", device_id)
-            mitmproxy_manager = await get_mitmproxy_manager(device_id)
-
-            # Register WebSocket for real-time events
-            mitmproxy_manager.add_websocket(websocket)
-
-            if not await mitmproxy_manager.start():
-                logger.error(
-                    "Failed to start Mitmproxy manager for device %s", device_id
-                )
-                mitmproxy_manager.remove_websocket(websocket)
-                await websocket.close(
-                    code=4000, reason="Failed to start Mitmproxy manager"
-                )
-                return
-
-            logger.info(
-                "Mitmproxy manager started successfully for device %s, waiting for messages...",
-                device_id,
-            )
-
-            try:
-                while True:
-                    try:
-                        message = await websocket.receive()
-                        logger.info("Received WebSocket message: %s", message)
-
-                        if message["type"] == "websocket.disconnect":
-                            logger.info("WebSocket disconnect received")
-                            break
-                        if message["type"] == "websocket.receive":
-                            if "text" in message:
-                                logger.info(
-                                    "Received text message: %s", message["text"]
-                                )
-                                try:
-                                    # Parse JSON message
-                                    data = json.loads(message["text"])
-
-                                    # Add device_id to message if not present
-                                    if "device_id" not in data:
-                                        data["device_id"] = device_id
-
-                                    # Pass updated message to mitmproxy_manager
-                                    await mitmproxy_manager.handle_message(
-                                        websocket, json.dumps(data)
-                                    )
-                                except json.JSONDecodeError:
-                                    logger.error(
-                                        "Invalid JSON message: %s", message["text"]
-                                    )
-                                    await websocket.send_text(
-                                        json.dumps(
-                                            {
-                                                "type": "mitmproxy",
-                                                "action": "error",
-                                                "message": "Invalid JSON format",
-                                            }
-                                        )
-                                    )
-                            elif "bytes" in message:
-                                logger.info(
-                                    "Received bytes message: %s bytes", len(message["bytes"])
-                                )
-                        else:
-                            logger.info("Unknown message type: %s", message["type"])
-                    except Exception as e:
-                        logger.error("Error processing WebSocket message: %s", str(e))
-                        break
-            except WebSocketDisconnect:
-                logger.info("Mitmproxy WebSocket disconnected for device %s", device_id)
-            except Exception as e:
-                logger.error("Error in Mitmproxy session: %s", str(e))
-            finally:
-                # Remove WebSocket from registration
-                mitmproxy_manager.remove_websocket(websocket)
-                # Don't stop the manager when WebSocket closes - preserve flows
-                # await mitmproxy_manager.stop()
 
         elif action == "multiplex":
             await websocket_manager.handle_multiplex(websocket, device_id)
@@ -364,7 +278,7 @@ async def multiplex_endpoint(websocket: WebSocket, action: Optional[str] = Query
         await websocket.accept()
         logger.info("Multiplex WebSocket connection accepted")
 
-        await websocket_manager.handle_multiplex_simple(websocket)
+        await websocket_manager.handle_multiplex_without_device(websocket)
 
     except WebSocketDisconnect:
         logger.info("Multiplex WebSocket connection closed")
@@ -405,7 +319,7 @@ async def install_app_on_device(device_id: str, request: dict):
 
         apk_path = f"{storage_dir}/{folder_path}/{original_name}"
 
-        if not os.path.exists(apk_path):
+        if not await aiofiles.os.path.exists(apk_path):
             raise HTTPException(
                 status_code=404, detail=f"APK file not found at: {apk_path}"
             )
@@ -426,7 +340,9 @@ async def install_app_on_device(device_id: str, request: dict):
         raise
     except Exception as e:
         logger.error("Error installing app: %s", str(e))
-        raise HTTPException(status_code=500, detail=f"Error installing app: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Error installing app: {str(e)}"
+        ) from e
 
 
 @router.post("/device/{device_id}/install-apk-direct")
@@ -438,10 +354,11 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
         if not apk_file.filename.lower().endswith(".apk"):
             raise HTTPException(status_code=400, detail="Only APK files are supported")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".apk") as temp_file:
-            content = await apk_file.read()
-            temp_file.write(content)
-            temp_apk_path = temp_file.name
+        fd, temp_apk_path = tempfile.mkstemp(suffix=".apk")
+        os.close(fd)
+        content = await apk_file.read()
+        async with aiofiles.open(temp_apk_path, "wb") as temp_file:
+            await temp_file.write(content)
 
         try:
             logger.info("Installing APK %s on device %s", apk_file.filename, device_id)
@@ -450,7 +367,9 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
 
             if success:
                 logger.info(
-                    "Successfully installed %s on device %s", apk_file.filename, device_id
+                    "Successfully installed %s on device %s",
+                    apk_file.filename,
+                    device_id,
                 )
                 return {
                     "status": "success",
@@ -466,7 +385,7 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
 
         finally:
             try:
-                os.unlink(temp_apk_path)
+                await aiofiles.os.remove(temp_apk_path)
             except Exception as e:
                 logger.warning(
                     "Failed to cleanup temporary file %s: %s", temp_apk_path, str(e)
@@ -476,38 +395,12 @@ async def install_apk_direct(device_id: str, apk_file: UploadFile = File(...)):
         raise
     except Exception as e:
         logger.error("Error installing APK directly: %s", str(e))
-        raise HTTPException(status_code=500, detail=f"Error installing APK: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Error installing APK: {str(e)}"
+        ) from e
 
-
-# Global storage for mitmproxy managers to maintain state
-_mitmproxy_managers = {}
 
 # Physical Device Management Endpoints
-
-
-@router.post("/device/{device_id}/enable-wireless")
-async def enable_wireless_debugging(device_id: str):
-    """Enable wireless debugging on a USB-connected device"""
-    try:
-        device_manager = DeviceManager()
-        success = await device_manager.enable_wireless_debugging(device_id)
-
-        if success:
-            return {
-                "status": "success",
-                "message": "Wireless debugging enabled successfully",
-                "data": {"wireless_enabled": True},
-            }
-
-        raise HTTPException(
-            status_code=500, detail="Failed to enable wireless debugging"
-        )
-
-    except Exception as e:
-        logger.error("Error enabling wireless debugging: %s", str(e))
-        raise HTTPException(
-            status_code=500, detail=f"Error enabling wireless debugging: {str(e)}"
-        ) from e
 
 
 @router.post("/device/connect-wifi")
@@ -542,367 +435,45 @@ async def connect_wifi_device(request: dict):
         ) from e
 
 
-# Mitmproxy HTTP API Endpoints
-
-
-@router.get("/device/{device_id}/mitmproxy/status")
-async def get_mitmproxy_status(device_id: str):
-    """Get mitmproxy status for a device"""
+@router.post("/device/pair-wifi")
+async def pair_wifi_device(request: dict):
+    """Pair with a device via WiFi (Android 11+ wireless debugging)"""
     try:
-        # Check existing manager
-        if device_id in _mitmproxy_managers:
-            manager = _mitmproxy_managers[device_id]
-            proxy_running = (
-                manager.proxy_task is not None
-                and not manager.proxy_task.done()
-                and not getattr(manager.proxy_task, "error", None)
-            )
+        ip_address = request.get("ip_address")
+        port = request.get("port")
+        pairing_port = request.get("pairing_port")
+        pairing_code = request.get("pairing_code")
 
-            return {
-                "status": "success",
-                "data": {
-                    "proxy_running": proxy_running,
-                    "cert_installed": manager.cert_installed,
-                    "su_available": manager.su_available,
-                    "device_ip": manager.device_ip,
-                    "proxy_port": manager.proxy_port,
-                    "proxy_host": "0.0.0.0",
-                },
-            }
+        if not ip_address:
+            raise HTTPException(status_code=400, detail="ip_address is required")
+        if not port:
+            raise HTTPException(status_code=400, detail="port is required")
+        if not pairing_port:
+            raise HTTPException(status_code=400, detail="pairing_port is required")
+        if not pairing_code:
+            raise HTTPException(status_code=400, detail="pairing_code is required")
 
-        # No active manager
-        return {
-            "status": "success",
-            "data": {
-                "proxy_running": False,
-                "cert_installed": False,
-                "su_available": False,
-                "device_ip": None,
-                "proxy_port": 8081,
-                "proxy_host": "0.0.0.0",
-            },
-        }
-
-    except Exception as e:
-        logger.error("Error getting mitmproxy status: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/device/{device_id}/mitmproxy/start")
-async def start_mitmproxy_proxy(device_id: str):
-    """Start mitmproxy proxy for a device"""
-    try:
-        # Check if manager is already running
-        if device_id in _mitmproxy_managers:
-            manager = _mitmproxy_managers[device_id]
-            if manager.proxy_task and not manager.proxy_task.done():
-                return {
-                    "status": "success",
-                    "message": "Mitmproxy is already running",
-                    "data": {
-                        "proxy_running": True,
-                        "proxy_port": manager.proxy_port,
-                        "proxy_host": "0.0.0.0",
-                    },
-                }
-
-            mitmproxy_manager = manager
-        else:
-            # Create new manager
-            mitmproxy_manager = await get_mitmproxy_manager(device_id)
-
-        # Initialize manager
-        if not await mitmproxy_manager.start():
-            raise HTTPException(
-                status_code=500, detail="Failed to initialize mitmproxy manager"
-            )
-
-        # Start proxy
-        success = await mitmproxy_manager.start_proxy()
+        device_manager = DeviceManager()
+        success = await device_manager.pair_wifi_device(
+            ip_address, port, pairing_port, pairing_code
+        )
 
         if success:
-            # Save manager for further use if not already in dictionary
-            if device_id not in _mitmproxy_managers:
-                _mitmproxy_managers[device_id] = mitmproxy_manager
-
             return {
                 "status": "success",
-                "message": "Mitmproxy started successfully",
-                "data": {
-                    "proxy_running": True,
-                    "proxy_port": mitmproxy_manager.proxy_port,
-                    "proxy_host": "0.0.0.0",
-                    "proxy_setting": (
-                        f"{mitmproxy_manager.backend_ip}:"
-                        f"{mitmproxy_manager.proxy_port}"
-                    ),
-                },
-            }
-
-        await mitmproxy_manager.stop(cleanup=True)
-        raise HTTPException(status_code=500, detail="Failed to start mitmproxy")
-
-    except Exception as e:
-        logger.error("Error starting mitmproxy: %s", str(e))
-        # Clean up state on error
-        if device_id in _mitmproxy_managers:
-            try:
-                await _mitmproxy_managers[device_id].stop()
-            except Exception:
-                pass
-            del _mitmproxy_managers[device_id]
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/device/{device_id}/mitmproxy/stop")
-async def stop_mitmproxy_proxy(device_id: str):
-    """Stop mitmproxy proxy for a device"""
-    try:
-        if device_id not in _mitmproxy_managers:
-            return {
-                "status": "success",
-                "message": "Mitmproxy is not running",
-                "data": {"proxy_running": False},
-            }
-
-        manager = _mitmproxy_managers[device_id]
-
-        # Stop proxy (stop() already calls stop_proxy_threadsafe() internally)
-        await manager.stop(cleanup=True)
-
-        # Remove from global state
-        del _mitmproxy_managers[device_id]
-
-        return {
-            "status": "success",
-            "message": "Mitmproxy stopped successfully",
-            "data": {"proxy_running": False},
-        }
-
-    except Exception as e:
-        logger.error("Error stopping mitmproxy: %s", str(e))
-        # Clean up state in any case
-        if device_id in _mitmproxy_managers:
-            del _mitmproxy_managers[device_id]
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/device/{device_id}/mitmproxy/generate-certificate")
-async def generate_mitmproxy_certificate(device_id: str):
-    """Generate and return mitmproxy certificate"""
-    try:
-        mitmproxy_manager = await get_mitmproxy_manager(device_id)
-
-        if not await mitmproxy_manager.start():
-            raise HTTPException(
-                status_code=500, detail="Failed to initialize mitmproxy manager"
-            )
-
-        cert_path = await mitmproxy_manager.generate_certificate()
-
-        if cert_path and os.path.exists(cert_path):
-            # Read certificate content
-            with open(cert_path, "r", encoding="utf-8") as f:
-                cert_content = f.read()
-
-            return {
-                "status": "success",
-                "message": "Certificate generated successfully",
-                "data": {
-                    "certificate": cert_content,
-                    "cert_path": cert_path,
-                    "download_url": (
-                        f"/api/v1/dynamic-testing/device/{device_id}/"
-                        f"mitmproxy/download-certificate"
-                    ),
-                },
+                "message": f"Successfully paired with device at {ip_address}:{port}",
+                "data": {"ip_address": ip_address, "port": port, "paired": True},
             }
 
         raise HTTPException(
-            status_code=500, detail="Failed to generate certificate"
+            status_code=500,
+            detail=f"Failed to pair with device at {ip_address}:{port}",
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("Error generating certificate: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.get("/device/{device_id}/mitmproxy/download-certificate")
-async def download_mitmproxy_certificate(device_id: str):
-    """Download mitmproxy certificate file"""
-    try:
-        certs_dir = "/tmp/mitmproxy/certs"
-        cert_path = os.path.join(certs_dir, "mitmproxy-ca-cert.pem")
-
-        if not os.path.exists(cert_path):
-            # Generate certificate if it doesn't exist
-            mitmproxy_manager = await get_mitmproxy_manager(device_id)
-            await mitmproxy_manager.start()
-            cert_path = await mitmproxy_manager.generate_certificate()
-
-            if not cert_path or not os.path.exists(cert_path):
-                raise HTTPException(status_code=404, detail="Certificate not found")
-
-        return FileResponse(
-            cert_path,
-            media_type="application/x-pem-file",
-            filename=f"mitmproxy-ca-cert-{device_id.replace(':', '_')}.pem",
-            headers={
-                "Content-Disposition": (
-                    f"attachment; filename=mitmproxy-ca-cert-"
-                    f"{device_id.replace(':', '_')}.pem"
-                )
-            },
-        )
-
-    except Exception as e:
-        logger.error("Error downloading certificate: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/device/{device_id}/mitmproxy/install-certificate")
-async def install_mitmproxy_certificate(device_id: str):
-    """Install mitmproxy certificate on device"""
-    try:
-        mitmproxy_manager = await get_mitmproxy_manager(device_id)
-
-        if not await mitmproxy_manager.start():
-            raise HTTPException(
-                status_code=500, detail="Failed to initialize mitmproxy manager"
-            )
-
-        success = await mitmproxy_manager.install_certificate(None)
-
-        if success:
-            return {
-                "status": "success",
-                "message": "Certificate installed successfully on device",
-                "data": {"cert_installed": True},
-            }
-
-        raise HTTPException(status_code=500, detail="Failed to install certificate")
-
-    except Exception as e:
-        logger.error("Error installing certificate: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/device/{device_id}/mitmproxy/configure-proxy")
-async def configure_device_proxy(device_id: str):
-    """Configure proxy settings on device"""
-    try:
-        mitmproxy_manager = await get_mitmproxy_manager(device_id)
-
-        if not await mitmproxy_manager.start():
-            raise HTTPException(
-                status_code=500, detail="Failed to initialize mitmproxy manager"
-            )
-
-        success = await mitmproxy_manager.configure_device_proxy(None)
-
-        if success:
-            return {
-                "status": "success",
-                "message": "Proxy configured successfully on device",
-            }
-
-        raise HTTPException(status_code=500, detail="Failed to configure proxy")
-
-    except Exception as e:
-        logger.error("Error configuring proxy: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/device/{device_id}/mitmproxy/disable-proxy")
-async def disable_device_proxy(device_id: str):
-    """Disable proxy settings on device"""
-    try:
-        mitmproxy_manager = await get_mitmproxy_manager(device_id)
-
-        if not await mitmproxy_manager.start():
-            raise HTTPException(
-                status_code=500, detail="Failed to initialize mitmproxy manager"
-            )
-
-        success = await mitmproxy_manager.disable_device_proxy(None)
-
-        if success:
-            return {
-                "status": "success",
-                "message": "Proxy disabled successfully on device",
-            }
-
-        raise HTTPException(status_code=500, detail="Failed to disable proxy")
-
-    except Exception as e:
-        logger.error("Error disabling proxy: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.get("/device/{device_id}/mitmproxy/export")
-async def export_mitmproxy_traffic(device_id: str, export_format: str = "json"):
-    """Export captured traffic in specified format"""
-    try:
-        mitmproxy_manager = await get_mitmproxy_manager(device_id)
-
-        if not await mitmproxy_manager.start():
-            raise HTTPException(
-                status_code=500, detail="Failed to initialize mitmproxy manager"
-            )
-
-        exported_data = await mitmproxy_manager.export_traffic(export_format)
-
-        if export_format in {"json", "har"}:
-            return JSONResponse(
-                {"status": "success", "format": export_format, "data": exported_data}
-            )
-
-        return Response(
-            content=exported_data,
-            media_type="text/plain",
-            headers={
-                "Content-Disposition": (
-                    f"attachment; filename=traffic_{device_id}_"
-                    f"{int(time.time())}.{export_format}"
-                )
-            },
-        )
-
-    except Exception as e:
-        logger.error("Error exporting traffic: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/device/{device_id}/mitmproxy/clear-traffic")
-async def clear_mitmproxy_traffic(device_id: str):
-    """Clear captured traffic data"""
-    try:
-        if device_id not in _mitmproxy_managers:
-            return {
-                "status": "success",
-                "message": "No active mitmproxy session found - nothing to clear",
-            }
-
-        manager = _mitmproxy_managers[device_id]
-        await manager.clear_traffic()
-
-        return {"status": "success", "message": "Traffic data cleared successfully"}
-
-    except Exception as e:
-        logger.error("Error clearing traffic: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-
-@router.post("/device/{device_id}/stop")
-async def stop_device_server(device_id: str):
-    """
-    Stops the scrcpy server on the specified device
-    """
-    device_manager = DeviceManager()
-    success = await device_manager.stop_device_server(device_id)
-
-    if not success:
-        raise HTTPException(status_code=404, detail="Device not found")
-
-    return {"status": "success"}
+        logger.error("Error pairing WiFi device: %s", str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Error pairing WiFi device: {str(e)}"
+        ) from e

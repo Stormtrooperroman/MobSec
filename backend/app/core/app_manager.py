@@ -5,6 +5,7 @@ import shutil
 import zipfile
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from pathlib import Path
 
 import aiofiles
 from fastapi import UploadFile
@@ -13,6 +14,7 @@ from sqlalchemy import select
 from app.core.database_manager import db_manager
 from app.core.settings_service import settings_service
 from app.models.app import FileModel, FileType, ScanStatus
+from sqlalchemy import func
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -59,7 +61,7 @@ class AsyncStorageService:
                     return FileType.ZIP
 
         except Exception as e:
-            print(f"Error determining file type: {e}")
+            logger.error(f"Error determining file type: {e}")
 
         return FileType.UNKNOWN
 
@@ -80,9 +82,9 @@ class AsyncStorageService:
         # Ensure base storage directory exists
         os.makedirs(self.storage_dir, exist_ok=True)
 
-        (
-            file_hash, file_size, md5_hash, sha1_hash, sha256_hash
-        ) = await self._save_file_with_hashes(content)
+        file_hash, file_size, md5_hash, sha1_hash, sha256_hash = (
+            await self._save_file_with_hashes(content)
+        )
         folder = self._get_folder_structure(content.filename, file_hash)
 
         folder_path = os.path.join(self.storage_dir, folder)
@@ -103,11 +105,7 @@ class AsyncStorageService:
             "file_size": file_size,
             "folder": folder,
             "file_type": file_type,
-            "hashes": {
-                "md5": md5_hash,
-                "sha1": sha1_hash,
-                "sha256": sha256_hash
-            }
+            "hashes": {"md5": md5_hash, "sha1": sha1_hash, "sha256": sha256_hash},
         }
         await self._save_file_model(file_info)
 
@@ -135,19 +133,33 @@ class AsyncStorageService:
         file_hash = md5.hexdigest()
 
         return (
-            file_hash, file_size,
+            file_hash,
+            file_size,
             md5.hexdigest(),
             sha1.hexdigest(),
-            sha256.hexdigest()
+            sha256.hexdigest(),
         )
 
     def _extract_zip_file(self, zip_path: str, folder_path: str):
         """Extract ZIP file to source_code folder"""
-        source_code_path = os.path.join(folder_path, "source_code")
-        os.makedirs(source_code_path, exist_ok=True)
+        source_code_path = Path(folder_path) / "source_code"
+        source_code_path.mkdir(parents=True, exist_ok=True)
+
         try:
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                zip_ref.extractall(source_code_path)
+                for member in zip_ref.infolist():
+                    target_path = (source_code_path / member.filename).resolve()
+                    if not str(target_path).startswith(str(source_code_path.resolve())):
+                        logger.warning(
+                            f"Skipping potentially malicious file: {member.filename}"
+                        )
+                        continue
+
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    with zip_ref.open(member) as source:
+                        target_path.write_bytes(source.read())
+
             logger.info("Successfully extracted ZIP file to %s", source_code_path)
         except Exception as e:
             logger.error("Error extracting ZIP file: %s", str(e))
@@ -212,17 +224,21 @@ class AsyncStorageService:
                             "file_type": file_info.get("file_type", ""),
                             "folder_path": file_info.get("folder_path", ""),
                         },
-                        file_hash=file_hash
+                        file_hash=file_hash,
                     )
                 elif action_type == "chain":
-                    from app.modules.chain_manager import ChainManager  # pylint: disable=import-outside-toplevel
+                    from app.modules.chain_manager import (
+                        ChainManager,
+                    )  # pylint: disable=import-outside-toplevel
 
                     chain_manager = ChainManager.get_instance()
                     await chain_manager.run_chain(action, file_hash)
 
                 logger.info(
                     "Auto-run %s '%s' started for file %s",
-                    action_type, action, file_hash
+                    action_type,
+                    action,
+                    file_hash,
                 )
         except Exception as e:
             logger.error("Error in auto-run processing: %s", str(e))
@@ -320,9 +336,9 @@ class AsyncStorageService:
         Get total number of files in the database.
         """
         async with self.async_session() as session:
-            query = select(FileModel)
+            query = select(func.count()).select_from(FileModel)
             result = await session.execute(query)
-            return len(result.scalars().all())
+            return result.scalar_one()
 
     async def delete_file(self, file_hash: str) -> bool:
         """
@@ -353,8 +369,7 @@ class AsyncStorageService:
                         shutil.rmtree(folder_path)
                     except Exception as e:
                         logger.error(
-                            "Error removing directory %s: %s",
-                            folder_path, str(e)
+                            "Error removing directory %s: %s", folder_path, str(e)
                         )
                         raise
 

@@ -12,9 +12,8 @@ from sqlalchemy import (
     Table,
     select,
 )
-from sqlalchemy.orm import declarative_base, relationship
-
-Base = declarative_base()
+from sqlalchemy.orm import relationship
+from app.models.base import Base
 
 
 class ChainStatus(enum.Enum):
@@ -54,26 +53,6 @@ class Chain(Base):
     executions = relationship("ChainExecution", back_populates="chain")
 
 
-class Module(Base):
-    __tablename__ = "modules"
-    name = Column(String, nullable=False, primary_key=True)
-    version = Column(String)
-    description = Column(String)
-    config = Column(JSON)
-    created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
-
-    # Relationships
-    chains = relationship("Chain", secondary=chain_modules, overlaps="modules")
-    executions = relationship("ModuleExecution", back_populates="module")
-
-
 class ChainExecution(Base):
     __tablename__ = "chain_executions"
 
@@ -111,21 +90,3 @@ class ModuleExecution(Base):
 
     chain_execution = relationship("ChainExecution", back_populates="module_executions")
     module = relationship("Module", back_populates="executions")
-
-
-async def get_chain_by_name(session, chain_name: str):
-    return await session.execute(
-        select(Chain).where(Chain.name == chain_name)
-    ).scalar_one_or_none()
-
-
-async def get_chain_execution_by_id(session, execution_id: str):
-    return await session.execute(
-        select(ChainExecution).where(ChainExecution.id == execution_id)
-    ).scalar_one_or_none()
-
-
-async def get_module_by_id(session, module_name: str):
-    return await session.execute(
-        select(Module).where(Module.name == module_name)
-    ).scalar_one_or_none()

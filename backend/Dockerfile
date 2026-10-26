@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -15,7 +15,6 @@ RUN apt update -y && \
     libswresample-dev \
     libsdl2-dev \
     xz-utils \
-    lsof \
     wget \
     && apt clean
 
@@ -24,6 +23,8 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . /app
+
+RUN wget https://github.com/Stormtrooperroman/ws-scrcpy_server/releases/download/1.19-ws7/scrcpy-server.jar -O scrcpy-server.jar 
 
 ENV PYTHONUNBUFFERED 1
 ENV DATABASE_URL=postgresql+asyncpg://user:password@db:5432/mobsec

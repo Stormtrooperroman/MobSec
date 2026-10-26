@@ -7,8 +7,6 @@ from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import Response
 
 from app.modules.chain_manager import ChainManager
-from app.modules.module_manager import ModuleManager
-
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -16,11 +14,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-module_manager = ModuleManager.get_instance(
-    redis_url=os.getenv("REDIS_URL"),
-    modules_path=os.getenv("MODULES_PATH", "/app/modules"),
-)
 
 chain_manager = ChainManager.get_instance()
 
@@ -195,7 +188,9 @@ async def run_chain(chain_name: str, file_hash: str = Body(..., embed=True)):
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         logger.error("Error running chain '%s': %s", chain_name, str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to run chain: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed to run chain: {str(e)}"
+        ) from e
 
 
 @router.get("/{chain_name}/export")

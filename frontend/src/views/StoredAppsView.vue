@@ -1,7 +1,7 @@
 <template>
-  <div class="apps-container">
-    <div class="apps-header">
-      <h2 class="apps-title">Stored Applications</h2>
+  <div class="apps-container page-card">
+    <div class="apps-header page-header">
+      <h2 class="apps-title page-title-main">Stored Applications</h2>
     </div>
 
     <div v-if="loading" class="loading-container">
@@ -52,7 +52,9 @@
               </td>
               <td class="table-cell actions-cell">
                 <button @click="runAnalysis(app)" class="action-button run-button">
-                  <span class="action-icon">▶</span>
+                  <span class="action-icon">
+                    <font-awesome-icon icon="play" />
+                  </span>
                   Analyze
                 </button>
                 <button
@@ -60,11 +62,16 @@
                   class="action-button report-button"
                   :disabled="app.scan_status === 'N/A'"
                 >
-                  <span class="action-icon">📊</span>
+                  <span class="action-icon">
+                    <font-awesome-icon icon="chart-simple" />
+                  </span>
                   View Report
                 </button>
                 <button @click="deleteApp(app.file_hash)" class="action-button delete-button">
-                  <span class="action-icon">🗑️</span>
+                  <span class="action-icon">
+                    <font-awesome-icon icon="trash" />
+                  </span>
+                  Delete
                 </button>
               </td>
             </tr>
@@ -97,7 +104,9 @@
 </template>
 
 <script>
+import '@/assets/app.css';
 import RunModuleModal from '@/components/modals/RunModuleModal.vue';
+import api from '@/services/api';
 
 export default {
   name: 'StoredAppsView',
@@ -145,8 +154,8 @@ export default {
       this.loading = true;
       this.error = null;
       try {
-        const response = await fetch(`/api/v1/apps?skip=${this.skip}&limit=${this.limit}`);
-        const data = await response.json();
+        const response = await api.get(`/apps?skip=${this.skip}&limit=${this.limit}`);
+        const data = response.data;
         this.apps = data.apps || [];
         this.total = data.total || 0;
       } catch (error) {
@@ -178,7 +187,7 @@ export default {
     async deleteApp(fileHash) {
       if (confirm('Are you sure you want to delete this app?')) {
         try {
-          await fetch(`/api/v1/apps/${fileHash}`, { method: 'DELETE' });
+          await api.delete(`/apps/${fileHash}`);
           this.fetchApps();
         } catch (error) {
           console.error('Error deleting app:', error);
@@ -205,29 +214,6 @@ export default {
 </script>
 
 <style>
-.apps-container {
-  background-color: #ffffff;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  border-radius: 12px;
-  padding: 28px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.apps-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.apps-title {
-  font-size: 24px;
-  font-weight: 700;
-  color: #1a202c;
-  margin: 0;
-}
-
 .upload-empty-button {
   margin-top: 20px;
   padding: 10px 20px;

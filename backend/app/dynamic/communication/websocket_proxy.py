@@ -58,7 +58,11 @@ class WebSocketProxy:
 
             _, stderr, returncode = await execute_adb_command(
                 device_id=device_id,
-                command=["forward", f"tcp:{self.local_port}", f"tcp:{self.remote_port}"],
+                command=[
+                    "forward",
+                    f"tcp:{self.local_port}",
+                    f"tcp:{self.remote_port}",
+                ],
             )
 
             if returncode != 0:

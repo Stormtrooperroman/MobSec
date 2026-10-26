@@ -1,13 +1,14 @@
 import logging
 import os
-from typing import Any, Dict, List
-
-import docker
+from typing import Any, Dict, List, Optional
+import aiofiles
+import aiofiles.os
+import asyncio
 import httpx
-from fastapi import APIRouter, Body, HTTPException, status
+import yaml
+from fastapi import APIRouter, Body, HTTPException, status, Query
 
 from app.core.app_manager import storage
-from app.models.external_module import ModuleStatus
 from app.modules.external_module_registry import module_registry
 from app.modules.module_manager import ModuleManager
 
@@ -22,9 +23,18 @@ module_manager = ModuleManager.get_instance(
 
 
 @router.get("/")
-async def list_modules() -> List[Dict]:
+async def list_modules(
+    module_type: Optional[str] = Query(None, description="Filter modules by type"),
+    source: Optional[str] = Query(
+        None, description="Filter modules by source (internal/external)"
+    ),
+) -> List[Dict]:
     """
-    Get information and status of all available internal modules.
+    Get information and status of all available modules.
+
+    Query Parameters:
+    - module_type (str, optional): Filter modules by module_type (static/dynamic)
+    - source (str, optional): Filter modules by source (internal/external)
 
     Returns:
     - List[dict]: A list of dictionaries, each containing:
@@ -38,42 +48,12 @@ async def list_modules() -> List[Dict]:
     """
     try:
         modules_info = []
-        docker_client = docker.from_env()
+        module_source = source
+        if module_source != "internal":
+            modules_info += await module_manager.list_modules(module_type=module_type)
 
-        modules = [
-            d
-            for d in os.listdir(module_manager.modules_path)
-            if os.path.isdir(os.path.join(module_manager.modules_path, d))
-        ]
-
-        for module_name in modules:
-            container_name = f"mobsec_{module_name}"
-
-            module_config = module_manager.modules_config.get(module_name, {})
-
-            module_info = {
-                "id": module_config.get("id", module_name),
-                "name": module_config.get("display_name", module_name),
-                "description": module_config.get(
-                    "description", "No description available"
-                ),
-                "active": False,
-                "is_external": False,
-                "version": module_config.get("version", "0.1"),
-                "input_formats": module_config.get("input_formats", ["apk"]),
-            }
-
-            try:
-                container = docker_client.containers.get(container_name)
-                module_info["active"] = container.status == "running"
-            except docker.errors.NotFound:
-                pass
-            except Exception as e:
-                logger.error(
-                    "Error checking container status for %s: %s", module_name, str(e)
-                )
-
-            modules_info.append(module_info)
+        if module_source != "external":
+            modules_info += await module_registry.list_modules(module_type=module_type)
 
         return modules_info
 
@@ -82,44 +62,6 @@ async def list_modules() -> List[Dict]:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error listing modules: {str(e)}",
-        ) from e
-
-
-@router.get("/all")
-async def list_all_modules() -> List[Dict]:
-    """
-    Get information and status of all available modules (internal and external).
-
-    Returns:
-    - List[dict]: A list of dictionaries containing both internal and external modules
-    """
-    try:
-        internal_modules = await list_modules()
-
-        external_modules = await module_registry.list_modules()
-
-        external_modules_formatted = [
-            {
-                "id": module["module_id"],
-                "name": module["config"]["name"],
-                "description": module["config"].get(
-                    "description", "No description available"
-                ),
-                "active": module["status"] == ModuleStatus.ACTIVE,
-                "is_external": True,
-                "version": module["config"].get("version"),
-                "input_formats": module["config"].get("input_formats", []),
-            }
-            for module in external_modules
-        ]
-
-        return internal_modules + external_modules_formatted
-
-    except Exception as e:
-        logger.error("Error listing all modules: %s", str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error listing all modules: {str(e)}",
         ) from e
 
 
@@ -155,22 +97,8 @@ async def toggle_module(module_id: str) -> Dict:
             )
 
         container_name = f"mobsec_{module_name}"
-        try:
-            container = module_manager.docker_client.containers.get(container_name)
-            if container.status == "running":
-                await module_manager.stop_module(module_name)
-                return {
-                    "status": "success",
-                    "message": f"Module {module_name} deactivated",
-                    "active": False,
-                }
-            await module_manager.start_module(module_name)
-            return {
-                "status": "success",
-                "message": f"Module {module_name} activated",
-                "active": True,
-            }
-        except docker.errors.NotFound:
+        container = await module_manager.docker_service.get_container(container_name)
+        if container is None:
             logger.info("No existing container found with name: %s", container_name)
             await module_manager.start_module(module_name)
             return {
@@ -178,6 +106,20 @@ async def toggle_module(module_id: str) -> Dict:
                 "message": f"Module {module_name} activated",
                 "active": True,
             }
+
+        if container.status == "running":
+            await module_manager.stop_module(module_name)
+            return {
+                "status": "success",
+                "message": f"Module {module_name} deactivated",
+                "active": False,
+            }
+        await module_manager.start_module(module_name)
+        return {
+            "status": "success",
+            "message": f"Module {module_name} activated",
+            "active": True,
+        }
 
     except HTTPException:
         raise
@@ -222,6 +164,8 @@ async def rebuild_module(module_id: str) -> Dict:
 
         # Stop the module if it's running
         await module_manager.stop_module(module_name)
+
+        await module_manager.remove_container(module_name)
 
         # Start the module (this will rebuild the image and start a new container)
         await module_manager.start_module(module_name)
@@ -300,10 +244,12 @@ async def run_module(module_name: str, request: Dict[str, Any] = Body(...)):
         raise
     except Exception as e:
         logger.error("Error submitting %s task: %s", module_name, str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to submit task: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed to submit task: {str(e)}"
+        ) from e
 
 
-def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
+async def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
     """
     Dynamically discover module UI components across all modules
 
@@ -315,36 +261,50 @@ def discover_module_ui_components() -> Dict[str, Dict[str, Any]]:
 
     logger.info("Discovering module UI components in path: %s", modules_base_path)
 
-    if not os.path.exists(modules_base_path):
+    if not await aiofiles.os.path.exists(modules_base_path):
         logger.error("Modules path does not exist: %s", modules_base_path)
         return module_ui_info
 
     try:
-        for module_dir in os.listdir(modules_base_path):
+        for module_dir in await aiofiles.os.listdir(modules_base_path):
             if module_dir.endswith("_module"):
                 module_name = module_dir.replace("_module", "")
                 module_path = os.path.join(modules_base_path, module_dir)
 
                 try:
-                    vue_reports = [
-                        f for f in os.listdir(module_path) if f.endswith("Report.vue")
+                    config_path = os.path.join(module_path, "config.yaml")
+                    module_type = "static"
+                    if await aiofiles.os.path.exists(config_path):
+                        async with aiofiles.open(config_path, encoding="utf-8") as f:
+                            content = await f.read()
+                            config = yaml.safe_load(content) or {}
+                            module_type = config.get("type", "static")
+
+                    vue_suffix = (
+                        "Tool.vue" if module_type == "dynamic" else "Report.vue"
+                    )
+                    vue_components = [
+                        f
+                        for f in await aiofiles.os.listdir(module_path)
+                        if f.endswith(vue_suffix)
                     ]
 
                     module_ui_info[module_name] = {
-                        "has_custom_ui": len(vue_reports) > 0,
+                        "has_custom_ui": len(vue_components) > 0,
                         "ui_component_name": (
-                            f"{module_name.capitalize()}Report"
-                            if vue_reports
+                            vue_components[0].replace(".vue", "")
+                            if vue_components
                             else "GenericModule"
                         ),
                         "vue_file_path": (
-                            os.path.join(module_path, vue_reports[0])
-                            if vue_reports
+                            os.path.join(module_path, vue_components[0])
+                            if vue_components
                             else None
                         ),
+                        "module_type": module_type,
                     }
 
-                    module_ui = vue_reports[0] if vue_reports else "None"
+                    module_ui = vue_components[0] if vue_components else "None"
                     logger.debug(
                         "Found UI component for module %s: %s", module_name, module_ui
                     )
@@ -373,7 +333,7 @@ async def get_module_ui_info():
         - is_external (bool): Whether this is an external module
     """
     try:
-        module_ui_info = discover_module_ui_components()
+        module_ui_info = await discover_module_ui_components()
 
         external_modules = await module_registry.list_modules()
         for module in external_modules:
@@ -458,14 +418,16 @@ async def get_module_ui_component(module_name: str):
                 detail=f"UI component file path not found for module {module_name}",
             )
 
-        if not os.path.exists(module_info["vue_file_path"]):
+        if not await aiofiles.os.path.exists(module_info["vue_file_path"]):
             raise HTTPException(
                 status_code=404,
                 detail=f"File not found: {module_info['vue_file_path']}",
             )
 
-        with open(module_info["vue_file_path"], "r", encoding="utf-8") as f:
-            vue_component_content = f.read()
+        async with aiofiles.open(
+            module_info["vue_file_path"], "r", encoding="utf-8"
+        ) as f:
+            vue_component_content = await f.read()
 
         return {
             "module_name": module_name,
@@ -483,3 +445,27 @@ async def get_module_ui_component(module_name: str):
         raise HTTPException(
             status_code=500, detail=f"Error retrieving module UI component: {str(e)}"
         ) from e
+
+
+@router.get("/module-vue-file/{module_name}/{filename}")
+async def get_module_vue_file(module_name: str, filename: str):
+    """
+    Retrieve an additional Vue file from a module directory (e.g. sub-components).
+    """
+    if not filename.endswith(".vue") or "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    module_dir = f"{module_name}_module"
+    module_path = os.path.join(module_manager.modules_path, module_dir)
+
+    if not await aiofiles.os.path.isdir(module_path):
+        raise HTTPException(status_code=404, detail=f"Module {module_name} not found")
+
+    file_path = os.path.join(module_path, filename)
+    if not await aiofiles.os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+
+    async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+        content = await f.read()
+
+    return {"filename": filename, "content": content}

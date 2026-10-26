@@ -3,9 +3,11 @@
     <nav class="nav-container">
       <div class="nav-content">
         <div class="logo-section">
-          <div class="logo-container">
-            <span class="app-title">MobSec</span>
-          </div>
+          <router-link to="/" class="logo-link">
+            <div class="logo-container">
+              <span class="app-title">MobSec</span>
+            </div>
+          </router-link>
         </div>
         <div class="navigation-buttons">
           <router-link
@@ -40,7 +42,7 @@ export default {
       ],
       lastScrollPosition: 0,
       isHidden: false,
-      scrollThreshold: 60, // minimum scroll before hiding
+      scrollThreshold: 60,
     };
   },
   mounted() {
@@ -68,8 +70,6 @@ export default {
 </script>
 
 <style>
-
-
 header {
   background-color: white;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -111,6 +111,12 @@ header.nav-hidden {
 
 .logo-section {
   display: flex;
+}
+
+.logo-link {
+  display: flex;
+  text-decoration: none;
+  color: inherit;
 }
 
 .logo-container {
@@ -156,7 +162,7 @@ header.nav-hidden {
 }
 
 .main-content {
-  max-width: 1280px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 24px 16px;
 }

@@ -7,8 +7,8 @@
       </div>
       <div class="modal-body">
         <div class="script-editor-container">
-          <textarea 
-            v-model="content" 
+          <textarea
+            v-model="content"
             class="script-editor"
             placeholder="Enter your Frida script here..."
             spellcheck="false"
@@ -30,25 +30,25 @@ export default {
   props: {
     show: {
       type: Boolean,
-      default: false
+      default: false,
     },
     editingScriptName: {
       type: String,
-      default: ''
+      default: '',
     },
     newScriptName: {
       type: String,
-      default: ''
+      default: '',
     },
     scriptContent: {
       type: String,
-      default: ''
-    }
+      default: '',
+    },
   },
   emits: ['close', 'save'],
   data() {
     return {
-      content: ''
+      content: '',
     };
   },
   watch: {
@@ -59,7 +59,7 @@ export default {
       if (newVal) {
         this.content = this.scriptContent;
       }
-    }
+    },
   },
   methods: {
     closeModal() {
@@ -74,14 +74,14 @@ export default {
       const textarea = event.target;
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
-      
+
       this.content = this.content.substring(0, start) + '\t' + this.content.substring(end);
-      
+
       this.$nextTick(() => {
         textarea.selectionStart = textarea.selectionEnd = start + 1;
       });
-    }
-  }
+    },
+  },
 };
 </script>
 
@@ -222,7 +222,7 @@ export default {
 }
 
 .modal-btn.save-btn {
-  background: #4CAF50;
+  background: #4caf50;
   color: white;
 }
 
@@ -234,7 +234,7 @@ export default {
   width: 80%;
   height: 70%;
   max-width: 1000px;
-  max-height: 800px;
+  max-height: 80vh;
 }
 
 .modal-container.script-editor-modal .modal-body {
@@ -253,14 +253,14 @@ export default {
     width: 95%;
     height: 80%;
   }
-  
+
   .modal-header h3 {
     font-size: 14px;
   }
-  
+
   .script-editor {
     font-size: 12px;
     padding: 15px;
   }
 }
-</style> 
+</style>

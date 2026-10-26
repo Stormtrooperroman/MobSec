@@ -1,13 +1,12 @@
-FROM openjdk:11-slim
+FROM python:3.12-slim
 
 # Install required system packages
 RUN apt-get update && \
     apt-get install -y \
-    python3 \
-    python3-pip \
     wget \
     unzip \
     procps \
+    openjdk-21-jdk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /module
@@ -17,10 +16,10 @@ COPY requirements.txt ./
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Download and setup JADX
-RUN wget https://github.com/skylot/jadx/releases/download/v1.5.1/jadx-1.5.1.zip && \
+RUN wget https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip && \
     mkdir -p /opt/jadx && \
-    unzip jadx-1.5.1.zip -d /opt/jadx && \
-    rm jadx-1.5.1.zip && \
+    unzip jadx-1.5.6.zip -d /opt/jadx && \
+    rm jadx-1.5.6.zip && \
     chmod +x /opt/jadx/bin/jadx
 
 # Add JADX to PATH

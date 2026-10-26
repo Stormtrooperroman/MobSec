@@ -52,4 +52,3 @@ class SettingsService:
 
 # Global instance
 settings_service = SettingsService()
-

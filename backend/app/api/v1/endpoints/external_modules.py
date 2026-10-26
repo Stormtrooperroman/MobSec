@@ -1,3 +1,4 @@
+import asyncio
 import io
 import logging
 import os
@@ -8,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.core.app_manager import storage
-from app.models.external_module import ModuleStatus
+from app.models.module import ModuleStatus
 from app.modules.external_module_registry import module_registry
 
 logger = logging.getLogger(__name__)
@@ -32,12 +33,6 @@ async def register_external_module(module_data: Dict[str, Any] = Body(...)):
         raise HTTPException(
             status_code=500, detail=f"Error registering module: {str(e)}"
         ) from e
-
-
-@router.get("/")
-async def list_external_modules(active_only: bool = False) -> List[Dict[str, Any]]:
-    """Get a list of all registered external modules"""
-    return await module_registry.list_modules(active_only)
 
 
 @router.get("/{module_id}")
@@ -122,6 +117,11 @@ async def _get_files_info(file_ids: List[str]) -> List[Dict[str, Any]]:
 
 async def _create_tar_archive(files: List[Dict[str, Any]]) -> bytes:
     """Create tar.gz archive from files"""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _build_tar_archive_sync, files)
+
+
+def _build_tar_archive_sync(files: List[Dict[str, Any]]) -> bytes:
     tar_buffer = io.BytesIO()
 
     with tarfile.open(fileobj=tar_buffer, mode="w:gz") as tar:

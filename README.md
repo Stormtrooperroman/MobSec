@@ -1,62 +1,56 @@
 # Mobile Security Testing Platform
+
 ![](images/first.png)
-A comprehensive platform for analyzing and security testing mobile applications. This project aims to create a modular alternative to [MobSF](https://github.com/MobSF/Mobile-Security-Framework-MobSF/) with easier customization and extensibility.
 
+A modular platform for analyzing and security testing mobile applications. It is an alternative to [MobSF](https://github.com/MobSF/Mobile-Security-Framework-MobSF/) that is easier to customize and extend.
 
-
-> [!WARNING]  
-> This project is in active development and has not been thoroughly tested. Use at your own risk.
+> [!WARNING]
+> This project is under active development and has not been thoroughly tested. Expect bugs and breaking changes, and use it at your own risk.
 
 ## Features
 
 ### Module System
 - Pluggable architecture with independent analysis modules
 - Real-time module status monitoring
-- Support for [custom module implementations](https://github.com/Stormtrooperroman/MobSec/blob/master/docs/write_module.md)
+- Support for [custom modules](https://github.com/Stormtrooperroman/MobSec/blob/master/docs)
+
+### Static Testing
+- Analysis of APK files, IPA files, and source code
 
 ### Dynamic Testing
-- Test app from the web using dockered android
-- Support Frida scripts and Traffic view
+- Testing in a Dockerized Android environment
+- Testing on a physical device
 
 ## Getting Started
 
 ### Requirements
-- Docker is required. To install docker, please follow these [instructions](https://docs.docker.com/get-started/get-docker/).
+- Docker ([installation guide](https://docs.docker.com/get-started/get-docker/))
 
 ### Installation
 
 1. Clone the repository:
 
-```bash
-git clone https://github.com/Stormtrooperroman/MobSec.git
-```
+   ```bash
+   git clone https://github.com/Stormtrooperroman/MobSec.git
+   ```
 
-2. Run docker compose:
+2. Start the platform with Docker Compose:
 
-```bash
-cd MobSec
-docker compose up -d --build
-``` 
+   ```bash
+   cd MobSec
+   docker compose up -d --build
+   ```
 
-3. Open the web interface in your browser:
-
-```bash
-http://127.0.0.1/
-```
-
-SwaggerUI is available at:
-```bash
-http://127.0.0.1:8000/docs
-```
+3. Open the web interface at http://127.0.0.1/. The Swagger UI is available at http://127.0.0.1:8000/docs.
 
 ## Interface
-![](images/first.png)
-![](images/StoredApps.png)
-![](images/Modules.png)
-![](images/Chains.png)
-![](images/Run.png)
-![](images/Report1.png)
-![](images/Report2.png)
-![](images/Settings.png)
-![](images/dynamic_testing.png)
-![](images/dynamic_testing_screen.png)
+
+![Stored apps](images/StoredApps.png)
+![Modules](images/Modules.png)
+![Chains](images/Chains.png)
+![Running an analysis](images/Run.png)
+![Report, part 1](images/Report1.png)
+![Report, part 2](images/Report2.png)
+![Settings](images/Settings.png)
+![Dynamic testing](images/dynamic_testing.png)
+![Dynamic testing screen](images/dynamic_testing_screen.png)

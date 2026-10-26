@@ -24,7 +24,7 @@ export default {
 }
 
 .main-content {
-  max-width: 1280px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 24px 16px;
 }

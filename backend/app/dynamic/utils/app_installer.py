@@ -2,7 +2,7 @@ import logging
 import os
 from typing import Tuple
 
-from app.dynamic.utils.adb_utils import get_adb_env, execute_adb_command
+from app.dynamic.utils.adb_utils import execute_adb_command
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,6 @@ class AppInstaller:
 
             logger.info("Installing APK %s on device %s", apk_path, device_id)
 
-            env = get_adb_env()
             cmd = ["install"]
 
             if replace:
@@ -42,7 +41,6 @@ class AppInstaller:
             stdout, _, return_code = await execute_adb_command(
                 device_id=device_id,
                 command=cmd,
-                env=env,
             )
 
             if return_code == 0:
@@ -77,13 +75,11 @@ class AppInstaller:
         try:
             logger.info("Uninstalling %s from device %s", package_name, device_id)
 
-            env = get_adb_env()
             cmd = ["uninstall", package_name]
 
             stdout, _, return_code = await execute_adb_command(
                 device_id=device_id,
                 command=cmd,
-                env=env,
             )
 
             if return_code == 0:

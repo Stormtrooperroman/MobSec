@@ -2,10 +2,8 @@ from typing import Dict, Optional, List
 import asyncio
 import logging
 
-from app.dynamic.device_management.device import Device
+from app.dynamic.device_management.scrcpy_device import ScrcpyDevice
 from app.dynamic.device_management.physical_device_manager import PhysicalDeviceManager
-from app.dynamic.utils.adb_utils import get_adb_env
-from app.dynamic.utils.adb_utils import execute_adb_devices, parse_devices_from_adb_output
 
 
 class DeviceManager:
@@ -22,7 +20,7 @@ class DeviceManager:
             return
 
         self._initialized = True
-        self.devices: Dict[str, Device] = {}
+        self.devices: Dict[str, ScrcpyDevice] = {}
         self.logger = logging.getLogger(__name__)
         self.active_servers = {}
         self.physical_device_manager = PhysicalDeviceManager()
@@ -45,26 +43,10 @@ class DeviceManager:
                 await asyncio.sleep(5)
 
     async def _get_all_devices(self) -> List[Dict[str, str]]:
-        """Get all devices from ADB with proper type classification"""
-        try:
-            env = get_adb_env()
-
-            stdout, stderr, return_code = await execute_adb_devices(env=env)
-
-            if return_code != 0:
-                self.logger.error("Failed to get devices: %s", stderr)
-                return []
-
-            devices = parse_devices_from_adb_output(
-                stdout=stdout,
-                parse_line_func=self.physical_device_manager._parse_device_line
-            )
-
-            return devices
-
-        except Exception as e:
-            self.logger.error("Error getting all devices: %s", str(e))
-            return []
+        """
+        Get all devices from ADB.
+        """
+        return await self.physical_device_manager.get_physical_devices()
 
     async def _update_device_list(self, current_devices: List[Dict[str, str]]):
         """Updates the list of devices"""
@@ -77,38 +59,13 @@ class DeviceManager:
         for device in current_devices:
             serial = device["udid"]
             if serial not in self.devices:
-                self.devices[serial] = Device(serial, device["status"])
+                self.devices[serial] = ScrcpyDevice(serial, device["status"])
                 if "type" in device:
                     self.devices[serial].device_type = device["type"]
                 if "name" in device:
                     self.devices[serial].display_name = device["name"]
             else:
                 self.devices[serial].state = device["status"]
-
-    async def _init_adb(self):
-        """
-        Initializes the ADB server
-        """
-        try:
-            env = get_adb_env()
-            start_process = await asyncio.create_subprocess_exec(
-                "adb",
-                "start-server",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-            _, stderr = await start_process.communicate()
-
-            if start_process.returncode != 0:
-                self.logger.error("Failed to start ADB server: %s", stderr.decode())
-                return False
-
-            return True
-
-        except Exception as e:
-            self.logger.error("Error initializing ADB: %s", str(e))
-            return False
 
     async def get_devices(self) -> List[Dict[str, str]]:
         """
@@ -121,7 +78,7 @@ class DeviceManager:
             self.logger.error("Error getting devices: %s", str(e))
             return []
 
-    async def get_device(self, device_id: str) -> Optional[Device]:
+    async def get_device(self, device_id: str) -> Optional[ScrcpyDevice]:
         """
         Gets information about a specific device
         """
@@ -132,7 +89,7 @@ class DeviceManager:
 
         for device_info in devices:
             if device_info["udid"] == device_id:
-                device = Device(device_info["udid"], device_info["status"])
+                device = ScrcpyDevice(device_info["udid"], device_info["status"])
                 if "type" in device_info:
                     device.device_type = device_info["type"]
                 if "name" in device_info:
@@ -206,10 +163,6 @@ class DeviceManager:
             ip_address, port
         )
 
-    async def enable_wireless_debugging(self, device_id: str) -> bool:
-        """Enable wireless debugging on a USB-connected device"""
-        return await self.physical_device_manager.enable_wireless_debugging(device_id)
-
     async def get_device_properties(self, device_id: str) -> Dict[str, str]:
         """Get detailed properties of a device"""
         return await self.physical_device_manager.get_device_properties(device_id)
@@ -221,3 +174,11 @@ class DeviceManager:
     async def check_device_connectivity(self, device_id: str) -> bool:
         """Check if a device is still connected and responsive"""
         return await self.physical_device_manager.check_device_connectivity(device_id)
+
+    async def pair_wifi_device(
+        self, ip_address: str, port: int, pairing_port: int, pairing_code: str
+    ):
+        """Pair with a device via WiFi using adb pair (Android 11+ wireless debugging)"""
+        return await self.physical_device_manager.pair_wifi_device(
+            ip_address, port, pairing_port, pairing_code
+        )

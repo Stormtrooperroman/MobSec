@@ -1,14 +1,13 @@
 <template>
   <div class="dynamic-testing">
     <h1>Dynamic Testing</h1>
-    
 
     <div class="device-list" v-if="devices.length > 0">
       <div v-for="device in visibleDevices" :key="device.id" class="device-card">
-          <div class="device-info">
-            <h3>{{ device.name || device.id }}</h3>
-            <p>Type: {{ device.type }}</p>
-          </div>
+        <div class="device-info">
+          <h3>{{ device.name || device.id }}</h3>
+          <p>Type: {{ device.type }}</p>
+        </div>
 
         <div class="device-actions">
           <button
@@ -19,20 +18,20 @@
             <span v-if="device.isLoading" class="loading-spinner"></span>
             {{ device.isStreaming ? 'Stop' : 'Start' }}
           </button>
-          
+
           <div v-if="device.isStreaming" class="app-install-dropdown">
-            <button 
-              @click="toggleAppInstallMenu(device)" 
-              :class="['device-btn', 'btn-install', { 'active': device.showAppInstallMenu }]"
+            <button
+              @click="toggleAppInstallMenu(device)"
+              :class="['device-btn', 'btn-install', { active: device.showAppInstallMenu }]"
             >
               <font-awesome-icon icon="mobile-screen-button" />
               Install App
-              <font-awesome-icon 
-                :icon="device.showAppInstallMenu ? 'chevron-up' : 'chevron-down'" 
+              <font-awesome-icon
+                :icon="device.showAppInstallMenu ? 'chevron-up' : 'chevron-down'"
                 class="dropdown-arrow"
               />
             </button>
-            
+
             <div v-if="device.showAppInstallMenu" class="dropdown-menu">
               <div class="dropdown-item" @click="$refs[`apkFileInput-${device.id}`][0].click()">
                 <font-awesome-icon icon="folder-open" />
@@ -45,8 +44,8 @@
                 No APK files available
               </div>
               <div v-else>
-                <div 
-                  v-for="app in availableApps" 
+                <div
+                  v-for="app in availableApps"
                   :key="app.file_hash"
                   class="dropdown-item app-item"
                   @click="installApp(device, app)"
@@ -60,29 +59,25 @@
               </div>
             </div>
           </div>
-          
-          <input 
-            type="file" 
-            @change="uploadApkFile($event, device)" 
-            accept=".apk" 
-            style="display: none" 
+
+          <input
+            type="file"
+            @change="uploadApkFile($event, device)"
+            accept=".apk"
+            style="display: none"
             :ref="`apkFileInput-${device.id}`"
-          >
+          />
         </div>
 
-        <device-streamer 
-          v-if="device.isStreaming" 
-          :device-id="device.id" 
+        <device-streamer
+          v-if="device.isStreaming"
+          :device-id="device.id"
           :key="device.id"
           @success="handleStreamerSuccess"
           @error="handleStreamerError"
         />
-        
-        <v-snackbar
-          v-model="device.showError"
-          color="error"
-          timeout="3000"
-        >
+
+        <v-snackbar v-model="device.showError" color="error" timeout="3000">
           {{ device.error }}
         </v-snackbar>
       </div>
@@ -105,32 +100,21 @@
     </div>
 
     <div v-else-if="devices.length === 0" class="no-devices">
-        <p>No connected devices</p>
-        <button 
-          class="btn btn-primary"
-          @click="refreshDevices"
-          :disabled="isLoadingDevices"
-        >
-          {{ isLoadingDevices ? 'Loading...' : 'Refresh' }}
-        </button>
-      </div>
-    
+      <p>No connected devices</p>
+      <button class="btn btn-primary" @click="refreshDevices" :disabled="isLoadingDevices">
+        {{ isLoadingDevices ? 'Loading...' : 'Refresh' }}
+      </button>
+    </div>
 
     <div class="wifi-connection-section" v-if="!hasConnectedDevices">
-      <button 
-        class="wifi-connect-btn"
-        @click="showWiFiConnectModal"
-      >
+      <button class="wifi-connect-btn" @click="showWiFiConnectModal">
         <font-awesome-icon icon="wifi" />
         Connect using WiFi
       </button>
     </div>
-    
+
     <!-- Notification Toast -->
-    <NotificationToast 
-      :notifications="notifications"
-      @remove="removeNotification"
-    />
+    <NotificationToast :notifications="notifications" @remove="removeNotification" />
   </div>
 </template>
 
@@ -138,14 +122,14 @@
 import DeviceStreamer from '@/components/DeviceStreamer.vue';
 import NotificationToast from '@/components/NotificationToast.vue';
 import WiFiConnectionModal from '@/components/modals/WiFiConnectionModal.vue';
-import axios from 'axios';
+import api from '@/services/api';
 
 export default {
   name: 'DynamicTesting',
   components: {
     DeviceStreamer,
     NotificationToast,
-    WiFiConnectionModal
+    WiFiConnectionModal,
   },
   data() {
     return {
@@ -155,24 +139,21 @@ export default {
       availableApps: [],
       notifications: [],
       showWiFiModal: false,
-      isDisconnectingWiFi: false
     };
   },
   computed: {
     visibleDevices() {
       const streamingDevices = this.devices.filter(device => device.isStreaming);
-      
+
       if (streamingDevices.length > 0) {
         return streamingDevices;
       }
-      
+
       return this.devices;
     },
     hasConnectedDevices() {
-      return this.devices.some(device => 
-        device.isStreaming
-      );
-    }
+      return this.devices.some(device => device.isStreaming);
+    },
   },
   async created() {
     await this.refreshDevices();
@@ -188,14 +169,14 @@ export default {
         id,
         type,
         title,
-        message
+        message,
       });
-      
+
       setTimeout(() => {
         this.removeNotification(id);
       }, 5000);
     },
-    
+
     removeNotification(id) {
       const index = this.notifications.findIndex(n => n.id === id);
       if (index !== -1) {
@@ -214,7 +195,7 @@ export default {
     async refreshDevices() {
       this.isLoadingDevices = true;
       try {
-        const response = await axios.get('/api/v1/dynamic-testing/devices');
+        const response = await api.get('/dynamic-testing/devices');
         this.devices = response.data.map(device => ({
           id: device.udid,
           name: device.name || device.udid,
@@ -224,7 +205,7 @@ export default {
           error: null,
           showError: false,
           showAppInstallMenu: false,
-          device_type: device.device_type
+          device_type: device.device_type,
         }));
       } catch (error) {
         console.error('Failed to fetch devices:', error);
@@ -244,20 +225,24 @@ export default {
       device.isLoading = true;
       device.error = null;
       device.showError = false;
-      
+
       try {
         if (device.isStreaming) {
-          await axios.post(`/api/v1/dynamic-testing/device/${device.id}/stop`);
+          await api.post(`/dynamic-testing/device/${device.id}/stop`);
           device.isStreaming = false;
         } else {
-          await axios.post(`/api/v1/dynamic-testing/device/${device.id}/start`);
+          await api.post(`/dynamic-testing/device/${device.id}/start`);
           device.isStreaming = true;
         }
       } catch (error) {
         console.error('Failed to toggle stream:', error);
         device.error = error.response?.data?.detail || 'Error managing stream';
         device.showError = true;
-        this.addNotification('error', 'Error', `Failed to ${device.isStreaming ? 'stop' : 'start'} stream for device ${device.name}`);
+        this.addNotification(
+          'error',
+          'Error',
+          `Failed to ${device.isStreaming ? 'stop' : 'start'} stream for device ${device.name}`,
+        );
       } finally {
         device.isLoading = false;
       }
@@ -265,7 +250,7 @@ export default {
 
     async toggleAppInstallMenu(device) {
       device.showAppInstallMenu = !device.showAppInstallMenu;
-      
+
       if (device.showAppInstallMenu) {
         await this.loadAvailableApps();
       }
@@ -273,7 +258,7 @@ export default {
 
     async loadAvailableApps() {
       try {
-        const response = await axios.get('/api/v1/apps/?limit=100');
+        const response = await api.get('/apps/?limit=100');
         this.availableApps = response.data.apps.filter(app => app.file_type === 'apk');
       } catch (error) {
         console.error('Error loading apps:', error);
@@ -293,23 +278,20 @@ export default {
         formData.append('apk_file', file);
 
         try {
-          
-          const response = await axios.post(`/api/v1/dynamic-testing/device/${device.id}/install-apk-direct`, formData, {
+          const response = await api.post(`/dynamic-testing/device/${device.id}/install-apk-direct`, formData, {
             headers: {
-              'Content-Type': 'multipart/form-data'
-            }
+              'Content-Type': 'multipart/form-data',
+            },
           });
 
           console.log('APK installed successfully:', response.data);
-          
-
-          
+          this.addNotification('success', 'Success', 'APK installed successfully');
         } catch (error) {
           console.error('Error uploading and installing APK:', error);
-
+          this.addNotification('error', 'Error', 'Error installing app.');
         }
       }
-      
+
       event.target.value = '';
       device.showAppInstallMenu = false;
     },
@@ -321,48 +303,25 @@ export default {
 
     async installAppByHash(device, fileHash, appName) {
       try {
-        const response = await axios.post(`/api/v1/dynamic-testing/device/${device.id}/install-app`, {
+        const response = await api.post(`/dynamic-testing/device/${device.id}/install-app`, {
           file_hash: fileHash,
-          app_name: appName
+          app_name: appName,
         });
-        
+
         console.log(`Installation started for ${appName}:`, response.data);
-        
-        device.error = `Installing ${appName}...`;
-        device.showError = true;
-        
+
         setTimeout(() => {
           device.showError = false;
         }, 3000);
-        
+
+        this.addNotification('success', 'Success', 'APK installed successfully');
       } catch (error) {
         console.error('Error installing app:', error);
-        device.error = `Failed to install ${appName}: ${error.response?.data?.detail || 'Unknown error'}`;
-        device.showError = true;
-      }
-    },
-
-    async enableWirelessDebugging(device) {
-      if (!device.id) {
-        device.error = 'Device ID not defined';
-        device.showError = true;
-        return;
-      }
-
-      device.isLoading = true;
-      device.error = null;
-      device.showError = false;
-
-      try {
-        const response = await axios.post(`/api/v1/dynamic-testing/device/${device.id}/enable-wireless-debugging`);
-        this.addNotification('success', 'Success', `Wireless debugging enabled for ${device.name}`);
-        device.type = response.data.type;
-      } catch (error) {
-        console.error('Failed to enable wireless debugging:', error);
-        device.error = error.response?.data?.detail || 'Error enabling wireless debugging';
-        device.showError = true;
-      } finally {
-        device.isLoading = false;
+        this.addNotification(
+          'error',
+          'Error',
+          `Error installing app. ${error.response?.data?.detail || 'Unknown error'}`,
+        );
       }
     },
 
@@ -380,7 +339,6 @@ export default {
       this.addNotification('success', 'Success', message);
       this.closeWiFiModal();
       await this.refreshDevices();
-      
     },
 
     handleWiFiError(message) {
@@ -404,36 +362,20 @@ export default {
     handleClickOutside(event) {
       const dropdowns = document.querySelectorAll('.app-install-dropdown');
       let isOutside = true;
-      
+
       dropdowns.forEach(dropdown => {
         if (dropdown.contains(event.target)) {
           isOutside = false;
         }
       });
-      
+
       if (isOutside) {
         this.devices.forEach(device => {
           device.showAppInstallMenu = false;
         });
       }
     },
-
-    async disconnectWiFi() {
-      this.isDisconnectingWiFi = true;
-      try {
-        await axios.post('/api/v1/dynamic-testing/disconnect-wifi');
-        this.addNotification('success', 'Success', 'WiFi connection disconnected.');
-        
-        
-        await this.refreshDevices();
-      } catch (error) {
-        console.error('Failed to disconnect WiFi:', error);
-        this.addNotification('error', 'Error', 'Failed to disconnect WiFi: ' + (error.response?.data?.detail || error.message));
-      } finally {
-        this.isDisconnectingWiFi = false;
-      }
-    }
-  }
+  },
 };
 </script>
 
@@ -441,22 +383,6 @@ export default {
 :root {
   --border-color: #e0e0e0;
   --stream-bg: #000000;
-  --wifi-status-bg: #e0f2f7;
-  --wifi-status-border: #17a2b8;
-  --wifi-status-text: #17a2b8;
-  --disconnect-btn-bg: #f44336;
-  --disconnect-btn-hover: #d32f2f;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --stream-bg: #000000;
-    --wifi-status-bg: #1a3a4a;
-    --wifi-status-border: #17a2b8;
-    --wifi-status-text: #17a2b8;
-    --disconnect-btn-bg: #f44336;
-    --disconnect-btn-hover: #d32f2f;
-  }
 }
 
 .dynamic-testing {
@@ -502,8 +428,12 @@ export default {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .device-list {
@@ -533,44 +463,9 @@ export default {
   color: var(--text-secondary);
 }
 
-.device-type {
-  margin-top: 0.5rem;
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-}
-
-.type-badge {
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-weight: 600;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-}
-
-.type-badge.physical {
-  background-color: #e0f2f7;
-  color: #17a2b8;
-}
-
-.type-badge.emulator {
-  background-color: #f8f9fa;
-  color: #6c757d;
-}
-
-.type-badge.unknown {
-  background-color: #f8f9fa;
-  color: #6c757d;
-}
-
 .device-actions {
   display: flex;
   gap: 1rem;
-}
-
-.physical-device-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-left: auto;
 }
 
 .device-btn {
@@ -596,12 +491,12 @@ export default {
 }
 
 .btn-start {
-  border-color: #4CAF50;
-  color: #4CAF50;
+  border-color: #4caf50;
+  color: #4caf50;
 }
 
 .btn-start:hover {
-  background-color: #4CAF50;
+  background-color: #4caf50;
   color: white;
 }
 
@@ -612,26 +507,6 @@ export default {
 
 .btn-stop:hover {
   background-color: #f44336;
-  color: white;
-}
-
-.btn-wireless {
-  border-color: #28a745;
-  color: #28a745;
-}
-
-.btn-wireless:hover {
-  background-color: #28a745;
-  color: white;
-}
-
-.btn-wifi-connect {
-  border-color: #007bff;
-  color: #007bff;
-}
-
-.btn-wifi-connect:hover {
-  background-color: #007bff;
   color: white;
 }
 
@@ -849,76 +724,10 @@ export default {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
-.connection-status {
-  margin-bottom: 2rem;
-  text-align: right;
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background-color: var(--wifi-status-bg);
-  border: 1px solid var(--wifi-status-border);
-  border-radius: 6px;
-  padding: 10px 15px;
-  color: var(--wifi-status-text);
-  font-weight: 600;
-  font-size: 14px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-}
-
-.status-indicator .wifi-icon {
-  color: var(--wifi-status-text);
-  font-size: 18px;
-}
-
-.status-indicator .disconnect-btn {
-  background-color: var(--disconnect-btn-bg);
-  color: white;
-  border: none;
-  padding: 8px 12px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-  white-space: nowrap;
-}
-
-.status-indicator .disconnect-btn:hover {
-  background-color: var(--disconnect-btn-hover);
-}
-
-.status-indicator .disconnect-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.status-indicator .disconnect-btn:disabled:hover {
-  background-color: var(--disconnect-btn-bg);
-}
-
 @media (max-width: 768px) {
   .wifi-connect-btn {
     font-size: 14px;
     padding: 10px 20px;
-  }
-  
-  .connection-status {
-    text-align: center;
-  }
-  
-  .status-indicator {
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-  }
-  
-  .status-indicator .disconnect-btn {
-    width: 100%;
-    justify-content: center;
   }
 }
 </style>
