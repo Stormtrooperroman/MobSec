@@ -54,7 +54,7 @@
         class="toolbar-btn side-menu-toggle-btn"
         title="Device & Certificate Actions"
       >
-        <font-awesome-icon icon="bars" /> Device Actions
+        <font-awesome-icon icon="bars" /> Traffic Monitor Settings
       </button>
     </div>
 

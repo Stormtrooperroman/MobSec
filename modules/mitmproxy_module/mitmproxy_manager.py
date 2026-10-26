@@ -311,14 +311,19 @@ class MitmproxyManager:
     def _apply_cert_signing_options(self):
         if self.master_instance is None:
             return
+        
+        connection_strategy = "lazy" if self.emudhra else "eager"
         self.master_instance.options.update(
             emudhra=self.emudhra,
             emudhra_old=self.emudhra_old,
+            connection_strategy=connection_strategy,
         )
         logger.info(
-            "Applied cert signing options: emudhra=%s, emudhra_old=%s",
+            "Applied cert signing options: emudhra=%s, emudhra_old=%s, "
+            "connection_strategy=%s",
             self.emudhra,
             self.emudhra_old,
+            connection_strategy,
         )
 
     async def set_cert_signing_options(
