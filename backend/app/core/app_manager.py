@@ -66,8 +66,8 @@ class AsyncStorageService:
         return FileType.UNKNOWN
 
     def _get_folder_structure(self, filename: str, file_hash: str) -> str:
-        """Generate a folder name based on the original filename and hash"""
-        return "_".join(filename.split(".")[0].split()) + "-" + file_hash
+        """Generate a folder name based on the file hash"""
+        return file_hash
 
     def _get_file_path(self, original_name: str, folder: str) -> str:
         """Generate the full file path using original name and folder"""

@@ -98,7 +98,11 @@ def compile_script(script_name: str, content: str) -> str:
             logger.warning("Frida compile diagnostic: %s", diag)
 
         compiler.on("diagnostics", on_diagnostics)
-        bundle = compiler.build(source_path, project_root=AGENT_PROJECT_ROOT)
+        bundle = compiler.build(
+            source_path,
+            project_root=AGENT_PROJECT_ROOT,
+            type_check="none",
+        )
 
         if diagnostics:
             logger.error(

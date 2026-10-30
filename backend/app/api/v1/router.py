@@ -6,6 +6,7 @@ from app.api.v1.endpoints import settings as settings_endpoints
 from app.api.v1.endpoints import external_modules
 from app.api.v1.endpoints import dynamic_testing
 from app.api.v1.endpoints import emulators
+from app.api.v1.endpoints import artifacts
 
 api_router = APIRouter()
 
@@ -51,5 +52,12 @@ api_router.include_router(
     emulators.router,
     prefix="/api/v1/emulators",
     tags=["Emulators"],
+    responses={404: {"description": "Not found"}},
+)
+
+api_router.include_router(
+    artifacts.router,
+    prefix="/api/v1/artifacts",
+    tags=["Artifacts"],
     responses={404: {"description": "Not found"}},
 )

@@ -293,6 +293,7 @@ class MitmproxyManager:
                 listen_port=self.proxy_port,
                 listen_host=self.proxy_host,
                 confdir=self.data_dir,
+                ssl_insecure=True,
             )
             self.master_instance = WebMaster(opts, with_termlog=False)
 
@@ -311,7 +312,7 @@ class MitmproxyManager:
     def _apply_cert_signing_options(self):
         if self.master_instance is None:
             return
-        
+
         connection_strategy = "lazy" if self.emudhra else "eager"
         self.master_instance.options.update(
             emudhra=self.emudhra,
@@ -326,9 +327,7 @@ class MitmproxyManager:
             connection_strategy,
         )
 
-    async def set_cert_signing_options(
-        self, emudhra: bool, emudhra_old: bool
-    ) -> bool:
+    async def set_cert_signing_options(self, emudhra: bool, emudhra_old: bool) -> bool:
         self.emudhra = bool(emudhra or emudhra_old)
         self.emudhra_old = bool(emudhra_old)
         if self.emudhra_old:
@@ -911,9 +910,7 @@ class MitmproxyManager:
                 elif action == "set_cert_signing":
                     emudhra = bool(message.get("emudhra", False))
                     emudhra_old = bool(message.get("emudhra_old", False))
-                    success = await self.set_cert_signing_options(
-                        emudhra, emudhra_old
-                    )
+                    success = await self.set_cert_signing_options(emudhra, emudhra_old)
                     await self.send_response(
                         websocket,
                         {

@@ -169,7 +169,7 @@ class SemgrepModule(StaticModule):
                         "code": self._extract_code(
                             file_path, start_line, end_line, code_dir, file_cache
                         ),
-                    }
+                    },
                 }
             )
 

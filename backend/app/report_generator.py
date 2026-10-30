@@ -153,7 +153,6 @@ class ReportGenerator:
             logger.warning("File not found in database: %s", file_hash)
             return None
 
-
         if not isinstance(file_info, dict) or file_info.get("scan_results") is None:
             logger.info(
                 "Initialized empty results dictionary because file_info.scan_results was None"

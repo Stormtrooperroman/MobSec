@@ -10,13 +10,7 @@
       </div>
       <div class="modal-body">
         <div class="script-editor-container">
-          <textarea
-            v-model="content"
-            class="script-editor"
-            placeholder="Enter your Frida script here..."
-            spellcheck="false"
-            @keydown.tab.prevent="insertTab"
-          ></textarea>
+          <div ref="editorContainer" class="monaco-editor-host"></div>
         </div>
       </div>
       <div class="modal-footer">
@@ -28,6 +22,8 @@
 </template>
 
 <script>
+import * as monaco from "monaco-editor";
+
 export default {
   name: "ScriptEditorModal",
   props: {
@@ -57,33 +53,67 @@ export default {
   watch: {
     scriptContent(newVal) {
       this.content = newVal;
+      if (this.editor && newVal !== this.editor.getValue()) {
+        this.editor.setValue(newVal);
+      }
     },
     show(newVal) {
       if (newVal) {
         this.content = this.scriptContent;
+        this.$nextTick(() => this.ensureEditor());
+      } else {
+        this.disposeEditor();
       }
     },
   },
+  mounted() {
+    if (this.show) {
+      this.content = this.scriptContent;
+      this.$nextTick(() => this.ensureEditor());
+    }
+  },
+  beforeUnmount() {
+    this.disposeEditor();
+  },
   methods: {
+    ensureEditor() {
+      if (!this.$refs.editorContainer) return;
+
+      this.disposeEditor();
+
+      this.editor = monaco.editor.create(this.$refs.editorContainer, {
+        value: this.content,
+        language: "javascript",
+        theme: "vs-dark",
+        automaticLayout: true,
+        fontSize: 14,
+        tabSize: 2,
+        minimap: { enabled: true },
+        scrollBeyondLastLine: false,
+      });
+
+      this.editor.onDidChangeModelContent(() => {
+        this.content = this.editor.getValue();
+      });
+    },
+
+    disposeEditor() {
+      if (this.editor) {
+        const model = this.editor.getModel();
+        this.editor.dispose();
+        this.editor = null;
+        if (model) {
+          model.dispose();
+        }
+      }
+    },
+
     closeModal() {
       this.$emit("close");
     },
 
     saveScript() {
       this.$emit("save", this.content);
-    },
-
-    insertTab(event) {
-      const textarea = event.target;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-
-      this.content =
-        this.content.substring(0, start) + "\t" + this.content.substring(end);
-
-      this.$nextTick(() => {
-        textarea.selectionStart = textarea.selectionEnd = start + 1;
-      });
     },
   },
 };
@@ -157,35 +187,16 @@ export default {
 
 .script-editor-container {
   flex: 1;
-  display: flex;
-  flex-direction: column;
+  position: relative;
+  min-height: 0;
   overflow: hidden;
 }
 
-.script-editor {
-  flex: 1;
-  background: #1e1e1e;
-  color: #e0e0e0;
-  border: none;
-  padding: 20px;
-  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
-  font-size: 14px;
-  line-height: 1.5;
-  resize: none;
-  outline: none;
-  tab-size: 2;
-  white-space: pre;
-  overflow-wrap: normal;
-  overflow-x: auto;
-  min-height: 400px;
-}
-
-.script-editor::placeholder {
-  color: #666;
-}
-
-.script-editor:focus {
-  background: #252525;
+.monaco-editor-host {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .modal-footer {
@@ -236,8 +247,10 @@ export default {
 
 .modal-container.script-editor-modal {
   width: 80%;
-  height: 70%;
+  height: 100%;
   max-width: 1000px;
+  max-height: 100%;
+  border-radius: 0;
 }
 
 .modal-container.script-editor-modal .modal-body {
@@ -245,25 +258,14 @@ export default {
   overflow: hidden;
 }
 
-.modal-container.script-editor-modal .script-editor {
-  width: 100%;
-  height: 100%;
-  min-height: unset;
-}
-
 @media (max-width: 768px) {
   .modal-container.script-editor-modal {
-    width: 95%;
-    height: 80%;
+    width: 100%;
+    height: 100%;
   }
 
   .modal-header h3 {
     font-size: 14px;
-  }
-
-  .script-editor {
-    font-size: 12px;
-    padding: 15px;
   }
 }
 </style>

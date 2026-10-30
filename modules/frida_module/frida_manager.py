@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import json
 import logging
@@ -22,6 +23,66 @@ from mobsec_modules_library.dynamic.adb_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+_DIAG_PREFIX = "Frida compile diagnostic"
+
+
+class _DiagnosticCapture(logging.Handler):
+    def __init__(self):
+        super().__init__(level=logging.DEBUG)
+        self.diagnostics: List[Dict[str, Any]] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = record.getMessage()
+            if _DIAG_PREFIX not in msg:
+                return
+            items = None
+            if isinstance(record.args, tuple):
+                for arg in record.args:
+                    if isinstance(arg, (list, tuple)):
+                        items = list(arg)
+                        break
+            if items is None:
+                items = ast.literal_eval(msg.split(":", 1)[1].strip())
+            if isinstance(items, dict):
+                items = [items]
+            for item in items:
+                if isinstance(item, dict):
+                    self.diagnostics.append(item)
+                else:
+                    self.diagnostics.append({"text": str(item)})
+        except Exception:
+            self.diagnostics.append({"text": record.getMessage()})
+
+
+def _format_diagnostic(d: Dict[str, Any]) -> str:
+    category = d.get("category") or "error"
+    code = d.get("code")
+    text = d.get("text") or str(d)
+    f = d.get("file") or {}
+    loc = ""
+    if f:
+        loc = f.get("path") or ""
+        if f.get("line") is not None:
+            # Frida reports 0-based positions; show them 1-based like tsc does
+            loc += f":{f['line'] + 1}"
+            if f.get("character") is not None:
+                loc += f":{f['character'] + 1}"
+        loc += " - "
+    code_part = f" TS{code}" if code is not None else ""
+    return f"{loc}{category}{code_part}: {text}"
+
+
+class ScriptCompileError(Exception):
+    def __init__(self, original: BaseException, diagnostics: List[Dict[str, Any]]):
+        lines = [f"{type(original).__name__}: {original}"]
+        errors = sum(1 for d in diagnostics if d.get("category") == "error")
+        if diagnostics:
+            lines.append(f"{len(diagnostics)} diagnostic(s), {errors} error(s):")
+            lines.extend(_format_diagnostic(d) for d in diagnostics)
+        self.display_text = "\n".join(lines)
+        super().__init__(self.display_text)
 
 
 class DeviceInfoHelper:
@@ -457,6 +518,38 @@ class FridaManager(BaseWebSocketManager):
             logger.error("Error getting script stats: %s", str(e))
             await self.send_error(f"Error getting script stats: {str(e)}")
 
+    async def _emit_output(self, script_name: str, text: Any, stream: str):
+        await self.send_response(
+            {
+                "type": "frida",
+                "action": "script_output",
+                "script_name": script_name,
+                "output": text,
+                "stream": stream,
+            }
+        )
+
+    @staticmethod
+    def _format_exception(exc: BaseException) -> str:
+        if isinstance(exc, ScriptCompileError):
+            return exc.display_text
+        text = str(exc).strip() or repr(exc)
+        name = type(exc).__name__
+        return text if text.startswith(name) else f"{name}: {text}"
+
+    async def _report_run_failure(self, script_name: str, stream: str, exc: Exception):
+        text = self._format_exception(exc)
+        logger.error("Script '%s' %s: %s", script_name, stream, text)
+        await self._emit_output(script_name, text, stream)
+        await self.send_response(
+            {
+                "type": "frida",
+                "action": "script_failed",
+                "script_name": script_name,
+                "stream": stream,
+            }
+        )
+
     async def _handle_script_message(
         self, script_name: str, message: Dict[str, Any], data: Any
     ):
@@ -464,39 +557,49 @@ class FridaManager(BaseWebSocketManager):
             msg_type = message.get("type")
             if msg_type == "error":
                 output = message.get("description") or str(message)
+                file_name = message.get("fileName")
+                line = message.get("lineNumber")
+                if file_name and line is not None:
+                    col = message.get("columnNumber")
+                    loc = f"{file_name}:{line}" + (f":{col}" if col is not None else "")
+                    output = f"{output}\n    at {loc}"
                 if message.get("stack"):
                     output = f"{output}\n{message['stack']}"
-                stream = "stderr"
+                stream = "runtime_error"
             else:
                 payload = message.get("payload")
                 output = payload if payload is not None else message
                 stream = msg_type or "send"
 
-            await self.send_response(
-                {
-                    "type": "frida",
-                    "action": "script_output",
-                    "script_name": script_name,
-                    "output": output,
-                    "stream": stream,
-                }
-            )
+            await self._emit_output(script_name, output, stream)
         except Exception as e:
             logger.error("Error handling Frida script message: %s", str(e))
 
     async def _handle_script_log(self, script_name: str, level: str, text: str):
         try:
+            await self._emit_output(script_name, text, level)
+        except Exception as e:
+            logger.error("Error handling Frida script log: %s", str(e))
+
+    async def _handle_session_detached(self, script_name: str, reason: str, crash: Any):
+        try:
+            if reason == "application-requested":
+                return
+            text = f"Session detached: {reason}"
+            if crash is not None:
+                report = getattr(crash, "report", None)
+                text = f"{text}\n{report or crash}"
+            await self._emit_output(script_name, text, "runtime_error")
             await self.send_response(
                 {
                     "type": "frida",
-                    "action": "script_output",
+                    "action": "script_failed",
                     "script_name": script_name,
-                    "output": text,
-                    "stream": level,
+                    "stream": "runtime_error",
                 }
             )
         except Exception as e:
-            logger.error("Error handling Frida script log: %s", str(e))
+            logger.error("Error handling session detach: %s", str(e))
 
     def _schedule_async(self, loop: asyncio.AbstractEventLoop, coro):
         asyncio.run_coroutine_threadsafe(coro, loop)
@@ -505,64 +608,94 @@ class FridaManager(BaseWebSocketManager):
         try:
             script_content = await self.script_service.get_script_content(script_name)
             if script_content is None:
-                await self.send_error(f"Script '{script_name}' not found")
+                await self._report_run_failure(
+                    script_name,
+                    "error",
+                    RuntimeError(f"Script '{script_name}' not found"),
+                )
                 return
 
             await self._cleanup_frida_session()
-
             loop = asyncio.get_event_loop()
-            bundle = await loop.run_in_executor(
-                None, compile_script, script_name, script_content
-            )
 
-            self.frida_device = await loop.run_in_executor(
-                None, self._get_frida_device_sync
-            )
+            def _compile():
+                capture = _DiagnosticCapture()
+                root = logging.getLogger()
+                root.addHandler(capture)
+                try:
+                    return compile_script(script_name, script_content)
+                except Exception as exc:
+                    raise ScriptCompileError(exc, capture.diagnostics) from exc
+                finally:
+                    root.removeHandler(capture)
 
-            def _attach_and_create():
-                spawn_pid = None
-                if target_process.startswith("package:"):
-                    package = target_process.replace("package:", "")
-                    spawn_pid = self.frida_device.spawn([package])
-                    session = self.frida_device.attach(spawn_pid)
-                else:
-                    try:
-                        session = self.frida_device.attach(int(target_process))
-                    except ValueError:
-                        session = self.frida_device.attach(target_process)
+            try:
+                bundle = await loop.run_in_executor(None, _compile)
+            except Exception as e:
+                await self._report_run_failure(script_name, "compile_error", e)
+                return
 
-                script = session.create_script(bundle)
-                return session, script, spawn_pid
-
-            self.frida_session, self.frida_script, self.spawn_pid = (
-                await loop.run_in_executor(None, _attach_and_create)
-            )
-
-            def _on_message(message, data):
-                logger.debug("Frida script message: %s", message)
-                self._schedule_async(
-                    loop,
-                    self._handle_script_message(script_name, message, data),
+            try:
+                self.frida_device = await loop.run_in_executor(
+                    None, self._get_frida_device_sync
                 )
 
-            def _on_log(level, text):
-                logger.debug("Frida script log [%s]: %s", level, text)
-                self._schedule_async(
-                    loop,
-                    self._handle_script_log(script_name, level, text),
+                def _attach_and_create():
+                    spawn_pid = None
+                    if target_process.startswith("package:"):
+                        package = target_process.replace("package:", "")
+                        spawn_pid = self.frida_device.spawn([package])
+                        self.spawn_pid = spawn_pid
+                        session = self.frida_device.attach(spawn_pid)
+                    else:
+                        try:
+                            session = self.frida_device.attach(int(target_process))
+                        except ValueError:
+                            session = self.frida_device.attach(target_process)
+
+                    script = session.create_script(bundle)
+                    return session, script, spawn_pid
+
+                self.frida_session, self.frida_script, self.spawn_pid = (
+                    await loop.run_in_executor(None, _attach_and_create)
                 )
 
-            self.frida_script.on("message", _on_message)
-            self.frida_script.set_log_handler(_on_log)
+                def _on_message(message, data):
+                    logger.debug("Frida script message: %s", message)
+                    self._schedule_async(
+                        loop,
+                        self._handle_script_message(script_name, message, data),
+                    )
 
-            logger.info("About to load script, bundle length=%d", len(bundle))
-            await loop.run_in_executor(None, self.frida_script.load)
-            logger.info("Script loaded successfully")
+                def _on_log(level, text):
+                    logger.debug("Frida script log [%s]: %s", level, text)
+                    self._schedule_async(
+                        loop,
+                        self._handle_script_log(script_name, level, text),
+                    )
 
-            if self.spawn_pid is not None:
-                await loop.run_in_executor(
-                    None, lambda: self.frida_device.resume(self.spawn_pid)
-                )
+                def _on_detached(reason, crash=None):
+                    self._schedule_async(
+                        loop,
+                        self._handle_session_detached(script_name, reason, crash),
+                    )
+
+                self.frida_script.on("message", _on_message)
+                self.frida_script.set_log_handler(_on_log)
+                self.frida_session.on("detached", _on_detached)
+
+                logger.info("About to load script, bundle length=%d", len(bundle))
+                await loop.run_in_executor(None, self.frida_script.load)
+                logger.info("Script loaded successfully")
+
+                if self.spawn_pid is not None:
+                    await loop.run_in_executor(
+                        None, lambda: self.frida_device.resume(self.spawn_pid)
+                    )
+            except Exception as e:
+                await self._cleanup_frida_session(kill_spawned=True)
+                await self._report_run_failure(script_name, "runtime_error", e)
+                return
 
             self.current_script_name = script_name
 
@@ -576,8 +709,7 @@ class FridaManager(BaseWebSocketManager):
                 }
             )
         except Exception as e:
-            logger.error("Error running script: %s", str(e))
-            await self.send_error(f"Error running script: {str(e)}")
+            await self._report_run_failure(script_name, "error", e)
 
     async def stop_script(self, script_name: str):
         try:
@@ -671,7 +803,7 @@ class FridaManager(BaseWebSocketManager):
             logger.error("Error listing processes: %s", str(e))
             await self.send_error(f"Error listing processes: {str(e)}")
 
-    async def _cleanup_frida_session(self):
+    async def _cleanup_frida_session(self, kill_spawned: bool = False):
         loop = asyncio.get_event_loop()
         try:
             if self.frida_script:
@@ -685,6 +817,14 @@ class FridaManager(BaseWebSocketManager):
                     await loop.run_in_executor(None, self.frida_session.detach)
                 except Exception as e:
                     logger.warning("Error detaching Frida session: %s", str(e))
+            if kill_spawned and self.spawn_pid is not None and self.frida_device:
+                try:
+                    pid = self.spawn_pid
+                    await loop.run_in_executor(
+                        None, lambda: self.frida_device.kill(pid)
+                    )
+                except Exception as e:
+                    logger.warning("Error killing spawned process: %s", str(e))
         finally:
             self.frida_script = None
             self.frida_session = None

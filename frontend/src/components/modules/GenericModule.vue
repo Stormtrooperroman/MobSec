@@ -123,11 +123,19 @@
             <div v-if="finding.location" class="finding-location">
               <div class="location-details">
                 <div class="location-file">
-                  <span class="detail-label">File:</span> {{ getShortFilePath(finding.location.file) }}
+                  <span class="detail-label">File:</span>
+                  <button
+                    type="button"
+                    class="location-file-link"
+                    :title="'Open ' + finding.location.file"
+                    @click="openFileViewer(finding)"
+                  >
+                    {{ getShortFilePath(finding.location.file) }}
+                  </button>
                 </div>
-                <div class="location-lines">
-                  <span class="detail-label">Lines:</span> {{ finding.location.start_line }} -
-                  {{ finding.location.end_line }}
+                <div v-if="formatLines(finding.location)" class="location-lines">
+                  <span class="detail-label">{{ formatLines(finding.location).label }}:</span>
+                  {{ formatLines(finding.location).value }}
                 </div>
               </div>
 
@@ -165,12 +173,30 @@
         </div>
       </div>
     </div>
+
+    <MonacoViewerModal
+      :show="viewer.show"
+      :file-path="viewer.filePath"
+      :content="viewer.content"
+      :line="viewer.line"
+      :end-line="viewer.endLine"
+      :severity="viewer.severity"
+      :rule-id="viewer.ruleId"
+      :message="viewer.message"
+      @close="viewer.show = false"
+    />
   </div>
 </template>
 
 <script>
+import api from '@/services/api';
+import MonacoViewerModal from '../common/MonacoViewerModal.vue';
+
 export default {
   name: 'GenericModule',
+  components: {
+    MonacoViewerModal,
+  },
   props: {
     moduleData: {
       type: Object,
@@ -191,6 +217,16 @@ export default {
       categoryFilter: [],
       showSeverityDropdown: false,
       showCategoryDropdown: false,
+      viewer: {
+        show: false,
+        filePath: '',
+        content: '',
+        line: null,
+        endLine: null,
+        severity: '',
+        ruleId: '',
+        message: '',
+      },
     };
   },
   computed: {
@@ -319,11 +355,56 @@ export default {
       // Return the last two path components
       return '.../' + parts.slice(-2).join('/');
     },
+    formatLines(location) {
+      const start = location && location.start_line;
+      const end = location && location.end_line;
+      if (!start && !end) return null;
+      if (!end || start === end) return { label: 'Line', value: String(start || end) };
+      if (!start) return { label: 'Line', value: String(end) };
+      return { label: 'Lines', value: `${start}-${end}` };
+    },
     hasMetadata(metadata) {
       return Object.values(metadata).some(value => {
         if (Array.isArray(value)) return value.length > 0;
         return !!value;
       });
+    },
+    parseArtifactPath(absPath) {
+      const match = (absPath || '').match(/^\/?shared_data\/([^/]+)\/(.+)$/);
+      if (!match) return null;
+      return { artifactId: match[1], relPath: match[2] };
+    },
+    async openFileViewer(finding) {
+      const location = finding.location || {};
+      const filePath = location.file || '';
+      const fallback = location.code || 'No code context available for this finding.';
+
+      this.viewer.filePath = filePath || 'Unknown';
+      this.viewer.line = location.start_line || null;
+      this.viewer.endLine = location.end_line || null;
+      this.viewer.severity = finding.severity || '';
+      this.viewer.ruleId = finding.rule_id || '';
+      this.viewer.message = finding.message || '';
+      this.viewer.content = 'Loading...';
+      this.viewer.show = true;
+
+      const parsed = this.parseArtifactPath(filePath);
+      if (!parsed) {
+        this.viewer.content = fallback;
+        return;
+      }
+
+      try {
+        const res = await api.get(`/artifacts/${encodeURIComponent(parsed.artifactId)}/file`, {
+          params: { path: parsed.relPath },
+          responseType: 'text',
+          transformResponse: r => r,
+        });
+        this.viewer.content = res.data;
+      } catch (err) {
+        console.error('Failed to load file', err);
+        this.viewer.content = location.code || `Unable to load ${filePath}`;
+      }
     },
   },
 };
@@ -332,7 +413,8 @@ export default {
 <style scoped>
 .generic-module {
   width: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', sans-serif;
   color: #333;
 }
 
@@ -603,6 +685,21 @@ export default {
 .detail-label {
   font-weight: 600;
   color: #495057;
+}
+
+.location-file-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-left: 4px;
+  color: #0d6efd;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.location-file-link:hover {
+  color: #0a58ca;
 }
 
 .location-code {

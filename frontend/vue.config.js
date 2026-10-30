@@ -1,5 +1,6 @@
 const { defineConfig } = require('@vue/cli-service')
 const path = require('path')
+const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin')
 
 module.exports = defineConfig({
   transpileDependencies: true,
@@ -72,6 +73,19 @@ module.exports = defineConfig({
     plugins: [
       new (require('webpack')).ProvidePlugin({
         Buffer: ['buffer', 'Buffer'],
+      }),
+      new MonacoWebpackPlugin({
+        languages: [
+          'java',
+          'javascript',
+          'typescript',
+          'json',
+          'xml',
+          'kotlin',
+          'swift',
+          'cpp',
+          'plaintext'
+        ]
       })
     ],
     devtool: 'source-map',

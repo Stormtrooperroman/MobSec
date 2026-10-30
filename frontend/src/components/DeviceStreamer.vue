@@ -84,6 +84,7 @@ import '@/assets/app.css';
 import '@/assets/devicelist.css';
 import '@/ws-scrcpy/style/morebox.css';
 import * as Vue from 'vue';
+import * as monaco from 'monaco-editor';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
@@ -266,6 +267,7 @@ export default {
       const options = {
         moduleCache: {
           vue: Vue,
+          'monaco-editor': monaco,
         },
         async getFile(url) {
           const filename = url.split('/').pop();

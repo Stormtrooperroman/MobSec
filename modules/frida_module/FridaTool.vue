@@ -86,10 +86,10 @@
           <input
             v-model="targetProcessName"
             type="text"
-            placeholder="Enter process name"
+            placeholder="Select process name"
             class="process-input"
             @keyup.enter="runSelectedScript"
-            :disabled="!fridaRunning || isScriptRunning"
+            :disabled="true"
           />
           <div v-if="showProcessError" class="process-error-overlay">
             <div class="process-error">
@@ -454,10 +454,13 @@ export default {
         case "script_output":
           this.fridaOutput.push({
             timestamp: new Date().toLocaleTimeString(),
-            text: message.output,
+            text: this.formatOutputText(message.output),
             stream: message.stream || "stdout",
           });
           this.scrollToFridaOutput();
+          break;
+        case "script_failed":
+          this.updateScriptState(false);
           break;
         case "processes_list":
           this.fridaProcesses = message.processes;
@@ -479,7 +482,13 @@ export default {
           this.fridaAppsLoading = false;
           this.scriptsLoading = false;
           this._pendingScriptContent = undefined;
-          alert("Frida error: " + message.message);
+          // Show in the output panel instead of a blocking alert
+          this.fridaOutput.push({
+            timestamp: new Date().toLocaleTimeString(),
+            text: this.formatOutputText(message.message),
+            stream: "error",
+          });
+          this.scrollToFridaOutput();
           break;
       }
     },
@@ -787,6 +796,16 @@ if (Java.available) {
             script_name: this.currentRunningScript,
           }),
         );
+      }
+    },
+
+    formatOutputText(output) {
+      if (typeof output === "string") return output;
+      if (output === null || output === undefined) return "";
+      try {
+        return JSON.stringify(output, null, 2);
+      } catch (e) {
+        return String(output);
       }
     },
 
@@ -1347,12 +1366,26 @@ if (Java.available) {
   text-transform: uppercase;
 }
 
-.output-stream.stderr {
-  color: #f44336; /* Red for stderr */
+.output-stream.stderr,
+.output-stream.error,
+.output-stream.runtime_error,
+.output-stream.compile_error {
+  color: #f44336;
+}
+
+.output-stream.warning {
+  color: #ffb300;
 }
 
 .output-text {
   color: #ffffff;
+  white-space: pre-wrap;
+}
+
+.output-line:has(.output-stream.runtime_error) .output-text,
+.output-line:has(.output-stream.compile_error) .output-text,
+.output-line:has(.output-stream.stderr) .output-text {
+  color: #ff8a80;
 }
 
 .output-controls {

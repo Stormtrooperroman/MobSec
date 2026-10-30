@@ -368,9 +368,7 @@
             </div>
 
             <div class="side-menu-section">
-              <div class="side-menu-section-title">
-                TLS Certificate Signing
-              </div>
+              <div class="side-menu-section-title">TLS Certificate Signing</div>
               <label class="side-menu-toggle">
                 <input
                   type="checkbox"
