@@ -1,5 +1,3 @@
-"""Потоковая упаковка в tar.zst / tar.gz без временных файлов и без буфера в памяти."""
-
 import asyncio
 import logging
 import os
@@ -7,19 +5,14 @@ import queue
 import stat
 import tarfile
 import threading
-from contextlib import ExitStack
 from pathlib import Path
-from typing import AsyncIterator, Callable, Iterator, Literal, Tuple
-
-import zstandard
+from typing import AsyncIterator, Callable, Iterator, Tuple
 
 logger = logging.getLogger(__name__)
 
-Codec = Literal["zst", "gz"]
-MEDIA_TYPES = {"zst": "application/zstd", "gz": "application/gzip"}
+MEDIA_TYPE = "application/gzip"
 
-ZSTD_LEVEL = int(os.getenv("ARCHIVE_ZSTD_LEVEL", "3"))
-ZSTD_THREADS = int(os.getenv("ARCHIVE_ZSTD_THREADS", "0"))
+GZIP_LEVEL = int(os.getenv("ARCHIVE_GZIP_LEVEL", "6"))
 CHUNK_SIZE = 256 * 1024
 QUEUE_SIZE = 8
 
@@ -91,29 +84,19 @@ class _ChunkSink:
         self._emit()
 
 
-def _produce(
-    entries: EntryFactory, codec: Codec, q: queue.Queue, cancel: threading.Event
-) -> None:
+def _produce(entries: EntryFactory, q: queue.Queue, cancel: threading.Event) -> None:
     sink = _ChunkSink(q, cancel)
     try:
-        with ExitStack() as stack:
-            if codec == "zst":
-                cctx = zstandard.ZstdCompressor(level=ZSTD_LEVEL, threads=ZSTD_THREADS)
-                out = stack.enter_context(cctx.stream_writer(sink, closefd=False))
-                mode = "w|"
-            else:
-                out, mode = sink, "w|gz"
-
-            with tarfile.open(fileobj=out, mode=mode) as tar:
-                for full, arcname in entries():
-                    if cancel.is_set():
-                        raise BrokenPipeError("client disconnected")
-                    try:
-                        tar.add(
-                            full, arcname=arcname, recursive=False, filter=_normalize
-                        )
-                    except OSError as e:
-                        logger.warning("Couldn't add %s to archive: %s", full, e)
+        with tarfile.open(
+            fileobj=sink, mode="w|gz", compresslevel=GZIP_LEVEL
+        ) as tar:
+            for full, arcname in entries():
+                if cancel.is_set():
+                    raise BrokenPipeError("client disconnected")
+                try:
+                    tar.add(full, arcname=arcname, recursive=False, filter=_normalize)
+                except OSError as e:
+                    logger.warning("Couldn't add %s to archive: %s", full, e)
         sink.finish()
         _put(q, _EOF, cancel)
     except BrokenPipeError:
@@ -125,15 +108,11 @@ def _produce(
             pass
 
 
-async def stream_entries(
-    entries: EntryFactory, codec: Codec = "zst"
-) -> AsyncIterator[bytes]:
+async def stream_entries(entries: EntryFactory) -> AsyncIterator[bytes]:
     loop = asyncio.get_running_loop()
     q: queue.Queue = queue.Queue(maxsize=QUEUE_SIZE)
     cancel = threading.Event()
-    thread = threading.Thread(
-        target=_produce, args=(entries, codec, q, cancel), daemon=True
-    )
+    thread = threading.Thread(target=_produce, args=(entries, q, cancel), daemon=True)
     thread.start()
     try:
         while True:
@@ -147,7 +126,5 @@ async def stream_entries(
         cancel.set()
 
 
-def stream_directory(
-    root: Path, base: Path, codec: Codec = "zst"
-) -> AsyncIterator[bytes]:
-    return stream_entries(lambda: iter_regular_files(root, base), codec)
+def stream_directory(root: Path, base: Path) -> AsyncIterator[bytes]:
+    return stream_entries(lambda: iter_regular_files(root, base))

@@ -1,12 +1,12 @@
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from app.services.artifacts.archive import MEDIA_TYPES, stream_directory
+from app.services.artifacts.archive import MEDIA_TYPE, stream_directory
 from app.services.artifacts.browse import SAFE_HEADERS, describe_file, list_dir
 from app.services.artifacts.manifest import ensure_manifest
 from app.services.artifacts.paths import (
@@ -106,11 +106,7 @@ async def get_manifest(request: Request, artifact_id: str):
 
 
 @router.get("/{artifact_id}/archive")
-async def get_archive(
-    artifact_id: str,
-    path: str = "",
-    fmt: Literal["zst", "gz"] = Query("zst", alias="format"),
-):
+async def get_archive(artifact_id: str, path: str = ""):
     with _errors():
         root = await get_artifact_root(artifact_id)
         base = resolve_inside(root, path)
@@ -118,10 +114,10 @@ async def get_archive(
             raise InvalidPath("Not a directory")
 
     return StreamingResponse(
-        stream_directory(root, base, fmt),
-        media_type=MEDIA_TYPES[fmt],
+        stream_directory(root, base),
+        media_type=MEDIA_TYPE,
         headers={
-            "Content-Disposition": f'attachment; filename="{artifact_id}.tar.{fmt}"',
+            "Content-Disposition": f'attachment; filename="{artifact_id}.tar.gz"',
             "X-Content-Type-Options": "nosniff",
             "X-Accel-Buffering": "no",
         },

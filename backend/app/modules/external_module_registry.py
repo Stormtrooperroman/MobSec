@@ -37,45 +37,49 @@ class ExternalModuleRegistry:
         self._initialized = True
 
     async def register_module(self, module_data: dict) -> dict:
-        """
-        Register a new external module or update an existing one
-        """
         if not settings.EXTERNAL_MODULES_ENABLED:
             raise HTTPException(
                 status_code=403, detail="External modules support is disabled"
             )
 
-        name = module_data["name"]
+        config = module_data.get("config") or {}
+        name = module_data.get("module_id") or config.get("name")
+        if not name:
+            raise HTTPException(
+                status_code=400, detail="module_id or config.name is required"
+            )
+        healthcheck_url = module_data.get("healthcheck_url")
+        if not healthcheck_url or not module_data.get("base_url"):
+            raise HTTPException(
+                status_code=400, detail="base_url and healthcheck_url are required"
+            )
 
         max_retries = 3
         retry_delay = 5
         is_healthy = False
 
         for attempt in range(max_retries):
-            is_healthy = await self._check_module_health(module_data["healthcheck_url"])
+            is_healthy = await self._check_module_health(healthcheck_url)
             if is_healthy:
                 break
             if attempt < max_retries - 1:
                 logger.info(
                     "Health check failed for %s, attempt %s/%s. Retrying in %s seconds...",
-                    name,
-                    attempt + 1,
-                    max_retries,
-                    retry_delay,
+                    name, attempt + 1, max_retries, retry_delay,
                 )
                 await asyncio.sleep(retry_delay)
 
         logger.info("Health: %s", is_healthy)
         module_type = (
             ModuleType.DYNAMIC
-            if module_data["config"].get("type") == "dynamic"
+            if config.get("type") == "dynamic"
             else ModuleType.STATIC
         )
         module_dict = {
             "name": name,
             "base_url": module_data["base_url"],
-            "config": module_data["config"],
-            "healthcheck_url": module_data.get("healthcheck_url"),
+            "config": config,
+            "healthcheck_url": healthcheck_url,
             "registered_at": datetime.now(timezone.utc),
             "last_heartbeat": datetime.now(timezone.utc),
             "status": ModuleStatus.ACTIVE if is_healthy else ModuleStatus.ERROR,
@@ -270,6 +274,11 @@ class ExternalModuleRegistry:
                     "version": module_dict["config"].get("version"),
                     "input_formats": module_dict["config"].get("input_formats", []),
                     "module_type": module_dict.get("type"),
+                    "base_url": module_dict.get("base_url"),
+                    "has_custom_ui": bool(module_dict["config"].get("has_custom_ui")),
+                    "ui_component_name": (
+                        module_dict["config"].get("ui_component") or {}
+                    ).get("name"),
                 }
                 if "map_name" in module_dict["config"]:
                     module_info["map_name"] = module_dict["config"].get("map_name")

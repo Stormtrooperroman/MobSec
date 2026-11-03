@@ -337,14 +337,12 @@ async def get_module_ui_info():
 
         external_modules = await module_registry.list_modules()
         for module in external_modules:
-            module_name = module["module_id"].replace("external_", "")
+            module_name = module["id"]
 
-            if module.get("config", {}).get("has_custom_ui"):
+            if module.get("has_custom_ui") and module.get("base_url"):
                 module_ui_info[module_name] = {
                     "has_custom_ui": True,
-                    "ui_component_name": module["config"]
-                    .get("ui_component", {})
-                    .get("name"),
+                    "ui_component_name": module.get("ui_component_name"),
                     "ui_component_url": f"{module['base_url']}/ui-component",
                     "is_external": True,
                 }
