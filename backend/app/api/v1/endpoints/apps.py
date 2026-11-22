@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
 
@@ -18,13 +18,20 @@ storage = AsyncStorageService()
 
 
 @router.get("/")
-async def list_files(skip: int = 0, limit: int = 10):
+async def list_files(
+    skip: int = 0,
+    limit: int = 10,
+    os_type: Optional[str] = Query(
+        None, description="Filter by OS type: android or aurora"
+    ),
+):
     """
     List all uploaded files with their current scan status.
 
     Parameters:
     - skip (int, optional): Number of records to skip for pagination. Defaults to 0
     - limit (int, optional): Maximum number of records to return. Defaults to 10
+    - os_type (str, optional): Filter by OS type - 'android' (APK) or 'aurora' (RPM)
 
     Returns:
     - dict: A dictionary containing:
@@ -42,8 +49,16 @@ async def list_files(skip: int = 0, limit: int = 10):
     - 500: If there is an error retrieving the file list
     """
     try:
-        files = await storage.list_files(skip=skip, limit=limit)
-        total = await storage.get_total_files()
+        file_type_filter = None
+        if os_type == "android":
+            file_type_filter = "apk"
+        elif os_type == "aurora":
+            file_type_filter = "rpm"
+
+        files = await storage.list_files(
+            skip=skip, limit=limit, file_type=file_type_filter
+        )
+        total = await storage.get_total_files(file_type=file_type_filter)
         return {"total": total, "skip": skip, "limit": limit, "apps": files}
 
     except Exception as e:
@@ -80,7 +95,7 @@ async def upload_file(file: UploadFile):
             await storage.delete_file(file_hash)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid file type. Only APK, IPA or ZIP files are supported.",
+                detail="Invalid file type. Only APK, IPA, RPM or ZIP files are supported.",
             )
 
         return {

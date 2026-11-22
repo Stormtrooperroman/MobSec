@@ -34,10 +34,16 @@ class AsyncStorageService:
 
     def determine_file_type(self, file_path: str) -> FileType:
         """
-        Determine if the file is an APK, IPA, or ZIP
+        Determine if the file is an APK, IPA, RPM, or ZIP
         """
         try:
-            # Check if it's a zip file first
+            # Check if it's an RPM file by reading magic bytes
+            with open(file_path, "rb") as f:
+                magic = f.read(4)
+                if magic == b"\xed\xab\xee\xdb":
+                    return FileType.RPM
+
+            # Check if it's a zip file
             if zipfile.is_zipfile(file_path):
                 with zipfile.ZipFile(file_path, "r") as zip_ref:
                     file_list = zip_ref.namelist()
@@ -290,19 +296,26 @@ class AsyncStorageService:
                 },
             }
 
-    async def list_files(self, skip: int = 0, limit: int = 10) -> List[dict]:
+    async def list_files(
+        self, skip: int = 0, limit: int = 10, file_type: Optional[str] = None
+    ) -> List[dict]:
         """
-        List all files with pagination support.
+        List all files with pagination support and optional file type filtering.
         Returns a list of file metadata dictionaries.
         """
         async with self.async_session() as session:
             # Create query with pagination
-            query = (
-                select(FileModel)
-                .offset(skip)
-                .limit(limit)
-                .order_by(FileModel.timestamp.desc())
-            )
+            query = select(FileModel)
+
+            # Apply file type filter if provided
+            if file_type:
+                try:
+                    file_type_enum = FileType(file_type)
+                    query = query.where(FileModel.file_type == file_type_enum)
+                except ValueError:
+                    logger.warning(f"Invalid file type filter: {file_type}")
+
+            query = query.offset(skip).limit(limit).order_by(FileModel.timestamp.desc())
 
             # Execute query
             result = await session.execute(query)
@@ -331,12 +344,21 @@ class AsyncStorageService:
 
             return file_list
 
-    async def get_total_files(self) -> int:
+    async def get_total_files(self, file_type: Optional[str] = None) -> int:
         """
-        Get total number of files in the database.
+        Get total number of files in the database with optional file type filtering.
         """
         async with self.async_session() as session:
             query = select(func.count()).select_from(FileModel)
+
+            # Apply file type filter if provided
+            if file_type:
+                try:
+                    file_type_enum = FileType(file_type)
+                    query = query.where(FileModel.file_type == file_type_enum)
+                except ValueError:
+                    logger.warning(f"Invalid file type filter: {file_type}")
+
             result = await session.execute(query)
             return result.scalar_one()
 

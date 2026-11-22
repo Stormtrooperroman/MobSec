@@ -15,6 +15,7 @@ class ScanStatus(enum.Enum):
 class FileType(enum.Enum):
     APK = "apk"
     IPA = "ipa"
+    RPM = "rpm"
     ZIP = "zip"
     UNKNOWN = "unknown"
 

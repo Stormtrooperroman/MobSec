@@ -103,28 +103,27 @@ class FileManager(BaseWebSocketManager):
     def get_shell_command(self, command: str) -> str:
         """Returns the command with su or without in depending on the settings"""
         if self.use_su and self.su_available:
-            # shlex.quote() already wraps `command` in single quotes and escapes
-            # any embedded single quotes, so it can be used directly as the
-            # `echo` argument. Wrapping it again in double quotes here would
-            # break as soon as `command` contains a literal double quote
-            # (e.g. `echo "DIR_EXISTS"`), since the outer double quote has no
-            # idea about quotes embedded further inside.
             return f"echo {shlex.quote(command)} | su"
         return command
 
-    async def handle_message(self, data: str):
+    async def handle_message(self, data):
         """Handles incoming messages from WebSocket"""
         try:
+            # Support both str and dict (already parsed)
+            if isinstance(data, str):
+                try:
+                    message = json.loads(data)
+                except json.JSONDecodeError:
+                    logger.error("Invalid JSON in file manager message")
+                    await self.send_error("Invalid JSON format")
+                    return
+            else:
+                message = data
 
-            try:
-                message = json.loads(data)
-                if message.get("type") == "file_manager":
-                    await self.handle_file_command(message)
-                else:
-                    logger.warning("Unknown message type: %s", message.get("type"))
-            except json.JSONDecodeError:
-                logger.error("Invalid JSON in file manager message")
-                await self.send_error("Invalid JSON format")
+            if message.get("type") == "file_manager":
+                await self.handle_file_command(message)
+            else:
+                logger.warning("Unknown message type: %s", message.get("type"))
 
         except Exception as e:
             logger.error("Error handling file manager message: %s", str(e))
@@ -175,7 +174,15 @@ class FileManager(BaseWebSocketManager):
                 error_msg = f"Path is not a directory or does not exist: {path}"
                 if check_error:
                     error_msg += f" (Error: {check_error})"
-                await self.send_error(error_msg)
+                await self.send_response(
+                    {
+                        "type": "file_manager",
+                        "action": "error",
+                        "message": error_msg,
+                        "permission_denied": "Permission denied" in error_msg,
+                        "path": self.current_path,
+                    }
+                )
                 return
 
             ls_command = self.get_shell_command(
@@ -201,7 +208,18 @@ class FileManager(BaseWebSocketManager):
                     )
                     error_msg += " (Try disabling SU mode if the issue persists)"
 
-                await self.send_error(error_msg)
+                is_permission_denied = (
+                    "Permission denied" in error_msg or "Permission denied" in ls_error
+                )
+                await self.send_response(
+                    {
+                        "type": "file_manager",
+                        "action": "error",
+                        "message": error_msg,
+                        "permission_denied": is_permission_denied,
+                        "path": self.current_path,
+                    }
+                )
                 return
 
             entries = []
@@ -233,7 +251,15 @@ class FileManager(BaseWebSocketManager):
 
         except Exception as e:
             logger.error("Error listing directory %s: %s", path, str(e))
-            await self.send_error(f"Error listing directory: {str(e)}")
+            await self.send_response(
+                {
+                    "type": "file_manager",
+                    "action": "error",
+                    "message": f"Error listing directory: {str(e)}",
+                    "permission_denied": "Permission denied" in str(e),
+                    "path": self.current_path,
+                }
+            )
 
     def parse_ls_line(self, line: str) -> Optional[Dict[str, Any]]:
         """Parses the output of ls -la"""

@@ -51,7 +51,7 @@
 
               <!-- File Manager Tab -->
               <div v-if="activeTab === 'file_manager'" class="tab-pane active">
-                <FileManager :device-id="deviceId" />
+                <FileManager :device-id="deviceId" :device="device" />
               </div>
 
               <!-- Dynamic Module Tools -->
@@ -116,6 +116,10 @@ export default {
     deviceId: {
       type: String,
       required: true,
+    },
+    device: {
+      type: Object,
+      default: null,
     },
   },
   data() {
@@ -200,7 +204,8 @@ export default {
       ];
 
       try {
-        const response = await api.get('/modules/?module_type=dynamic');
+        const osType = this.device?.os_type || 'android';
+        const response = await api.get(`/modules/?module_type=dynamic&os_type=${osType}`);
         const modules = response.data;
 
         modules.forEach(module => {
@@ -473,9 +478,10 @@ export default {
 
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsHost = window.location.host;
+        const osType = this.device?.os_type || 'android';
         const shellWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(
           this.deviceId,
-        )}?action=shell`;
+        )}?action=shell&os_type=${osType}`;
 
         this.terminalInitializing = true;
 

@@ -300,7 +300,9 @@ class ModuleManager:
             logger.error("Error listing running containers: %s", str(e))
             return set()
 
-    async def list_modules(self, module_type: str | None = None):
+    async def list_modules(
+        self, module_type: str | None = None, os_type: str | None = None
+    ):
         running_names = await self._get_running_container_names()
 
         modules_info = []
@@ -310,6 +312,11 @@ class ModuleManager:
                 and module_config.get("type", "static") != module_type
             ):
                 continue
+
+            if os_type is not None and module_config.get("type") == ModuleType.DYNAMIC:
+                supported_os = module_config.get("supported_os", ["android"])
+                if os_type not in supported_os:
+                    continue
 
             module_info = {
                 "id": module_config.get("id", module_name),

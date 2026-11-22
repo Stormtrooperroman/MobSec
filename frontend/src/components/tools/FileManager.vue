@@ -96,6 +96,10 @@ export default {
       type: String,
       required: true,
     },
+    device: {
+      type: Object,
+      default: null,
+    },
   },
   data() {
     return {
@@ -104,9 +108,9 @@ export default {
       fileManagerReconnectTimer: null,
       isClosingIntentionally: false,
       isOpeningFileManager: false,
-      pathInputValue: '/data/local/tmp',
+      pathInputValue: '',
       fileManagerData: {
-        currentPath: '/data/local/tmp',
+        currentPath: '',
         entries: [],
         selectedFiles: [],
         suAvailable: false,
@@ -179,7 +183,7 @@ export default {
 
         const fileManagerWsUrl = `${wsProtocol}//${wsHost}/api/v1/dynamic-testing/ws/${encodeURIComponent(
           this.deviceId,
-        )}?action=file_manager`;
+        )}?action=file_manager&os_type=${this.device?.os_type || 'android'}`;
 
         if (this.currentFileManagerClient) {
           this.isClosingIntentionally = true;
@@ -192,15 +196,6 @@ export default {
         fileManagerWs.addEventListener('open', () => {
           console.log('File Manager WebSocket connected');
           this.isClosingIntentionally = false;
-
-          // Request initial status and file list
-          fileManagerWs.send(
-            JSON.stringify({
-              type: 'file_manager',
-              action: 'list',
-              path: '/data/local/tmp',
-            }),
-          );
         });
 
         fileManagerWs.addEventListener('message', event => {
@@ -278,16 +273,26 @@ export default {
           use_su: message.use_su,
           current_user: message.current_user,
         });
-        this.fileManagerData.currentPath = message.current_path;
+
+        this.fileManagerData.currentPath = message.current_path || '';
         this.fileManagerData.suAvailable = message.su_available || false;
         this.fileManagerData.useSu = message.use_su || false;
         this.fileManagerData.currentUser = message.current_user || 'unknown';
         console.log('Updated fileManagerData:', this.fileManagerData);
 
-        // Force Vue to update the UI
         this.$nextTick(() => {
           this.$forceUpdate();
         });
+
+        if (message.current_path && this.currentFileManagerClient) {
+          this.currentFileManagerClient.send(
+            JSON.stringify({
+              type: 'file_manager',
+              action: 'list',
+              path: message.current_path,
+            }),
+          );
+        }
       } else if (message.action === 'list') {
         this.fileManagerData.currentPath = message.path;
         this.fileManagerData.entries = message.entries || [];
@@ -301,9 +306,15 @@ export default {
           this.$forceUpdate();
         });
       } else if (message.action === 'error') {
-        console.error('File Manager error:', message.message);
-        alert(`Error: ${message.message}`);
-        this.pathInputValue = this.fileManagerData.currentPath;
+        const isPermissionDenied = message.permission_denied === true;
+        if (isPermissionDenied && message.path) {
+          alert(`Permission Denied: Cannot access this directory.\nReturning to: ${message.path}`);
+          this.pathInputValue = message.path;
+        } else {
+          console.error('File Manager error:', message.message);
+          alert(`Error: ${message.message}`);
+          this.pathInputValue = this.fileManagerData.currentPath;
+        }
       } else if (message.action === 'download') {
         this.handleFileDownload(message);
       } else if (message.action === 'upload' || message.action === 'delete' || message.action === 'mkdir') {

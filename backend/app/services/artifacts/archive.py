@@ -87,9 +87,7 @@ class _ChunkSink:
 def _produce(entries: EntryFactory, q: queue.Queue, cancel: threading.Event) -> None:
     sink = _ChunkSink(q, cancel)
     try:
-        with tarfile.open(
-            fileobj=sink, mode="w|gz", compresslevel=GZIP_LEVEL
-        ) as tar:
+        with tarfile.open(fileobj=sink, mode="w|gz", compresslevel=GZIP_LEVEL) as tar:
             for full, arcname in entries():
                 if cancel.is_set():
                     raise BrokenPipeError("client disconnected")

@@ -16,6 +16,7 @@ RUN apt update -y && \
     libsdl2-dev \
     xz-utils \
     wget \
+    openssh-client \
     && apt clean
 
 COPY requirements.txt /app/requirements.txt

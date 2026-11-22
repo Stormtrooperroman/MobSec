@@ -25,7 +25,7 @@
               :class="['device-btn', 'btn-install', { active: device.showAppInstallMenu }]"
             >
               <font-awesome-icon icon="mobile-screen-button" />
-              Install App
+              Install {{ device.os_type === 'aurora' ? 'RPM' : 'APK' }}
               <font-awesome-icon
                 :icon="device.showAppInstallMenu ? 'chevron-up' : 'chevron-down'"
                 class="dropdown-arrow"
@@ -35,13 +35,15 @@
             <div v-if="device.showAppInstallMenu" class="dropdown-menu">
               <div class="dropdown-item" @click="$refs[`apkFileInput-${device.id}`][0].click()">
                 <font-awesome-icon icon="folder-open" />
-                Upload APK File
+                Upload {{ device.os_type === 'aurora' ? 'RPM' : 'APK' }} File
               </div>
               <div class="dropdown-separator"></div>
-              <div class="dropdown-section-title">Previously Uploaded Apps:</div>
+              <div class="dropdown-section-title">
+                Previously Uploaded {{ device.os_type === 'aurora' ? 'RPMs' : 'APKs' }}:
+              </div>
               <div v-if="availableApps.length === 0" class="dropdown-item disabled">
                 <font-awesome-icon icon="exclamation-circle" />
-                No APK files available
+                No {{ device.os_type === 'aurora' ? 'RPM' : 'APK' }} files available
               </div>
               <div v-else>
                 <div
@@ -63,17 +65,25 @@
           <input
             type="file"
             @change="uploadApkFile($event, device)"
-            accept=".apk"
+            :accept="device.os_type === 'aurora' ? '.rpm' : '.apk'"
             style="display: none"
             :ref="`apkFileInput-${device.id}`"
           />
         </div>
 
         <device-streamer
-          v-if="device.isStreaming"
+          v-if="device.isStreaming && !isVncDevice(device)"
           :device-id="device.id"
+          :device="device"
           :key="device.id"
           @success="handleStreamerSuccess"
+          @error="handleStreamerError"
+        />
+
+        <vnc-viewer
+          v-if="device.isStreaming && isVncDevice(device)"
+          :device-id="device.id"
+          :device="device"
           @error="handleStreamerError"
         />
 
@@ -122,6 +132,7 @@
 import DeviceStreamer from '@/components/DeviceStreamer.vue';
 import NotificationToast from '@/components/NotificationToast.vue';
 import WiFiConnectionModal from '@/components/modals/WiFiConnectionModal.vue';
+import VncViewer from '@/components/VncViewer.vue';
 import api from '@/services/api';
 
 export default {
@@ -130,6 +141,7 @@ export default {
     DeviceStreamer,
     NotificationToast,
     WiFiConnectionModal,
+    VncViewer,
   },
   data() {
     return {
@@ -200,6 +212,9 @@ export default {
           id: device.udid,
           name: device.name || device.udid,
           type: device.type || 'unknown',
+          os_type: device.os_type || 'android',
+          mapped_ports: device.mapped_ports || {},
+          container_id: device.container_id,
           isStreaming: false,
           isLoading: false,
           error: null,
@@ -227,11 +242,12 @@ export default {
       device.showError = false;
 
       try {
+        const osType = device.os_type || 'android';
         if (device.isStreaming) {
-          await api.post(`/dynamic-testing/device/${device.id}/stop`);
+          await api.post(`/dynamic-testing/device/${device.id}/stop?os_type=${osType}`);
           device.isStreaming = false;
         } else {
-          await api.post(`/dynamic-testing/device/${device.id}/start`);
+          await api.post(`/dynamic-testing/device/${device.id}/start?os_type=${osType}`);
           device.isStreaming = true;
         }
       } catch (error) {
@@ -252,14 +268,19 @@ export default {
       device.showAppInstallMenu = !device.showAppInstallMenu;
 
       if (device.showAppInstallMenu) {
-        await this.loadAvailableApps();
+        await this.loadAvailableApps(device.os_type);
       }
     },
 
-    async loadAvailableApps() {
+    async loadAvailableApps(osType = 'android') {
       try {
-        const response = await api.get('/apps/?limit=100');
-        this.availableApps = response.data.apps.filter(app => app.file_type === 'apk');
+        const fileType = osType === 'aurora' ? 'rpm' : 'apk';
+        const response = await api.get('/apps/?limit=100', {
+          params: {
+            os_type: osType,
+          },
+        });
+        this.availableApps = response.data.apps.filter(app => app.file_type === fileType);
       } catch (error) {
         console.error('Error loading apps:', error);
         this.availableApps = [];
@@ -269,8 +290,16 @@ export default {
     async uploadApkFile(event, device) {
       const file = event.target.files[0];
       if (file) {
-        if (!file.name.toLowerCase().endsWith('.apk')) {
-          alert('Please select an APK file');
+        const fileExt = file.name.toLowerCase().split('.').pop();
+
+        if (device.os_type === 'android' && fileExt !== 'apk') {
+          alert('Please select an APK file for Android devices');
+          return;
+        } else if (device.os_type === 'aurora' && fileExt !== 'rpm') {
+          alert('Please select an RPM file for Aurora OS devices');
+          return;
+        } else if (!['apk', 'rpm'].includes(fileExt)) {
+          alert('Please select an APK or RPM file');
           return;
         }
 
@@ -278,16 +307,20 @@ export default {
         formData.append('apk_file', file);
 
         try {
-          const response = await api.post(`/dynamic-testing/device/${device.id}/install-apk-direct`, formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data',
+          const response = await api.post(
+            `/dynamic-testing/device/${device.id}/install-apk-direct?os_type=${device.os_type}`,
+            formData,
+            {
+              headers: {
+                'Content-Type': 'multipart/form-data',
+              },
             },
-          });
+          );
 
-          console.log('APK installed successfully:', response.data);
-          this.addNotification('success', 'Success', 'APK installed successfully');
+          console.log('App installed successfully:', response.data);
+          this.addNotification('success', 'Success', 'App installed successfully');
         } catch (error) {
-          console.error('Error uploading and installing APK:', error);
+          console.error('Error uploading and installing app:', error);
           this.addNotification('error', 'Error', 'Error installing app.');
         }
       }
@@ -297,15 +330,16 @@ export default {
     },
 
     async installApp(device, app) {
-      await this.installAppByHash(device, app.file_hash, app.original_name);
+      await this.installAppByHash(device, app.file_hash, app.original_name, device.os_type);
       device.showAppInstallMenu = false;
     },
 
-    async installAppByHash(device, fileHash, appName) {
+    async installAppByHash(device, fileHash, appName, osType = 'android') {
       try {
         const response = await api.post(`/dynamic-testing/device/${device.id}/install-app`, {
           file_hash: fileHash,
           app_name: appName,
+          os_type: osType,
         });
 
         console.log(`Installation started for ${appName}:`, response.data);
@@ -314,7 +348,7 @@ export default {
           device.showError = false;
         }, 3000);
 
-        this.addNotification('success', 'Success', 'APK installed successfully');
+        this.addNotification('success', 'Success', 'App installed successfully');
       } catch (error) {
         console.error('Error installing app:', error);
         this.addNotification(
@@ -374,6 +408,10 @@ export default {
           device.showAppInstallMenu = false;
         });
       }
+    },
+
+    isVncDevice(device) {
+      return device.device_type === 'vnc' || device.type === 'vnc' || device.os_type === 'aurora';
     },
   },
 };
@@ -450,9 +488,7 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  transition:
-    border-color 0.3s ease,
-    box-shadow 0.3s ease;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .device-info h3 {

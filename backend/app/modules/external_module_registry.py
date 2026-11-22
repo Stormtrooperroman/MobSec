@@ -65,15 +65,16 @@ class ExternalModuleRegistry:
             if attempt < max_retries - 1:
                 logger.info(
                     "Health check failed for %s, attempt %s/%s. Retrying in %s seconds...",
-                    name, attempt + 1, max_retries, retry_delay,
+                    name,
+                    attempt + 1,
+                    max_retries,
+                    retry_delay,
                 )
                 await asyncio.sleep(retry_delay)
 
         logger.info("Health: %s", is_healthy)
         module_type = (
-            ModuleType.DYNAMIC
-            if config.get("type") == "dynamic"
-            else ModuleType.STATIC
+            ModuleType.DYNAMIC if config.get("type") == "dynamic" else ModuleType.STATIC
         )
         module_dict = {
             "name": name,

@@ -15,10 +15,10 @@ A modular platform for analyzing and security testing mobile applications. It is
 - Support for [custom modules](https://github.com/Stormtrooperroman/MobSec/blob/master/docs)
 
 ### Static Testing
-- Analysis of APK files, IPA files, and source code
+- Analysis of APK files, IPA files, RPM files, and source code
 
 ### Dynamic Testing
-- Testing in a Dockerized Android environment
+- Testing in a Dockerized Android and AuroraOS environment
 - Testing on a physical device
 
 ## Getting Started

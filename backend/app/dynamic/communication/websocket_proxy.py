@@ -4,6 +4,7 @@ import logging
 import aiohttp
 from fastapi import WebSocket
 from app.dynamic.utils.adb_utils import execute_adb_command
+from app.dynamic.device_management.device_manager import DeviceManager
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class WebSocketProxy:
         self.local_port = None
         self.remote_port = None
         self.device_id = None
+        self.adb_address = None
         self.logger = logging.getLogger(__name__)
         self._session = None
         self._cleanup_done = False
@@ -41,6 +43,7 @@ class WebSocketProxy:
         """
         self._session = aiohttp.ClientSession()
         self.device_id = device_id
+        self.adb_address = DeviceManager.get_adb_address(device_id)
         self.logger.info(
             "Initializing WebSocket proxy for device '%s' (len: %s) on port %s",
             device_id,
@@ -52,12 +55,12 @@ class WebSocketProxy:
             self.local_port = remote_port
 
             await execute_adb_command(
-                device_id=device_id,
+                device_id=self.adb_address,
                 command=["forward", "--remove", f"tcp:{self.local_port}"],
             )
 
             _, stderr, returncode = await execute_adb_command(
-                device_id=device_id,
+                device_id=self.adb_address,
                 command=[
                     "forward",
                     f"tcp:{self.local_port}",
@@ -198,10 +201,10 @@ class WebSocketProxy:
                 finally:
                     self._session = None
 
-            if self.device_id and self.local_port:
+            if self.adb_address and self.local_port:
                 try:
                     _, stderr, returncode = await execute_adb_command(
-                        device_id=self.device_id,
+                        device_id=self.adb_address,
                         command=["forward", "--remove", f"tcp:{self.local_port}"],
                     )
 

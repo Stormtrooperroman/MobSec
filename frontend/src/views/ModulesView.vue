@@ -130,6 +130,20 @@
                   </span>
                 </span>
               </div>
+              <div class="detail-item" v-if="emulator.mapped_ports && Object.keys(emulator.mapped_ports).length > 0">
+                <span class="detail-label">Mapped Ports:</span>
+                <span class="detail-value">
+                  <div
+                    v-for="(mapped_port, port_name) in emulator.mapped_ports"
+                    :key="port_name"
+                    class="mapped-port-item"
+                  >
+                    <span class="port-name">{{ port_name }}</span>
+                    <span class="port-arrow">→</span>
+                    <span class="port-value">{{ mapped_port }}</span>
+                  </div>
+                </span>
+              </div>
               <div class="detail-item" v-if="emulator.container_id">
                 <span class="detail-label">Container:</span>
                 <span class="detail-value">{{ emulator.container_id.substring(0, 12) }}</span>
@@ -267,7 +281,7 @@ export default {
       emulator.isLoading = true;
       try {
         const endpoint = emulator.status === 'running' ? '/emulators/stop' : '/emulators/start';
-        const response = await api.post(endpoint, { name: emulator.name });
+        const response = await api.post(`${endpoint}?name=${encodeURIComponent(emulator.name)}`);
 
         if (response.status === 200) {
           await this.fetchEmulators();
@@ -314,9 +328,7 @@ export default {
 }
 
 .module-card:hover {
-  box-shadow:
-    0 4px 6px -1px rgba(0, 0, 0, 0.1),
-    0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   transform: translateY(-2px);
 }
 
@@ -508,5 +520,33 @@ export default {
   color: #1d4ed8;
   border-radius: 4px;
   font-weight: 500;
+}
+
+.mapped-port-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  background-color: #f0f9ff;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  border-left: 2px solid #3b82f6;
+}
+
+.mapped-port-item .port-name {
+  font-weight: 600;
+  color: #1e40af;
+}
+
+.mapped-port-item .port-arrow {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.mapped-port-item .port-value {
+  font-weight: 600;
+  color: #dc2626;
 }
 </style>

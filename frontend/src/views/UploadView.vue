@@ -11,8 +11,8 @@
           <font-awesome-icon icon="arrow-up-from-bracket" />
         </div>
         <p class="upload-instructions"><span class="highlight">Click to browse</span> or drag & drop your file here</p>
-        <p class="file-types">Supported formats: APK, IPA, ZIP</p>
-        <input type="file" ref="fileInput" @change="handleFileUpload" class="file-input" accept=".apk,.ipa,.zip" />
+        <p class="file-types">Supported formats: APK, IPA, RPM, ZIP</p>
+        <input type="file" ref="fileInput" @change="handleFileUpload" class="file-input" accept=".apk,.ipa,.rpm,.zip" />
       </div>
 
       <div v-if="file" class="selected-file">
@@ -89,11 +89,11 @@ export default {
         return;
       }
 
-      const allowedTypes = ['.apk', '.ipa', '.zip'];
+      const allowedTypes = ['.apk', '.ipa', '.rpm', '.zip'];
       const fileExt = '.' + this.file.name.split('.').pop().toLowerCase();
 
       if (!allowedTypes.includes(fileExt)) {
-        this.error = 'Invalid file type. Please upload APK, IPA, or ZIP files.';
+        this.error = 'Invalid file type. Please upload APK, IPA, RPM, or ZIP files.';
         return;
       }
 

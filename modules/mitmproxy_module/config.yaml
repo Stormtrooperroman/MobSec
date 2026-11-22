@@ -4,6 +4,8 @@ description: Dynamic instrumentation with Mitmproxy
 author: Stormtrooperroman
 active: True
 type: dynamic
+supported_os:
+  - android
 port: 8091
 map_name: mitmproxy
 view:

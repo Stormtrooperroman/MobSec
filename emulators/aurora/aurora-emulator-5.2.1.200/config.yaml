@@ -1,0 +1,17 @@
+name: aurora_5_2_1_200
+version: 5.2.1.200
+description: Aurora OS 5.2.1.200 emulator
+os_type: aurora
+active: false
+features:
+  - vnc
+  - novnc
+  - ssh
+ports:
+  vnc: 5901
+  websocket: 5701
+  ssh: 2223
+volumes:
+  - source: mobsec_shared_data
+    target: /opt/adt/emulators
+    subpath: aurora_5_2_1_200

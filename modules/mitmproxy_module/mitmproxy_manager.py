@@ -27,6 +27,16 @@ from mobsec_modules_library.dynamic.adb_utils import (
 
 logger = logging.getLogger(__name__)
 
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
+_DOCKER_HOST_ALIAS = os.getenv("DOCKER_HOST_ALIAS", "host.docker.internal")
+
+
+def _canonical_device_id(device_id: str) -> str:
+    host, sep, port = device_id.rpartition(":")
+    if sep and port.isdigit() and (host in _LOCAL_HOSTS or host == _DOCKER_HOST_ALIAS):
+        return f"127.0.0.1:{port}"
+    return device_id
+
 
 def cert_to_json(cert_list) -> dict | None:
     """Convert certificate to JSON format"""
@@ -226,7 +236,11 @@ class MitmproxyManager:
         # Proxy settings
         self.proxy_port = 8082
         self.proxy_host = "0.0.0.0"
-        self.device_ip = None
+
+        host, sep, port = self.device_id.rpartition(":")
+        if sep and host in _LOCAL_HOSTS:
+            host = _DOCKER_HOST_ALIAS
+        self.device_ip = f"{host}:{port}" if sep else self.device_id
         self.backend_ip = None
 
         saved = _cert_signing_prefs.get(device_id, {})
@@ -369,7 +383,7 @@ class MitmproxyManager:
                         "type": "mitmproxy",  # Keep type as mitmproxy
                         "action": action_name,
                         "flow": flow_to_json(flow_obj) if flow_obj else None,
-                        "device_id": self.device_id,
+                        "device_id": _canonical_device_id(self.device_id),
                     }
 
                     # Send to all active WebSocket connections
@@ -832,7 +846,9 @@ class MitmproxyManager:
         try:
             message = json.loads(data)
 
-            if "device_id" in message and message["device_id"] != self.device_id:
+            if "device_id" in message and _canonical_device_id(
+                message["device_id"]
+            ) != _canonical_device_id(self.device_id):
                 expected = self.device_id
                 got = message["device_id"]
                 await self.send_response(
@@ -868,7 +884,7 @@ class MitmproxyManager:
                     )
 
                 elif action == "get_state":
-                    self.su_available = await check_su_availability(self.device_id)
+                    self.su_available = await check_su_availability(self.device_ip)
 
                     if not self.backend_ip:
                         self.backend_ip = await self._get_backend_ip()
@@ -1170,7 +1186,7 @@ class MitmproxyManager:
                 "proxy_host": self.proxy_host,
                 "backend_ip": self.backend_ip,
                 "is_running": self.is_running,
-                "device_id": self.device_id,
+                "device_id": _canonical_device_id(self.device_id),
                 "flows_count": len(self.get_flows()) if self.master_instance else 0,
                 "su_available": self.su_available,
                 "cert_installed": self.cert_installed,
@@ -1305,7 +1321,7 @@ class MitmproxyManager:
             logger.info("Installing certificate on device %s", self.device_id)
 
             # Check su availability
-            self.su_available = await check_su_availability(self.device_id)
+            self.su_available = await check_su_availability(self.device_ip)
 
             # Get backend container IP if not set
             if not self.backend_ip:
@@ -1348,7 +1364,7 @@ class MitmproxyManager:
             device_cert_path = f"/data/local/tmp/mitmproxy-ca-cert-{cert_hash}.pem"
 
             stdout, stderr, returncode = await execute_adb_command(
-                device_id=self.device_id, command=["push", cert_path, device_cert_path]
+                device_id=self.device_ip, command=["push", cert_path, device_cert_path]
             )
 
             if returncode != 0:
@@ -1377,7 +1393,7 @@ class MitmproxyManager:
 
             # Check Android version for path selection
             version_stdout, _, _ = await execute_adb_shell(
-                device_id=self.device_id,
+                device_id=self.device_ip,
                 shell_command="getprop ro.build.version.sdk_int",
             )
 
@@ -1415,7 +1431,7 @@ class MitmproxyManager:
 
             # Check existing certificates in system
             list_stdout, list_stderr, returncode = await execute_adb_shell(
-                device_id=self.device_id,
+                device_id=self.device_ip,
                 shell_command="su 0 ls -la " "system/etc/security/cacerts/ | head -10",
             )
 
@@ -1427,7 +1443,7 @@ class MitmproxyManager:
 
             # Mount system as RW if needed
             _, _, _ = await execute_adb_shell(
-                device_id=self.device_id, shell_command="su 0 mount -o rw,remount /"
+                device_id=self.device_ip, shell_command="su 0 mount -o rw,remount /"
             )
 
             # Detailed diagnostics before installation
@@ -1447,7 +1463,7 @@ class MitmproxyManager:
                 logger.info("Executing install command %s/3: %s", i + 1, cmd)
 
                 stdout, stderr, returncode = await execute_adb_shell(
-                    device_id=self.device_id, shell_command=cmd
+                    device_id=self.device_ip, shell_command=cmd
                 )
 
                 if returncode == 0:
@@ -1460,12 +1476,12 @@ class MitmproxyManager:
 
             # Mount system back as RO
             _, _, _ = await execute_adb_shell(
-                device_id=self.device_id, shell_command="su 0 mount -o ro,remount /"
+                device_id=self.device_ip, shell_command="su 0 mount -o ro,remount /"
             )
 
             # Verify that certificate is actually installed
             verify_stdout, verify_stderr, returncode = await execute_adb_shell(
-                device_id=self.device_id,
+                device_id=self.device_ip,
                 shell_command=f"su 0 ls -la {system_cert_path}",
             )
 
@@ -1475,7 +1491,7 @@ class MitmproxyManager:
 
                 # Check that certificate exactly matches original
                 compare_stdout, compare_stderr, returncode = await execute_adb_shell(
-                    device_id=self.device_id,
+                    device_id=self.device_ip,
                     shell_command=f"su 0 cat {system_cert_path}",
                 )
 
@@ -1572,7 +1588,7 @@ class MitmproxyManager:
             logger.info("Configuring proxy on device %s", self.device_id)
 
             # Check su availability
-            self.su_available = await check_su_availability(self.device_id)
+            self.su_available = await check_su_availability(self.device_ip)
 
             # Get backend container IP if not set
             if not self.backend_ip:
@@ -1589,7 +1605,7 @@ class MitmproxyManager:
                 # Try to configure without su
                 cmd = f"settings put global http_proxy {proxy_setting}"
             _, stderr, returncode = await execute_adb_shell(
-                device_id=self.device_id, shell_command=cmd
+                device_id=self.device_ip, shell_command=cmd
             )
 
             if returncode == 0:
@@ -1599,7 +1615,7 @@ class MitmproxyManager:
 
                 # Check that setting was applied
                 check_stdout, _, _ = await execute_adb_shell(
-                    device_id=self.device_id,
+                    device_id=self.device_ip,
                     shell_command="settings get global http_proxy",
                 )
                 current_proxy = check_stdout.strip()
@@ -1632,7 +1648,7 @@ class MitmproxyManager:
             logger.info("Disabling proxy on device %s", self.device_id)
 
             # Check su availability
-            self.su_available = await check_su_availability(self.device_id)
+            self.su_available = await check_su_availability(self.device_ip)
 
             # Use command to disable proxy
             if self.su_available:
@@ -1643,7 +1659,7 @@ class MitmproxyManager:
                 cmd = f"settings put global http_proxy :0"
 
             _, stderr, returncode = await execute_adb_shell(
-                device_id=self.device_id, shell_command=cmd
+                device_id=self.device_ip, shell_command=cmd
             )
 
             if returncode == 0:
@@ -1653,7 +1669,7 @@ class MitmproxyManager:
 
                 # Check that setting was applied
                 check_stdout, _, _ = await execute_adb_shell(
-                    device_id=self.device_id,
+                    device_id=self.device_ip,
                     shell_command="settings get global http_proxy",
                 )
 

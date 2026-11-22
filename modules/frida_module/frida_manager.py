@@ -178,6 +178,8 @@ class FridaManager(BaseWebSocketManager):
             if ":" in self.device_id and not self.device_id.startswith("emulator-"):
                 ip_part = self.device_id.split(":")[0]
                 if DeviceInfoHelper.is_valid_ip(ip_part):
+                    if ip_part in {"localhost", "127.0.0.1"}:
+                        ip_part = "host.docker.internal"
                     self.device_ip = ip_part
                     self.frida_host = ip_part
                     return
@@ -185,8 +187,8 @@ class FridaManager(BaseWebSocketManager):
             await self.get_device_ip_via_adb()
         except Exception as e:
             logger.error("Error getting device IP: %s", str(e))
-            self.device_ip = "localhost"
-            self.frida_host = "localhost"
+            self.device_ip = "host.docker.internal"
+            self.frida_host = "host.docker.internal"
             await self.setup_port_forwarding()
 
     async def get_device_ip_via_adb(self):
@@ -206,13 +208,13 @@ class FridaManager(BaseWebSocketManager):
                         self.frida_host = ip
                         return
 
-            self.device_ip = "localhost"
-            self.frida_host = "localhost"
+            self.device_ip = "host.docker.internal"
+            self.frida_host = "host.docker.internal"
             await self.setup_port_forwarding()
         except Exception as e:
             logger.error("Error getting device IP via ADB: %s", str(e))
-            self.device_ip = "localhost"
-            self.frida_host = "localhost"
+            self.device_ip = "host.docker.internal"
+            self.frida_host = "host.docker.internal"
             await self.setup_port_forwarding()
 
     async def setup_port_forwarding(self):

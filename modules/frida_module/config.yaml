@@ -4,6 +4,8 @@ description: Dynamic instrumentation with Frida
 author: Stormtrooperroman
 active: True
 type: dynamic
+supported_os:
+  - android
 port: 8090
 map_name: frida
 view:

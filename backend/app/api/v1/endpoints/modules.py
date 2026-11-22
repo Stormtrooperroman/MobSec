@@ -25,6 +25,9 @@ module_manager = ModuleManager.get_instance(
 @router.get("/")
 async def list_modules(
     module_type: Optional[str] = Query(None, description="Filter modules by type"),
+    os_type: Optional[str] = Query(
+        None, description="Filter dynamic modules by supported OS"
+    ),
     source: Optional[str] = Query(
         None, description="Filter modules by source (internal/external)"
     ),
@@ -34,6 +37,7 @@ async def list_modules(
 
     Query Parameters:
     - module_type (str, optional): Filter modules by module_type (static/dynamic)
+    - os_type (str, optional): Filter dynamic modules by supported OS (android/aurora)
     - source (str, optional): Filter modules by source (internal/external)
 
     Returns:
@@ -42,15 +46,14 @@ async def list_modules(
         - name (str): The display name of the module
         - description (str): Module description or 'No description available'
         - active (bool): Current running status of the module's container
-
-    Raises:
-    - 500: If there is an error retrieving the module list or status
     """
     try:
         modules_info = []
         module_source = source
         if module_source != "internal":
-            modules_info += await module_manager.list_modules(module_type=module_type)
+            modules_info += await module_manager.list_modules(
+                module_type=module_type, os_type=os_type
+            )
 
         if module_source != "external":
             modules_info += await module_registry.list_modules(module_type=module_type)

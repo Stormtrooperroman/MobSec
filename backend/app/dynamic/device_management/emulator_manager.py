@@ -1,20 +1,19 @@
 import asyncio
 import logging
 import os
-import re
-import subprocess
 import threading
 from typing import Any, Dict, List, Optional
 
-from docker.types import Mount
 import yaml
 from app.core.database_manager import db_manager
 from sqlalchemy import select
 
 from app.services.docker_service import DockerService
-
-from app.dynamic.utils.adb_utils import get_adb_env, ensure_adb_server
 from app.models.emulator import Emulator
+from app.dynamic.device_management.android_emulator_manager import (
+    AndroidEmulatorManager,
+)
+from app.dynamic.device_management.aurora_emulator_manager import AuroraEmulatorManager
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +32,24 @@ class EmulatorManager:
     def __init__(self, redis_url: str, emulators_path: str):
         if getattr(self, "_initialized", False):
             return
+
         self.redis_url = redis_url
         self.emulators_path = emulators_path
         self.docker_service = DockerService.get_instance()
         self.emulators_config = self._load_emulators_config()
-        self.base_ports = {"adb": 5555, "frida": 27042, "scrcpy": 8886}
-
         self.async_session = db_manager.session_factory
+
+        self.android_manager = AndroidEmulatorManager(
+            emulators_path, self.docker_service, redis_url
+        )
+        self.aurora_manager = AuroraEmulatorManager(
+            emulators_path, self.docker_service, redis_url
+        )
+        self.managers = {
+            "android": self.android_manager,
+            "aurora": self.aurora_manager,
+        }
+
         self._initialized = True
 
     @classmethod
@@ -54,119 +64,6 @@ class EmulatorManager:
                 )
             return cls(redis_url, emulators_path)
         return cls._instance
-
-    async def _wait_for_android_boot(
-        self, host: str, port: int, timeout: int = 120
-    ) -> bool:
-        """Wait for Android system to fully boot"""
-        logger.info("Waiting for Android system to boot...")
-
-        env = get_adb_env()
-        start_time = asyncio.get_event_loop().time()
-
-        while (asyncio.get_event_loop().time() - start_time) < timeout:
-            try:
-                connect_result = subprocess.run(
-                    ["adb", "connect", f"{host}:{port}"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    env=env,
-                    check=False,
-                )
-
-                if connect_result.returncode != 0:
-                    await asyncio.sleep(2)
-                    continue
-
-                devices_result = subprocess.run(
-                    ["adb", "devices", "-l"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    env=env,
-                    check=False,
-                )
-
-                if (
-                    devices_result.returncode == 0
-                    and f"{host}:{port}" in devices_result.stdout
-                ):
-                    boot_check = subprocess.run(
-                        [
-                            "adb",
-                            "-s",
-                            f"{host}:{port}",
-                            "shell",
-                            "getprop",
-                            "sys.boot_completed",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        env=env,
-                        check=False,
-                    )
-
-                    if boot_check.returncode == 0 and "1" in boot_check.stdout.strip():
-                        logger.info("Android system ready")
-                        return True
-
-                await asyncio.sleep(3)
-
-            except Exception:
-                await asyncio.sleep(2)
-
-        logger.warning("Timeout waiting for Android boot")
-        return False
-
-    async def _adb_connect(self, host: str, port: int) -> bool:
-        """Connect to emulator via ADB"""
-        try:
-            await ensure_adb_server()
-
-            env = get_adb_env()
-
-            check_result = subprocess.run(
-                ["adb", "devices"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                env=env,
-                check=False,
-            )
-
-            if check_result.returncode == 0 and f"{host}:{port}" in check_result.stdout:
-                logger.info("Device already connected")
-                return True
-
-            if not await self._wait_for_android_boot(host, port):
-                return False
-
-            result = subprocess.run(
-                ["adb", "connect", f"{host}:{port}"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                env=env,
-                check=False,
-            )
-
-            success = (
-                result.returncode == 0
-                or "connected to" in result.stdout.lower()
-                or "already connected" in result.stdout.lower()
-            )
-            if success:
-                logger.info("Successfully connected via ADB")
-            else:
-                logger.warning("Failed to connect via ADB: %s", result.stderr)
-
-            return success
-
-        except Exception as e:
-            logger.error("Error connecting via ADB: %s", e)
-            return False
 
     def _load_emulators_config(self) -> Dict[str, Any]:
         """Load emulator configurations"""
@@ -186,27 +83,15 @@ class EmulatorManager:
             logger.error("Error loading emulator configs: %s", e)
         return configs
 
-    def _get_available_ports(self, emulator_name: str) -> Dict[str, int]:
-        """Get available external ports for emulator"""
-        numbers = re.findall(r"\d+", emulator_name)
-        if numbers:
-            offset = int(numbers[-1])
-        else:
-            offset = abs(hash(emulator_name)) % 100
+    def _get_manager_for_config(self, config: Dict[str, Any]) -> str:
+        """Determine which manager to use for a config"""
+        os_type = config.get("os_type", "android")
+        if os_type not in self.managers:
+            logger.warning("Unknown OS type %s, defaulting to android", os_type)
+            return "android"
+        return os_type
 
-        return {
-            "adb": self.base_ports["adb"] + offset,
-            "frida": self.base_ports["frida"] + offset,
-            "scrcpy": self.base_ports["scrcpy"] + offset,
-        }
-
-    async def _get_container_ip(self, container_id: str) -> Optional[str]:
-        """Get container IP address"""
-        return await self.docker_service.get_container_ip(
-            container_id, network_name="mobsec_app_network"
-        )
-
-    async def _register_emulator(self, emulator_name: str, config: dict):
+    async def _register_emulator(self, emulator_name: str, config: dict) -> None:
         """Register emulator in database"""
         async with self.async_session() as session:
             try:
@@ -214,56 +99,30 @@ class EmulatorManager:
                 result = await session.execute(stmt)
                 existing_emulator = result.scalar_one_or_none()
 
-                version = str(
-                    config.get("version", config.get("android_version", "12.0.0"))
-                )
-                ports = self._get_available_ports(emulator_name)
+                version = str(config.get("version", "1.0.0"))
+                os_type = config.get("os_type", "android")
 
                 if existing_emulator:
                     existing_emulator.version = version
                     existing_emulator.description = config.get("description")
                     existing_emulator.config = config
-                    existing_emulator.ports = ports
-                    emulator = existing_emulator
                 else:
                     emulator = Emulator(
                         name=emulator_name,
                         version=version,
                         description=config.get("description"),
                         config=config,
-                        ports=ports,
+                        os_type=os_type,
                     )
                     session.add(emulator)
 
                 await session.commit()
-                await session.refresh(emulator)
-
-                return {
-                    "name": emulator.name,
-                    "version": emulator.version,
-                    "description": emulator.description,
-                    "config": emulator.config,
-                    "ports": emulator.ports,
-                    "status": emulator.status,
-                }
             except Exception as e:
                 logger.error("Failed to register emulator %s: %s", emulator_name, e)
                 await session.rollback()
-                raise
-
-    async def _ensure_volume_subpath(self, volume_name: str, subpath: str) -> None:
-        """Ensure a subdirectory exists inside a named volume before subpath-mounting it."""
-        await self.docker_service.run_container(
-            image="busybox",
-            name=f"mobsec_volume_init_{subpath}",
-            command=["mkdir", "-p", f"/vol/{subpath}"],
-            volumes={volume_name: {"bind": "/vol", "mode": "rw"}},
-            remove=True,
-            detach=False,
-        )
 
     async def start_emulator(self, emulator_name: str) -> Dict[str, Any]:
-        """Start emulator"""
+        """Start emulator using appropriate OS-specific manager"""
         logger.info("Starting emulator %s...", emulator_name)
 
         if emulator_name not in self.emulators_config:
@@ -273,52 +132,33 @@ class EmulatorManager:
 
         await self._register_emulator(emulator_name, config)
 
-        container_name = f"emulator_{emulator_name}"
-        image_name = f"mobsec_emulator_{emulator_name}"
-        ports = self._get_available_ports(emulator_name)
+        manager_type = self._get_manager_for_config(config)
+        manager = self.managers[manager_type]
 
-        emulator_path = config.get("path")
-        dockerfile_path = os.path.join(emulator_path, "Dockerfile")
+        try:
+            result = await manager.start_emulator(emulator_name, config)
 
-        if not os.path.exists(dockerfile_path):
-            raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
+            # Update database with mapped ports and container info
+            await self._update_emulator_status(
+                emulator_name,
+                "running",
+                result["container_id"],
+                result.get("mapped_ports", {}),
+            )
 
-        logger.info("Building Docker image for %s...", emulator_name)
-        await self.docker_service.build_image(emulator_path, image_name)
+            # Connect to emulator (manager-specific logic)
+            await manager.connect_to_emulator(
+                emulator_name,
+                result["container_id"],
+                config,
+                mapped_ports=result.get("mapped_ports", {}),
+            )
 
-        port_bindings = {}
-        for service, external_port in ports.items():
-            internal_port = self.base_ports[service]
-            port_bindings[f"{internal_port}/tcp"] = external_port
-
-        await self._ensure_volume_subpath("mobsec_shared_data", emulator_name)
-
-        container = await self.docker_service.run_container(
-            image=image_name,
-            name=container_name,
-            privileged=True,
-            network="mobsec_app_network",
-            ports=port_bindings,
-            environment={"REDIS_URL": self.redis_url, "EMULATOR_NAME": emulator_name},
-            mounts=[
-                Mount(
-                    target="/data",
-                    source="mobsec_shared_data",
-                    type="volume",
-                    subpath=emulator_name,
-                )
-            ],
-        )
-
-        await self._update_emulator_status(emulator_name, "running", container.id)
-
-        logger.info("Container started for %s", emulator_name)
-        await self.connect_to_emulator(emulator_name)
-        return {
-            "name": emulator_name,
-            "status": "running",
-            "container_id": container.id,
-        }
+            return result
+        except Exception as e:
+            logger.error("Failed to start emulator %s: %s", emulator_name, e)
+            await self._update_emulator_status(emulator_name, "failed")
+            raise
 
     async def stop_emulator(self, emulator_name: str) -> bool:
         """Stop emulator"""
@@ -332,17 +172,23 @@ class EmulatorManager:
                     await self.docker_service.stop_container(emulator.container_id)
                     logger.info("Stopped emulator %s", emulator_name)
 
-                await self._update_emulator_status(emulator_name, "stopped", None)
-                return True
+            await self._update_emulator_status(
+                emulator_name, "stopped", container_id=None, mapped_ports=None
+            )
+            return True
 
         except Exception as e:
             logger.error("Error stopping emulator %s: %s", emulator_name, e)
             return False
 
     async def _update_emulator_status(
-        self, emulator_name: str, status: str, container_id: str = None
-    ):
-        """Update emulator status"""
+        self,
+        emulator_name: str,
+        status: str,
+        container_id: str = None,
+        mapped_ports: Dict[str, int] = None,
+    ) -> None:
+        """Update emulator status in database"""
         async with self.async_session() as session:
             stmt = select(Emulator).where(Emulator.name == emulator_name)
             result = await session.execute(stmt)
@@ -350,12 +196,12 @@ class EmulatorManager:
 
             if emulator:
                 emulator.status = status
-                if container_id is not None:
-                    emulator.container_id = container_id
+                emulator.container_id = container_id
+                emulator.mapped_ports = mapped_ports
                 await session.commit()
 
     async def get_emulator_status(self, emulator_name: str) -> Dict[str, Any]:
-        """Get emulator status"""
+        """Get emulator status and details"""
         async with self.async_session() as session:
             stmt = select(Emulator).where(Emulator.name == emulator_name)
             result = await session.execute(stmt)
@@ -368,15 +214,15 @@ class EmulatorManager:
                 "name": emulator.name,
                 "status": emulator.status,
                 "container_id": emulator.container_id,
-                "ports": emulator.ports,
+                "mapped_ports": emulator.mapped_ports or {},
                 "version": emulator.version,
+                "os_type": emulator.os_type,
             }
 
     async def list_emulators(self) -> List[Dict[str, Any]]:
-        """List all emulators"""
-
+        """List all emulators with details"""
         async with self.async_session() as session:
-            stmt = select(Emulator).where(Emulator.active.is_(True))
+            stmt = select(Emulator)
             result = await session.execute(stmt)
             emulators = result.scalars().all()
 
@@ -386,25 +232,63 @@ class EmulatorManager:
                     "name": emulator.name,
                     "status": emulator.status,
                     "container_id": emulator.container_id,
-                    "ports": emulator.ports,
+                    "mapped_ports": emulator.mapped_ports or {},
                     "version": emulator.version,
                     "description": emulator.description,
+                    "os_type": emulator.os_type,
                     "config": emulator.config,
                 }
                 emulator_list.append(emulator_data)
 
             return emulator_list
 
-    async def cleanup(self):
+    async def get_running_emulators(self) -> List[Dict[str, Any]]:
+        """Get only running emulators"""
+        all_emulators = await self.list_emulators()
+        return [e for e in all_emulators if e["status"] == "running"]
+
+    async def get_running_emulators_by_os(self, os_type: str) -> List[Dict[str, Any]]:
+        """Get running emulators for specific OS type"""
+        running = await self.get_running_emulators()
+        return [e for e in running if e["os_type"] == os_type]
+
+    async def get_emulator_by_udid(self, udid: str) -> Optional[Dict[str, Any]]:
+        """Get emulator by localhost UDID (127.0.0.1:port)"""
+        if not udid.startswith("127.0.0.1:"):
+            return None
+
+        running = await self.get_running_emulators()
+        for emulator in running:
+            os_type = emulator.get("os_type")
+            mapped_ports = emulator.get("mapped_ports", {})
+
+            if os_type == "android":
+                adb_port = mapped_ports.get("adb", 5555)
+                emulator_udid = f"127.0.0.1:{adb_port}"
+            elif os_type == "aurora":
+                ssh_port = mapped_ports.get("ssh", 2223)
+                emulator_udid = f"127.0.0.1:{ssh_port}"
+            else:
+                continue
+
+            if emulator_udid == udid:
+                return emulator
+
+        return None
+
+    async def cleanup(self) -> None:
         """Clean up all emulators"""
         emulators = await self.list_emulators()
-        for emulator in emulators:
-            await self.stop_emulator(emulator["name"])
-        if emulators:
-            logger.info("All emulators cleaned up")
+        running = [e for e in emulators if e["status"] == "running"]
 
-    async def start_active_emulators(self):
-        """Start active emulators on startup"""
+        for emulator in running:
+            await self.stop_emulator(emulator["name"])
+
+        if running:
+            logger.info("Cleaned up %d emulators", len(running))
+
+    async def start_active_emulators(self) -> None:
+        """Start emulators marked as active in config"""
         logger.info("Starting active emulators...")
 
         try:
@@ -418,56 +302,22 @@ class EmulatorManager:
             ]
 
             if active_emulators:
-                logger.info("Starting %s active emulators", len(active_emulators))
-                tasks = [
-                    self.start_emulator(emulator_name)
-                    for emulator_name in active_emulators
-                ]
+                logger.info("Starting %d active emulators", len(active_emulators))
+                tasks = [self.start_emulator(name) for name in active_emulators]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                started = 0
-                for emulator_name, result in zip(active_emulators, results):
-                    if isinstance(result, Exception):
-                        logger.error(
-                            "Failed to start emulator %s: %s", emulator_name, result
-                        )
-                    else:
-                        started += 1
-
+                started = sum(1 for r in results if not isinstance(r, Exception))
                 logger.info(
-                    "Started %s/%s emulators successfully",
+                    "Started %d/%d emulators successfully",
                     started,
                     len(active_emulators),
                 )
+
+                for name, result in zip(active_emulators, results):
+                    if isinstance(result, Exception):
+                        logger.error("Failed to start emulator %s: %s", name, result)
             else:
                 logger.info("No active emulators configured")
 
         except Exception as e:
             logger.error("Error starting active emulators: %s", e)
-
-    async def connect_to_emulator(self, emulator_name: str) -> bool:
-        """Connect to emulator via ADB"""
-        status_data = await self.get_emulator_status(emulator_name)
-        if "error" in status_data or status_data["status"] != "running":
-            logger.warning("Emulator %s is not running", emulator_name)
-            return False
-
-        container_id = status_data.get("container_id")
-        if not container_id:
-            logger.warning("No container ID for emulator %s", emulator_name)
-            return False
-
-        container_ip = await self._get_container_ip(container_id)
-        if not container_ip:
-            logger.warning("Could not get container IP for emulator %s", emulator_name)
-            return False
-
-        logger.info("Connecting to emulator %s...", emulator_name)
-        connection_result = await self._adb_connect(container_ip, 5555)
-
-        if connection_result:
-            logger.info("Successfully connected to emulator %s", emulator_name)
-        else:
-            logger.error("Failed to connect to emulator %s", emulator_name)
-
-        return connection_result

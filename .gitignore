@@ -3,3 +3,9 @@
 .vscode
 external_module_example/
 mobsec_modules_library/
+
+emulators/aurora/aurora-emulator-5.2.1.200/bin/
+emulators/aurora/aurora-emulator-5.2.1.200/emulators/
+emulators/aurora/aurora-emulator-5.2.1.200/share/
+emulators/aurora/aurora-emulator-5.2.1.200/tools/
+emulators/aurora/aurora-emulator-5.2.1.200/install.sh
